@@ -1,0 +1,127 @@
+# Registry — link-time enumeration of the intent graph
+
+## Context and Design Philosophy
+
+Every LID-rs check that asserts over "all specs" or "all citations" needs an
+enumeration of the graph, and constraint 2 of the specification (`README.md`
+§2) forbids reconstructing it by parsing source. The registry collects the
+graph at link time instead: every registration is a `static` placed in a named
+linker section via `linkme::distributed_slice`, and the linker's own gathering
+of those sections *is* the enumeration. No initialization, no runtime cost, no
+second implementation of name resolution.
+
+The registry is the foundation slice: it must exist before the macros that
+populate it, so its own registrations are written by hand in exactly the form
+the macros will later emit (write-the-expansion-first discipline; the
+hand-expansion is the macros' conformance target). One hand-registered
+spec/implementation/validation triple is permanent — the canary — because a
+check built on enumeration must first prove the enumeration is non-empty
+(README §2 constraint 3 corollary, §5.3).
+
+## Data shapes
+
+| Type | Fields | Purpose |
+|---|---|---|
+| `SpecMeta` | `name: &'static str`, `file: &'static str`, `line: u32` | One registered claim. `name` is `core::any::type_name` of the spec struct, making the key identical on both sides of every join. |
+| `Edge` | `spec: &'static str`, `item: &'static str`, `file: &'static str`, `line: u32` | One citation. `spec` joins against `SpecMeta::name`; `item` is `module_path!()` plus the item name, for human-readable reports. |
+
+Three distributed slices, declared in `lid` and re-exported at the crate root
+because macro expansions address them as `::lid::…`:
+
+- `SPECS: [SpecMeta]` — populated by `derive(Spec)`
+- `IMPLEMENTATIONS: [Edge]` — populated by `#[implements]`
+- `VALIDATIONS: [Edge]` — populated by `#[validates]`
+
+## Self-reference
+
+`lid`'s own code cites `lid`'s own specs, and macro output says `::lid::…`,
+which does not normally resolve inside the crate itself. `extern crate self as
+lid;` in `lib.rs` makes it resolve. Consequence, documented as unsupported: a
+downstream crate cannot rename the dependency (`mylid = { package = "lid" }`),
+because expansions hard-code the `lid` name.
+
+## Expansion contract (what the macros must emit, hand-written here)
+
+Registration statics are wrapped so they cannot collide with user names and
+cannot trip the documentation lints on code the user didn't write:
+
+```rust
+const _: () = {
+    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+    #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]
+    static META: ::lid::SpecMeta = ::lid::SpecMeta {
+        name: ::core::any::type_name::<CanaryConfirmsRegistryPresence>(),
+        file: file!(),
+        line: line!(),
+    };
+};
+```
+
+The `const _: () = { … }` wrapper gives each registration its own scope, so
+static names inside need no uniquifying hash — `META` / `EDGE` are fine, and
+the hand-expansion and macro output stay byte-comparable. `linkme` accepts
+scoped statics (it supports function-local ones); slice 1 proves this compiles
+before slice 2 builds macros on the assumption.
+
+Citation assertions (`const _: fn() = || { fn assert_spec<T: ::lid::Spec>() {}
+assert_spec::<Path>(); };`) are part of the same contract but only become
+observable behaviour in slice 2; the canary hand-expansion includes one for the
+implementation edge so the full triple shape exists somewhere real.
+
+## The canary
+
+`lid::canary` ships the known triple, registered unconditionally — **not**
+`#[cfg(test)]` — because downstream crates link `lid` compiled without `cfg
+(test)`, and the canary must reach *their* test binaries for their registry
+checks to be non-vacuous:
+
+- the spec `CanaryConfirmsRegistryPresence` (a real claim in `lid::spec`),
+- an implementation edge on `canary::present`,
+- a validation edge registered as a sentinel item named
+  `lid::canary::sentinel`. It names no runnable test; its sole purpose is
+  proving the `VALIDATIONS` section survived linking. The runnable validation
+  of the canary claim is an ordinary `#[cfg(test)]` unit test in `lid` itself.
+
+`present()` is a leaf over a leaf: `present()` applies the real registries to
+`triple_is_present(specs, impls, validations)`, which checks that each canary
+entry appears in its slice. The split exists because the false branch — a
+stripped registry — cannot be produced at runtime from the real statics, so
+the testable leaf takes the slices as parameters and the stripped case is
+tested with empty slices.
+
+## Workspace scaffolding (carried by this slice, tenet 2)
+
+Tier 0 lint configuration gates from this slice onward: workspace `[lints]`
+tables and `clippy.toml` thresholds exactly per README §7, `[profile.test]
+opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
+(README §12 pins in CI; pinning the workspace makes local and CI identical).
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| Enumeration mechanism | `linkme` distributed slices | `inventory` (ctors); build-script codegen; source scanning | Zero runtime cost, no life-before-main; source scanning violates constraint 2. `inventory` remains the designated escape hatch behind a feature flag if a target's linker defeats sections — deferred until such a target exists (tenet 3). |
+| Self-reference | `extern crate self as lid` | `proc-macro-crate` name lookup | Zero dependencies, stable; renames declared unsupported rather than engineered for. |
+| Registration static scoping | `const _: () = { static … }` wrapper | Sibling statics with name-mangled uniquifiers (`__LID_IMPL_a3f2`) | Scoping removes the uniqueness problem entirely instead of solving it with hashes; keeps hand-expansion and macro output trivially comparable; same wrapper works in future function-body expansion positions. Supersedes the README §3.3 sketch (mangled sibling static) — README to be revised when slice 2 fixes the contract. |
+| Join key between `SpecMeta` and `Edge` | `core::any::type_name::<T>()` on both sides | Derive-generated associated `const NAME`; stringified path tokens | Same expression on both sides guarantees the join key matches; `type_name` needs no codegen. Its format is formally unstable but self-consistent within one binary, which is the only property the join needs. |
+| Canary registration visibility | Unconditional, in the library proper | `#[cfg(test)]` alongside the graph checks | A cfg(test) canary never reaches downstream test binaries, silently un-guarding every consumer's registry checks — the exact vacuous-pass failure the canary exists to prevent. |
+| Canary validation edge | Sentinel edge naming `lid::canary::sentinel`, plus a real cfg(test) test | Only a real test (edge appears in test builds only); no validation edge (canary checks 2 of 3 slices) | The sentinel keeps all three sections guarded in every binary; the real test keeps the claim behaviorally validated. Documented as a sentinel so the edge is never mistaken for a runnable test. |
+| Stripped-registry testability | `triple_is_present` leaf parameterized over slices | Testing `present()` only (true case solely); linker tricks to actually strip sections in a test target | Parameterization makes the false branch an ordinary unit test; linker-trick tests are target-dependent and belong, if anywhere, in CI matrix work later. |
+
+## Open Questions & Future Decisions
+
+### Resolved
+1. ✅ Slices re-exported at crate root (`::lid::SPECS`) with types defined in
+   `lid::registry` — expansions address the root, humans read the module.
+
+### Deferred
+1. `inventory` fallback feature — until a real target defeats linker sections.
+2. Linker-flag CI matrix (LTO, `--gc-sections` with/without canary tripping) —
+   candidate for the slice-3 gate-failure fixtures.
+
+## References
+
+- `README.md` §2 (constraints), §3.3 (citation anatomy), §5 (registry), §5.3
+  (canary).
+- [`linkme` documentation](https://docs.rs/linkme) — distributed slice
+  semantics and scoped-static support.
