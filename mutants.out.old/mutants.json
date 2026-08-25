@@ -1,161 +1,65 @@
 [
   {
-    "diff": "--- xtask/src/selftest.rs\n+++ replace check_fixture -> Result<(), String> with Ok(())\n@@ -77,20 +77,17 @@\n         .iter()\n         .find(|f| f.name == name)\n         .ok_or_else(|| format!(\"no fixture named `{name}`\"))?;\n     check_fixture(fixture)\n }\n \n /// Synthesizes and gates one fixture.\n fn check_fixture(fixture: &Fixture) -> Result<(), String> {\n-    let dir = synthesize(fixture)?;\n-    let mut command = gate_command(fixture.gate);\n-    command.current_dir(&dir);\n-    expect_gate_failure(&mut command, fixture.expect)\n+    Ok(()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// Synthesizes the detached crate for a fixture under\n /// `target/gate-selftest/<name>` and returns its directory.\n fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {\n     let root = workspace_root()?;\n     let dir = root.join(\"target/gate-selftest\").join(fixture.name);\n     let write = |path: PathBuf, content: &str| {\n",
-    "file": "xtask/src/selftest.rs",
+    "diff": "--- lid-macros/src/expand.rs\n+++ replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())\n@@ -35,39 +35,17 @@\n             Verb::Implements => quote!(::lid::IMPLEMENTATIONS),\n             Verb::Validates => quote!(::lid::VALIDATIONS),\n         }\n     }\n }\n \n /// Expands `derive(Spec)`.\n pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {\n-    let item: DeriveInput = syn::parse2(input)?;\n-    ensure_unit_struct(&item)?;\n-    let ident = &item.ident;\n-    Ok(quote! {\n-        // The derive's own emissions reference the struct they sit on; when a\n-        // spec is retired with #[deprecated], only *citation* sites should\n-        // warn, never the definition it decorates.\n-        #[automatically_derived]\n-        #[allow(deprecated)]\n-        impl ::lid::Spec for #ident {\n-            const NAME: &'static str = concat!(module_path!(), \"::\", stringify!(#ident));\n-        }\n-        const _: () = {\n-            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]\n-            #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]\n-            #[linkme(crate = ::lid::__private::linkme)]\n-            static META: ::lid::SpecMeta = ::lid::SpecMeta {\n-                name: <#ident as ::lid::Spec>::NAME,\n-                file: file!(),\n-                line: line!(),\n-            };\n-        };\n-    })\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// Rejects derive targets that are not plain unit structs.\n fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {\n     let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));\n     if !unit || !item.generics.params.is_empty() {\n         return Err(syn::Error::new_spanned(\n             &item.ident,\n",
+    "file": "lid-macros/src/expand.rs",
     "function": {
-      "function_name": "check_fixture",
-      "return_type": "-> Result<(), String>",
+      "function_name": "derive_spec",
+      "return_type": "-> syn::Result<TokenStream>",
       "span": {
         "end": {
           "column": 2,
-          "line": 89
+          "line": 66
         },
         "start": {
           "column": 1,
-          "line": 83
+          "line": 41
         }
       }
     },
     "genre": "FnValue",
-    "name": "xtask/src/selftest.rs:85:5: replace check_fixture -> Result<(), String> with Ok(())",
-    "package": "xtask",
-    "replacement": "Ok(())",
+    "name": "lid-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())",
+    "package": "lid-macros",
+    "replacement": "Ok(Default::default())",
     "span": {
       "end": {
-        "column": 54,
-        "line": 88
+        "column": 7,
+        "line": 65
       },
       "start": {
         "column": 5,
-        "line": 85
+        "line": 43
       }
     }
   },
   {
-    "diff": "--- xtask/src/selftest.rs\n+++ replace synthesize -> Result<PathBuf, String> with Ok(Default::default())\n@@ -86,35 +86,17 @@\n     let mut command = gate_command(fixture.gate);\n     command.current_dir(&dir);\n     expect_gate_failure(&mut command, fixture.expect)\n }\n \n /// Synthesizes the detached crate for a fixture under\n /// `target/gate-selftest/<name>` and returns its directory.\n fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {\n-    let root = workspace_root()?;\n-    let dir = root.join(\"target/gate-selftest\").join(fixture.name);\n-    let write = |path: PathBuf, content: &str| {\n-        std::fs::write(&path, content).map_err(|e| format!(\"writing {}: {e}\", path.display()))\n-    };\n-    std::fs::create_dir_all(dir.join(\"src\"))\n-        .map_err(|e| format!(\"creating {}: {e}\", dir.display()))?;\n-    write(dir.join(\"Cargo.toml\"), &manifest(fixture, &root))?;\n-    let clippy_config = std::fs::read_to_string(root.join(\"clippy.toml\"))\n-        .map_err(|e| format!(\"reading clippy.toml: {e}\"))?;\n-    write(dir.join(\"clippy.toml\"), &clippy_config)?;\n-    let source_path = root\n-        .join(\"xtask/fixtures\")\n-        .join(fixture.name)\n-        .join(\"src/lib.rs\");\n-    let source = std::fs::read_to_string(&source_path)\n-        .map_err(|e| format!(\"reading {}: {e}\", source_path.display()))?;\n-    write(dir.join(\"src/lib.rs\"), &source)?;\n-    Ok(dir)\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// The synthesized crate's manifest: the workspace's lint set inlined, a\n /// `[workspace]` table so the parent workspace is not adopted, and `lid` as a\n /// path dependency where the fixture cites specs.\n fn manifest(fixture: &Fixture, root: &Path) -> String {\n     let lid_dep = if fixture.needs_lid {\n         format!(\"lid = {{ path = {:?} }}\\n\", root.join(\"lid\"))\n",
-    "file": "xtask/src/selftest.rs",
+    "diff": "--- xtask/src/lib.rs\n+++ replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())\n@@ -16,19 +16,16 @@\n         Some(\"gate-selftest\") => selftest::run_all(),\n         Some(other) => Err(format!(\"unknown command `{other}`\\n{USAGE}\")),\n         None => Err(USAGE.to_string()),\n     }\n }\n \n /// The workspace root, one level above xtask's manifest.\n pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {\n-    std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"))\n-        .parent()\n-        .map(std::path::Path::to_path_buf)\n-        .ok_or_else(|| \"xtask has no parent directory\".to_string())\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n #[cfg(test)]\n mod intent_graph {\n     //! xtask's own instance of the graph checks (README §4.2).\n     lid::intent_graph!();\n }\n",
+    "file": "xtask/src/lib.rs",
     "function": {
-      "function_name": "synthesize",
-      "return_type": "-> Result<PathBuf, String>",
+      "function_name": "workspace_root",
+      "return_type": "-> Result<std::path::PathBuf, String>",
       "span": {
         "end": {
           "column": 2,
-          "line": 113
+          "line": 28
         },
         "start": {
           "column": 1,
-          "line": 91
+          "line": 22
         }
       }
     },
     "genre": "FnValue",
-    "name": "xtask/src/selftest.rs:94:5: replace synthesize -> Result<PathBuf, String> with Ok(Default::default())",
+    "name": "xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())",
     "package": "xtask",
     "replacement": "Ok(Default::default())",
     "span": {
       "end": {
-        "column": 12,
-        "line": 112
+        "column": 68,
+        "line": 27
       },
       "start": {
         "column": 5,
-        "line": 94
-      }
-    }
-  },
-  {
-    "diff": "--- xtask/src/selftest.rs\n+++ replace manifest -> String with String::new()\n@@ -111,47 +111,17 @@\n     write(dir.join(\"src/lib.rs\"), &source)?;\n     Ok(dir)\n }\n \n /// The synthesized crate's manifest: the workspace's lint set inlined, a\n /// `[workspace]` table so the parent workspace is not adopted, and `lid` as a\n /// path dependency where the fixture cites specs.\n fn manifest(fixture: &Fixture, root: &Path) -> String {\n-    let lid_dep = if fixture.needs_lid {\n-        format!(\"lid = {{ path = {:?} }}\\n\", root.join(\"lid\"))\n-    } else {\n-        String::new()\n-    };\n-    format!(\n-        r#\"[package]\n-name = \"{name}\"\n-version = \"0.0.0\"\n-edition = \"2024\"\n-\n-[dependencies]\n-{lid_dep}\n-[workspace]\n-\n-[lints.rust]\n-missing_docs = \"deny\"\n-\n-[lints.rustdoc]\n-broken_intra_doc_links = \"deny\"\n-\n-[lints.clippy]\n-cognitive_complexity = \"warn\"\n-fn_params_excessive_bools = \"warn\"\n-too_many_lines = \"warn\"\n-wildcard_enum_match_arm = \"deny\"\n-missing_docs_in_private_items = \"warn\"\n-\"#,\n-        name = fixture.name,\n-        lid_dep = lid_dep,\n-    )\n+    String::new() /* ~ changed by cargo-mutants ~ */\n }\n \n /// The gate command for a fixture kind.\n fn gate_command(gate: Gate) -> Command {\n     let mut command = cargo_command();\n     match gate {\n         Gate::Check => {\n             command.args([\"check\", \"--all-targets\"]);\n",
-    "file": "xtask/src/selftest.rs",
-    "function": {
-      "function_name": "manifest",
-      "return_type": "-> String",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 150
-        },
-        "start": {
-          "column": 1,
-          "line": 115
-        }
-      }
-    },
-    "genre": "FnValue",
-    "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with String::new()",
-    "package": "xtask",
-    "replacement": "String::new()",
-    "span": {
-      "end": {
-        "column": 6,
-        "line": 149
-      },
-      "start": {
-        "column": 5,
-        "line": 119
-      }
-    }
-  },
-  {
-    "diff": "--- xtask/src/selftest.rs\n+++ replace manifest -> String with \"xyzzy\".into()\n@@ -111,47 +111,17 @@\n     write(dir.join(\"src/lib.rs\"), &source)?;\n     Ok(dir)\n }\n \n /// The synthesized crate's manifest: the workspace's lint set inlined, a\n /// `[workspace]` table so the parent workspace is not adopted, and `lid` as a\n /// path dependency where the fixture cites specs.\n fn manifest(fixture: &Fixture, root: &Path) -> String {\n-    let lid_dep = if fixture.needs_lid {\n-        format!(\"lid = {{ path = {:?} }}\\n\", root.join(\"lid\"))\n-    } else {\n-        String::new()\n-    };\n-    format!(\n-        r#\"[package]\n-name = \"{name}\"\n-version = \"0.0.0\"\n-edition = \"2024\"\n-\n-[dependencies]\n-{lid_dep}\n-[workspace]\n-\n-[lints.rust]\n-missing_docs = \"deny\"\n-\n-[lints.rustdoc]\n-broken_intra_doc_links = \"deny\"\n-\n-[lints.clippy]\n-cognitive_complexity = \"warn\"\n-fn_params_excessive_bools = \"warn\"\n-too_many_lines = \"warn\"\n-wildcard_enum_match_arm = \"deny\"\n-missing_docs_in_private_items = \"warn\"\n-\"#,\n-        name = fixture.name,\n-        lid_dep = lid_dep,\n-    )\n+    \"xyzzy\".into() /* ~ changed by cargo-mutants ~ */\n }\n \n /// The gate command for a fixture kind.\n fn gate_command(gate: Gate) -> Command {\n     let mut command = cargo_command();\n     match gate {\n         Gate::Check => {\n             command.args([\"check\", \"--all-targets\"]);\n",
-    "file": "xtask/src/selftest.rs",
-    "function": {
-      "function_name": "manifest",
-      "return_type": "-> String",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 150
-        },
-        "start": {
-          "column": 1,
-          "line": 115
-        }
-      }
-    },
-    "genre": "FnValue",
-    "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with \"xyzzy\".into()",
-    "package": "xtask",
-    "replacement": "\"xyzzy\".into()",
-    "span": {
-      "end": {
-        "column": 6,
-        "line": 149
-      },
-      "start": {
-        "column": 5,
-        "line": 119
-      }
-    }
-  },
-  {
-    "diff": "--- xtask/src/selftest.rs\n+++ replace gate_command -> Command with Default::default()\n@@ -146,36 +146,17 @@\n \"#,\n         name = fixture.name,\n         lid_dep = lid_dep,\n     )\n }\n \n /// The gate command for a fixture kind.\n fn gate_command(gate: Gate) -> Command {\n-    let mut command = cargo_command();\n-    match gate {\n-        Gate::Check => {\n-            command.args([\"check\", \"--all-targets\"]);\n-        }\n-        Gate::Clippy => {\n-            command.args([\"clippy\", \"--all-targets\", \"--\", \"-D\", \"warnings\"]);\n-        }\n-        Gate::Doc => {\n-            command.args([\"doc\", \"--no-deps\"]);\n-            command.env(\"RUSTDOCFLAGS\", \"-D rustdoc::broken_intra_doc_links\");\n-        }\n-        Gate::Doctest => {\n-            command.args([\"test\", \"--doc\"]);\n-        }\n-        Gate::Mutants => {\n-            command.arg(\"mutants\");\n-        }\n-    }\n-    command\n+    Default::default() /* ~ changed by cargo-mutants ~ */\n }\n \n /// Runs the gate and demands it fail with the expected diagnostic.\n #[implements(spec::EveryGateFixtureFailsItsGate)]\n fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String> {\n     let output = command\n         .output()\n         .map_err(|e| format!(\"spawning gate: {e}\"))?;\n",
-    "file": "xtask/src/selftest.rs",
-    "function": {
-      "function_name": "gate_command",
-      "return_type": "-> Command",
-      "span": {
-        "end": {
-          "column": 2,
-          "line": 174
-        },
-        "start": {
-          "column": 1,
-          "line": 152
-        }
-      }
-    },
-    "genre": "FnValue",
-    "name": "xtask/src/selftest.rs:154:5: replace gate_command -> Command with Default::default()",
-    "package": "xtask",
-    "replacement": "Default::default()",
-    "span": {
-      "end": {
-        "column": 12,
-        "line": 173
-      },
-      "start": {
-        "column": 5,
-        "line": 154
+        "line": 24
       }
     }
   }

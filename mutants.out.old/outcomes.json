@@ -3,45 +3,47 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "xtask/src/selftest.rs:85:5: replace check_fixture -> Result<(), String> with Ok(())",
-          "package": "xtask",
-          "file": "xtask/src/selftest.rs",
+          "name": "lid-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())",
+          "package": "lid-macros",
+          "file": "lid-macros/src/expand.rs",
           "function": {
-            "function_name": "check_fixture",
-            "return_type": "-> Result<(), String>",
+            "function_name": "derive_spec",
+            "return_type": "-> syn::Result<TokenStream>",
             "span": {
               "start": {
-                "line": 83,
+                "line": 41,
                 "column": 1
               },
               "end": {
-                "line": 89,
+                "line": 66,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 85,
+              "line": 43,
               "column": 5
             },
             "end": {
-              "line": 88,
-              "column": 54
+              "line": 65,
+              "column": 7
             }
           },
-          "replacement": "Ok(())",
+          "replacement": "Ok(Default::default())",
           "genre": "FnValue"
         }
       },
-      "summary": "CaughtMutant",
-      "log_path": "log/xtask__src__selftest.rs_line_85_col_5.log",
-      "diff_path": "diff/xtask__src__selftest.rs_line_85_col_5.diff",
+      "summary": "Unviable",
+      "log_path": "log/lid-macros__src__expand.rs_line_43_col_5.log",
+      "diff_path": "diff/lid-macros__src__expand.rs_line_43_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 3.689524458,
-          "process_status": "Success",
+          "duration": 2.60453525,
+          "process_status": {
+            "Failure": 101
+          },
           "argv": [
             "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
             "test",
@@ -49,58 +51,37 @@
             "--verbose",
             "--workspace"
           ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.642410875,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--workspace",
-            "--lib",
-            "--",
-            "--exact",
-            "mutants::tests::engine_failures_fail_the_gate",
-            "selftest::tests::a_passing_gate_fails_the_selftest",
-            "selftest::tests::every_gate_fixture_fails_its_gate",
-            "selftest::tests::surviving_mutants_fail_the_gate",
-            "selftest::tests::unknown_fixture_names_are_rejected"
-          ]
         }
       ]
     },
     {
       "scenario": {
         "Mutant": {
-          "name": "xtask/src/selftest.rs:94:5: replace synthesize -> Result<PathBuf, String> with Ok(Default::default())",
+          "name": "xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())",
           "package": "xtask",
-          "file": "xtask/src/selftest.rs",
+          "file": "xtask/src/lib.rs",
           "function": {
-            "function_name": "synthesize",
-            "return_type": "-> Result<PathBuf, String>",
+            "function_name": "workspace_root",
+            "return_type": "-> Result<std::path::PathBuf, String>",
             "span": {
               "start": {
-                "line": 91,
+                "line": 22,
                 "column": 1
               },
               "end": {
-                "line": 113,
+                "line": 28,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 94,
+              "line": 24,
               "column": 5
             },
             "end": {
-              "line": 112,
-              "column": 12
+              "line": 27,
+              "column": 68
             }
           },
           "replacement": "Ok(Default::default())",
@@ -108,12 +89,12 @@
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/xtask__src__selftest.rs_line_94_col_5.log",
-      "diff_path": "diff/xtask__src__selftest.rs_line_94_col_5.diff",
+      "log_path": "log/xtask__src__lib.rs_line_24_col_5.log",
+      "diff_path": "diff/xtask__src__lib.rs_line_24_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.271949208,
+          "duration": 1.033581833,
           "process_status": "Success",
           "argv": [
             "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
@@ -125,221 +106,13 @@
         },
         {
           "phase": "Test",
-          "duration": 0.272654583,
+          "duration": 7.5408975,
           "process_status": {
             "Failure": 101
           },
           "argv": [
             "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
             "test",
-            "--verbose",
-            "--workspace",
-            "--lib",
-            "--",
-            "--exact",
-            "mutants::tests::engine_failures_fail_the_gate",
-            "selftest::tests::a_passing_gate_fails_the_selftest",
-            "selftest::tests::every_gate_fixture_fails_its_gate",
-            "selftest::tests::surviving_mutants_fail_the_gate",
-            "selftest::tests::unknown_fixture_names_are_rejected"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with String::new()",
-          "package": "xtask",
-          "file": "xtask/src/selftest.rs",
-          "function": {
-            "function_name": "manifest",
-            "return_type": "-> String",
-            "span": {
-              "start": {
-                "line": 115,
-                "column": 1
-              },
-              "end": {
-                "line": 150,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 119,
-              "column": 5
-            },
-            "end": {
-              "line": 149,
-              "column": 6
-            }
-          },
-          "replacement": "String::new()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "CaughtMutant",
-      "log_path": "log/xtask__src__selftest.rs_line_119_col_5.log",
-      "diff_path": "diff/xtask__src__selftest.rs_line_119_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.266081791,
-          "process_status": "Success",
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--workspace"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.433395959,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--workspace",
-            "--lib",
-            "--",
-            "--exact",
-            "mutants::tests::engine_failures_fail_the_gate",
-            "selftest::tests::a_passing_gate_fails_the_selftest",
-            "selftest::tests::every_gate_fixture_fails_its_gate",
-            "selftest::tests::surviving_mutants_fail_the_gate",
-            "selftest::tests::unknown_fixture_names_are_rejected"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with \"xyzzy\".into()",
-          "package": "xtask",
-          "file": "xtask/src/selftest.rs",
-          "function": {
-            "function_name": "manifest",
-            "return_type": "-> String",
-            "span": {
-              "start": {
-                "line": 115,
-                "column": 1
-              },
-              "end": {
-                "line": 150,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 119,
-              "column": 5
-            },
-            "end": {
-              "line": 149,
-              "column": 6
-            }
-          },
-          "replacement": "\"xyzzy\".into()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "CaughtMutant",
-      "log_path": "log/xtask__src__selftest.rs_line_119_col_5_001.log",
-      "diff_path": "diff/xtask__src__selftest.rs_line_119_col_5_001.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.215187375,
-          "process_status": "Success",
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
-            "--verbose",
-            "--workspace"
-          ]
-        },
-        {
-          "phase": "Test",
-          "duration": 0.496119416,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--verbose",
-            "--workspace",
-            "--lib",
-            "--",
-            "--exact",
-            "mutants::tests::engine_failures_fail_the_gate",
-            "selftest::tests::a_passing_gate_fails_the_selftest",
-            "selftest::tests::every_gate_fixture_fails_its_gate",
-            "selftest::tests::surviving_mutants_fail_the_gate",
-            "selftest::tests::unknown_fixture_names_are_rejected"
-          ]
-        }
-      ]
-    },
-    {
-      "scenario": {
-        "Mutant": {
-          "name": "xtask/src/selftest.rs:154:5: replace gate_command -> Command with Default::default()",
-          "package": "xtask",
-          "file": "xtask/src/selftest.rs",
-          "function": {
-            "function_name": "gate_command",
-            "return_type": "-> Command",
-            "span": {
-              "start": {
-                "line": 152,
-                "column": 1
-              },
-              "end": {
-                "line": 174,
-                "column": 2
-              }
-            }
-          },
-          "span": {
-            "start": {
-              "line": 154,
-              "column": 5
-            },
-            "end": {
-              "line": 173,
-              "column": 12
-            }
-          },
-          "replacement": "Default::default()",
-          "genre": "FnValue"
-        }
-      },
-      "summary": "Unviable",
-      "log_path": "log/xtask__src__selftest.rs_line_154_col_5.log",
-      "diff_path": "diff/xtask__src__selftest.rs_line_154_col_5.diff",
-      "phase_results": [
-        {
-          "phase": "Build",
-          "duration": 0.163962417,
-          "process_status": {
-            "Failure": 101
-          },
-          "argv": [
-            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
-            "test",
-            "--no-run",
             "--verbose",
             "--workspace"
           ]
@@ -347,13 +120,13 @@
       ]
     }
   ],
-  "total_mutants": 5,
+  "total_mutants": 2,
   "missed": 0,
-  "caught": 4,
+  "caught": 1,
   "timeout": 0,
   "unviable": 1,
   "success": 0,
-  "start_time": "2026-08-25T17:09:20.179Z",
-  "end_time": "2026-08-25T17:09:26.733218Z",
+  "start_time": "2026-08-25T17:09:26.784306Z",
+  "end_time": "2026-08-25T17:09:38.079186Z",
   "cargo_mutants_version": "27.1.0"
 }

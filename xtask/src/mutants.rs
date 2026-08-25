@@ -131,8 +131,12 @@ fn list_args(diff: Option<&Path>) -> Vec<String> {
     args
 }
 
-/// Parses the engine's JSON mutant list.
+/// Parses the engine's JSON mutant list. Blank output is a valid empty
+/// listing: with an empty `--in-diff` the engine prints nothing, not `[]`.
 fn parse_mutants(json: &str) -> Result<Vec<Mutant>, String> {
+    if json.trim().is_empty() {
+        return Ok(Vec::new());
+    }
     let value: serde_json::Value =
         serde_json::from_str(json).map_err(|e| format!("parsing mutant list: {e}"))?;
     let array = value.as_array().ok_or("mutant list is not a JSON array")?;
@@ -377,6 +381,17 @@ mod tests {
             xtask_test_edge,
             "collect_registries must have walked every workspace crate, xtask included"
         );
+    }
+
+    #[test]
+    fn empty_engine_output_means_no_mutants() {
+        // An empty --in-diff makes `cargo mutants --list --json` print
+        // nothing at all (not `[]`); that is a clean zero-mutant run, and on
+        // every push to main it is the *common* case.
+        let mutants = parse_mutants("").expect("blank output is a valid empty listing");
+        assert!(mutants.is_empty());
+        let whitespace = parse_mutants("\n").expect("whitespace-only output likewise");
+        assert!(whitespace.is_empty());
     }
 
     #[test]

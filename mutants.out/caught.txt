@@ -1,1 +1,1 @@
-xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())
+xtask/src/mutants.rs:137:5: replace parse_mutants -> Result<Vec<Mutant>, String> with Ok(vec![])
