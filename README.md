@@ -13,13 +13,6 @@ language-agnostic and enforces the arrow by convention and tooling, LID-rs
 trades that generality for teeth — every edge of the graph becomes something
 the Rust compiler, linker, or test harness resolves and gates.
 
-*Revision 4. Supersedes r3 with findings from the reference implementation:
-the citation expansion is corrected for stable Rust — `type_name` is not
-const-stable, so the join key is the derive-generated `Spec::NAME` associated
-const, whose projection at the citation site is itself the type assertion —
-and registration statics are scoped inside `const _` blocks rather than
-name-mangled.*
-
 <!-- ANCHOR_END: header -->
 
 ---

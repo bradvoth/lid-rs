@@ -46,8 +46,8 @@ the emitted tests apply the same functions to the real registries.
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Crate scoping | Filter specs by `crate_name::` prefix of `Spec::NAME` | A `crate` field in `SpecMeta` from `env!("CARGO_CRATE_NAME")` at registration; no scoping (README r3's implicit position) | `NAME` already begins with the defining crate (it is `module_path!()`-rooted), so a second field would duplicate the datum. No scoping is simply wrong once two traced crates link together — found by reasoning through the consumer binary, recorded in README r4. |
-| Checks shipped as | Pure fns + `macro_rules!` test emitter | Hand-written per-crate tests (README r3 §4.2 sketch); a proc-macro emitter in lid-macros | Hand-copying three tests into every consumer invites drift in the one place drift-detection lives. `macro_rules!` suffices — the expansion is three plain fns calling `$crate` paths; no parsing, no proc-macro build cost. |
+| Crate scoping | Filter specs by `crate_name::` prefix of `Spec::NAME` | A `crate` field in `SpecMeta` from `env!("CARGO_CRATE_NAME")` at registration; no scoping at all | `NAME` already begins with the defining crate (it is `module_path!()`-rooted), so a second field would duplicate the datum. No scoping is simply wrong once two traced crates link together — found by reasoning through the consumer binary, recorded in the README's §4.2 scoping note. |
+| Checks shipped as | Pure fns + `macro_rules!` test emitter | Hand-written per-crate tests (the README §4.2 sketch); a proc-macro emitter in lid-macros | Hand-copying three tests into every consumer invites drift in the one place drift-detection lives. `macro_rules!` suffices — the expansion is three plain fns calling `$crate` paths; no parsing, no proc-macro build cost. |
 | Canary-first enforcement | `graph_orphans` returns `Err(CanaryStripped)` before any orphan logic | A `canary_ok: bool` parameter; asserting the canary only in `registry_is_populated` | The bool is check 8's flag argument verbatim. Canary-only-in-one-test leaves checks 10/11 trusting an enumeration they didn't verify — each emitted test must be independently safe against a stripped registry. |
 | Emitted tests | Plain `#[test]`s, uncited | Emitted tests carrying `#[validates]` of the graph claims | The claims about check *behaviour* are validated by synthetic-input tests in `lid`; emitted tests are each consumer's enforcement instance, and citing lid's specs from every consumer would scatter cross-crate edges that mean nothing to the consumer's own graph. |
 
@@ -62,5 +62,5 @@ the emitted tests apply the same functions to the real registries.
 
 ## References
 
-- README r4 §4.2 (registry intersection checks), §5.3 (canary).
+- README §4.2 (registry intersection checks), §5.3 (canary).
 - `docs/intent/registry/lld.md` — slice parameterization and the canary.

@@ -96,6 +96,6 @@ tests; synthetic-registry tests) and are not duplicated here.
 
 ## References
 
-- README r4 §4.3 (non-vacuity by scoped mutation), §6.2 (untraced fallback).
+- README §4.3 (non-vacuity by scoped mutation), §6.2 (untraced fallback).
 - [`cargo-mutants` documentation](https://mutants.rs) — flags relied on:
   `--list --json`, `-F`, `--in-diff`, `--cargo-test-arg`, `--baseline`.

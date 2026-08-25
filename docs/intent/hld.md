@@ -9,7 +9,7 @@ code an agent invented. Specs and code drift apart despite the IDs, and the
 drift is invisible until a human notices at review time — exactly where humans
 are weakest.
 
-`README.md` (the LID-rs specification, revision 3) designs the fix: make the
+`README.md` (the LID-rs specification) designs the fix: make the
 spec layer out of Rust items so the compiler resolves every edge of the intent
 graph, and gate every structural property so reviewer attention lands on
 semantics alone. The specification names its own gap in §12: the `lid` and
@@ -96,10 +96,11 @@ Falsifiable, in delivery order:
 
 Ordered; when two conflict, the higher wins.
 
-1. **The spec follows reality it failed to predict.** README r3 is a living
+1. **The spec follows reality it failed to predict.** The README is a living
    design, not frozen requirements. When building reveals a flaw, revise the
-   README (revision bump when substantive) and cascade; never silently diverge,
-   never log-and-defer.
+   README and cascade; never silently diverge, never log-and-defer. Git
+   history is the revision record — the document itself carries no version
+   narration.
 2. **A gate that exists, gates.** Every check runs and fails the build from the
    moment it can exist. The repo is never in a state its own methodology would
    reject — including mid-bootstrap.
@@ -173,7 +174,7 @@ Each slice runs Phases 0–7 (README §8) with stops at every phase boundary.
 
 ## References
 
-- `README.md` — the LID-rs specification (revision 3); the design this
+- `README.md` — the LID-rs specification; the design this
   workspace implements and, per tenet 1, revises.
 - [`linkme`](https://github.com/dtolnay/linkme) — distributed-slice mechanism.
 - [`cargo-mutants`](https://mutants.rs) — mutation engine under check 12.

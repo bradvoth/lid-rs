@@ -69,5 +69,5 @@ The skill must carry, in this order of importance:
 
 ## References
 
-- README r4 §8 (the flow), §4.5 (the gate), §11 (bootstrap and brownfield).
+- README §8 (the flow), §4.5 (the gate), §11 (bootstrap and brownfield).
 - This repository's git history — the process evidence the skill distills.

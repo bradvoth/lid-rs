@@ -30,12 +30,12 @@ tests, which are downstream of the macros and can expand them.
 
 ### Why module-level tracing is a function-like macro
 
-The specification (README r3 §6.3) wrote module tracing as an inner attribute,
-`#![implements(…)]`. Custom inner attributes are not stable Rust, and
-attribute proc-macros on non-inline `mod foo;` items are not stable either —
-both forms fail constraint 1. An ordinary macro invocation inside the module
-body is stable and expands to the identical edge, with `module_path!()`
-supplying containment. README revised accordingly (r4).
+The natural spelling would be an inner attribute, `#![implements(…)]`, but
+custom inner attributes are not stable Rust, and attribute proc-macros on
+non-inline `mod foo;` items are not stable either — both forms fail
+constraint 1. An ordinary macro invocation inside the module body is stable
+and expands to the identical edge, with `module_path!()` supplying
+containment.
 
 ### Placement of emitted registrations
 
@@ -93,7 +93,7 @@ no `#[validates]` under `tests/`, per README §5.2):
 | Equivalence assertion | Behavioral pin-then-swap over registry contents | `macrotest`/`cargo-expand` textual expansion comparison | Textual expansion needs nightly `-Zunpretty`, violating constraint 1; the registry *is* the macros' observable output, so pinning it asserts exactly what matters and nothing incidental. |
 | fn registration placement | Body injection | Sibling `const _` after the fn; associated `const _` in impl blocks | Sibling emission breaks for methods (`impl` blocks reject free consts); body injection is uniform everywhere a fn can appear. Slice 1 proved linkme accepts scoped statics. |
 | `#[spec]` foreign-key alias | Standalone attribute macro | Derive helper attribute read by `derive(Spec)` | A derive cannot attach `#[doc(alias)]` to its item — derives only append new items. An attribute macro rewrites the item, which is the whole job. |
-| Module-level tracing | `implements_module!(…)` function-like macro | `#![implements(…)]` inner attribute (README r3); attribute on `mod` declarations | Both alternatives are unstable Rust (custom inner attributes; attributes on non-inline modules). README revised (tenet 1). |
+| Module-level tracing | `implements_module!(…)` function-like macro | `#![implements(…)]` inner attribute; attribute on `mod` declarations | Both alternatives are unstable Rust (custom inner attributes; attributes on non-inline modules). |
 | Doc-line emission is design prose, not a spec claim | Un-claimed, documented here | A `CitationsRenderAsDocLinks` claim | No stable mechanism observes an item's rendered docs from a gating test; a claim that cannot gate gets deleted (constraint 3). rustdoc's link check still gates *resolvability* of whatever doc lines exist. Revisit if rustdoc JSON output stabilizes. |
 | `#[spec]` searchability un-claimed | UI pass-test for compilation only | A greppability/search claim | Same constraint-3 honesty: `doc(alias)` affects rustdoc search, which no gate can observe on stable. |
 | Macro dependencies | `syn` (features `full`), `quote`, `proc-macro2` | Hand-rolled token matching | `full` is needed to parse fn items for body injection; the trio is the floor for attribute macros that rewrite items, not an escalation (tenet 3). `trybuild` added as dev-dependency of `lid` — compile-failure assertion is impossible without it. |
@@ -101,17 +101,19 @@ no `#[validates]` under `tests/`, per README §5.2):
 
 ## Open Questions & Future Decisions
 
+### Resolved
+1. ✅ linkme's *element* expansion does **not** resolve in downstream crates
+   that lack a direct linkme dependency — proven when `xtask` failed to
+   compile. Every generated registration carries
+   `#[linkme(crate = ::lid::__private::linkme)]`; the contract lives in
+   `docs/intent/registry/lld.md`.
+
 ### Deferred
-1. Whether linkme's *element* expansion resolves inside downstream crates
-   that depend only on `lid` (not linkme directly). Slice 4's `xtask` is the
-   first such crate; if resolution fails there, the escalation path is
-   emitting the `#[link_section]` form ourselves or re-exporting more of
-   linkme — decided on evidence, not now.
-2. Observing emitted doc lines mechanically (rustdoc JSON is unstable today).
+1. Observing emitted doc lines mechanically (rustdoc JSON is unstable today).
 
 ## References
 
 - `docs/intent/registry/lld.md` — the expansion contract this slice must
   reproduce; its doctest keeps the hand form compiling.
-- README r4 §3.3 (citation anatomy), §5.4 (macro error surfacing), §6.3
+- README §3.3 (citation anatomy), §5.4 (macro error surfacing), §6.3
   (module-level tracing).

@@ -4,7 +4,7 @@ This workspace builds the LID-rs toolchain (`lid`, `lid-macros`, `xtask`, and th
 operating skill) **using the LID-rs methodology on itself**. `README.md` is the
 methodology's living specification; `docs/intent/hld.md` is this workspace's
 implementation design. When implementation reveals a flaw in the README, the
-README is revised (revision bump when substantive), not silently diverged from.
+README is revised, not silently diverged from; git history is the revision record.
 
 ## LID Mode: Full
 
