@@ -8,6 +8,10 @@ language = "en"
 [output.html]
 git-repository-url = "https://github.com/bradvoth/lid-rs"
 site-url = "/lid-rs/"
+# The specification carries its own canonical §-numbering (§0–§13), which
+# every cross-reference in the docs uses; a second, offset numbering in the
+# sidebar would contradict it.
+no-section-label = true
 
 [output.html.playground]
 runnable = false

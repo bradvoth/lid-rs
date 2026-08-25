@@ -66,13 +66,14 @@ No tool can check it. It's the entire reason a human is in the loop.
 So the design goal is not "catch drift." It's **to make every structural
 property hold automatically, so that reviewer attention lands on meaning and
 nothing else.** Every check in §4 exists to remove a class of question from
-review, not to add a hurdle. When someone reviews a Phase 3 skeleton, the
+review, not to add a hurdle. When someone reviews a refinement skeleton
+(Phase 3 of the flow, §8), the
 composition already type-checks, every citation already resolves, and the
 cascade has already reached every affected site — so the only remaining question
 is *is this the right decomposition of the problem*, which is the question worth
 their time.
 
-The iterative refinement flow (§7) serves the same end from the other direction.
+The iterative refinement flow (§8) serves the same end from the other direction.
 By the time an implementation is written, its name, signature, claim, and failing
 test are all pinned, so the semantic question at that point is small and local:
 *does this body mean what this claim says.* Both halves of the system are aimed
@@ -370,7 +371,7 @@ design decision, not a gap — see §6.
 `#[validates]` proves a test *claims* a spec. It cannot prove the test would
 notice if the implementation were wrong.
 
-Phase 5 already solves this by hand: a `todo!()` body panics, so any test that
+Phase 5 of the flow (§8) already solves this by hand: a `todo!()` body panics, so any test that
 genuinely exercises the cited function must fail against the skeleton. "Confirm
 red" is a proof of non-vacuity performed when it costs nothing. The problem is
 that it's a human ritual done once, and nothing preserves it.
