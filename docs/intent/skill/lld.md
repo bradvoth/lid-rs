@@ -5,7 +5,7 @@
 The toolchain enforces structure; it cannot make an agent *propose* the right
 artifacts in the right order. The skill closes that gap: it is the standing
 instruction set under which an agent walks a Rust change through the eight
-phases (README §8), producing claims as `derive(Spec)` structs, skeletons as
+phases (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)), producing claims as `derive(Spec)` structs, skeletons as
 `todo!()` signatures, validations as failing-first `#[validates]` tests, and
 running the gate before every commit. Human authorship stays concentrated in
 Phases 1 and 3; the skill exists so the agent's share is done inside the
@@ -53,7 +53,7 @@ The skill must carry, in this order of importance:
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Traceability of this slice | Untraced; process-evidence validation | Ceremonial `Spec` structs for skill behaviour; a skill-lint script | Ceremonial specs make the graph look denser than it is — worse than none (README §6). A script checking prose cannot check what matters (did the agent *follow* it). |
+| Traceability of this slice | Untraced; process-evidence validation | Ceremonial `Spec` structs for skill behaviour; a skill-lint script | Ceremonial specs make the graph look denser than it is — worse than none (README [§6](https://bradvoth.github.io/lid-rs/spec/traced.html)). A script checking prose cannot check what matters (did the agent *follow* it). |
 | Skill scope | Operates LID-rs on any Rust codebase that adopts it, this repo included | A repo-specific runbook | The skill is a deliverable of the system, not documentation of this workspace; this repo is its first consumer, not its subject. |
 | Relationship to the installed `linked-intent-dev` skill | This skill owns Rust-artifact mechanics; the generic skill's process discipline (stops, cascade, coherence pre-flight) is incorporated by restatement, not by reference | Deferring to the generic skill plus a delta document | A skill that requires composing two documents at run time is a skill agents will half-follow; restating the process rules keeps one authoritative walk. |
 | Failure remediation format | Per-check table with meaning and correct response | Prose guidance | The moment of use is "a gate just fired"; a lookup table matches it. |
@@ -64,10 +64,10 @@ The skill must carry, in this order of importance:
 1. Plugin packaging (marketplace metadata, versioning) — a later slice, after
    the skill has operated on at least one non-self-hosted codebase.
 2. A `/lid-differential` companion pass for the semantic residual (README
-   §4.4) — scheduled reconstruction of claims from code and diffing against
+   [§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html)) — scheduled reconstruction of claims from code and diffing against
    the written ones.
 
 ## References
 
-- README §8 (the flow), §4.5 (the gate), §11 (bootstrap and brownfield).
+- README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html) (the flow), [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) (the gate), [§11](https://bradvoth.github.io/lid-rs/spec/layout.html) (bootstrap and brownfield).
 - This repository's git history — the process evidence the skill distills.

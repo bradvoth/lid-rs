@@ -65,22 +65,22 @@ No tool can check it. It's the entire reason a human is in the loop.
 
 So the design goal is not "catch drift." It's **to make every structural
 property hold automatically, so that reviewer attention lands on meaning and
-nothing else.** Every check in §4 exists to remove a class of question from
+nothing else.** Every check in [§4](https://bradvoth.github.io/lid-rs/spec/gates.html) exists to remove a class of question from
 review, not to add a hurdle. When someone reviews a refinement skeleton
-(Phase 3 of the flow, §8), the
+(Phase 3 of the flow, [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)), the
 composition already type-checks, every citation already resolves, and the
 cascade has already reached every affected site — so the only remaining question
 is *is this the right decomposition of the problem*, which is the question worth
 their time.
 
-The iterative refinement flow (§8) serves the same end from the other direction.
+The iterative refinement flow ([§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) serves the same end from the other direction.
 By the time an implementation is written, its name, signature, claim, and failing
 test are all pinned, so the semantic question at that point is small and local:
 *does this body mean what this claim says.* Both halves of the system are aimed
 at shrinking the surface a human has to think hard about — not at eliminating
 the thinking.
 
-The residual is real and named in §4.4: a test can cite the wrong claim and pass
+The residual is real and named in [§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html): a test can cite the wrong claim and pass
 every gate. That's the differential pass's job, and the system's success
 condition is that it's the *only* thing left for it to do.
 
@@ -97,7 +97,7 @@ number and not a system — the correct amount of LID-rs in those is zero. Adopt
 the point the code stops being disposable, which is usually the moment someone
 proposes building on it.
 
-Adopting mid-life is a supported path — see the brownfield note in §11 — and is
+Adopting mid-life is a supported path — see the brownfield note in [§11](https://bradvoth.github.io/lid-rs/spec/layout.html) — and is
 better than adopting early. A spike that earned its way into production arrives
 with its design decisions already discovered; writing the LLD after the fact is
 cheap because you know the answers.
@@ -124,7 +124,7 @@ obvious implementations:
 Constraint 3 has a corollary that recurs throughout: **a check built on
 enumeration must first prove the enumeration is non-empty.** A registry that
 silently fails to populate turns every check over it into a vacuous pass. See
-§5.3.
+[§5.3](https://bradvoth.github.io/lid-rs/spec/registry.html).
 <!-- ANCHOR_END: constraints -->
 
 ---
@@ -137,10 +137,10 @@ silently fails to populate turns every check over it into a vacuous pass. See
 | **HLD** — the *why* | `#![doc = include_str!("../docs/intent/hld.md")]` in `lib.rs` | Stays a reviewable markdown file in the repo; renders as the crate's front page in `cargo doc`, directly above the API it governs. |
 | **LLD** — the *how*, per slice | `#[doc = include_str!("../docs/intent/auth/lld.md")] pub mod auth;` | One LLD per module. The design and the module boundary become the same boundary. |
 | **EARS claim** | `#[derive(Spec)]` on a unit struct; the doc comment *is* the claim | A claim becomes a nameable, linkable, resolvable item. The derive reads the `#[doc]` attributes, so the text is single-sourced. |
-| **Spec ID** | The struct's own name, written descriptively | See §3.2. |
+| **Spec ID** | The struct's own name, written descriptively | See [§3.2](https://bradvoth.github.io/lid-rs/spec/mapping.html). |
 | **`@spec` annotation** | `#[implements(spec::ValidCredentialsYieldScopedSession)]` | Emits the doc link, a const type-assertion, and a registry entry. A bad citation is a **type error**, not a broken link. |
 | **Test → claim link** | `#[validates(spec::ValidCredentialsYieldScopedSession)]` | Same three effects, on the test side. |
-| **Coverage of the graph** | `linkme` distributed slices + an ordinary `#[test]` | Enumeration at link time. No source parsing anywhere. See §5. |
+| **Coverage of the graph** | `linkme` distributed slices + an ordinary `#[test]` | Enumeration at link time. No source parsing anywhere. See [§5](https://bradvoth.github.io/lid-rs/spec/registry.html). |
 | **Non-vacuous assertion** | Diff-scoped `cargo-mutants`, test subset narrowed by the registry | Proves the test *depends on* the implementation, not merely that it executed it. |
 | **Spec → code cascade** | Recompilation; `#[non_exhaustive]`; exhaustive `match` | Adding a case breaks every dispatch site. A compiler error, not an agent pass. |
 | **Spec retirement** | `#[deprecated]` on the spec struct | Warns at every citation site through the const assertion. Stable compiler, zero tooling. |
@@ -280,7 +280,7 @@ fn wrong_password_is_rejected() {
 
 Same three effects, registering into `VALIDATIONS`. **These must be
 `#[cfg(test)]` unit tests inside the library, not files under `tests/`** — see
-§5.2 for why.
+[§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html) for why.
 
 **Why not doctests?** Doctests compile as separate crates and never link into the
 registry, so they cannot register. Keep them — they're the best form of the
@@ -322,7 +322,7 @@ never saw, caught mechanically.
 
 ### 4.2 Tier 1 — registry intersection
 
-Enumeration happens at link time (§5). These are ordinary unit tests.
+Enumeration happens at link time ([§5](https://bradvoth.github.io/lid-rs/spec/registry.html)). These are ordinary unit tests.
 
 | # | Check | Failure means |
 |---|---|---|
@@ -355,7 +355,7 @@ fn every_spec_has_a_validation() { /* same shape against VALIDATIONS */ }
 ```
 
 Note there is no check for a *function with no citation*. That is a deliberate
-design decision, not a gap — see §6.
+design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/traced.html).
 
 > **Scoping note.** The registry is binary-global: a consumer's test binary
 > links `lid` (and any other traced crate), so `SPECS` contains upstream
@@ -371,7 +371,7 @@ design decision, not a gap — see §6.
 `#[validates]` proves a test *claims* a spec. It cannot prove the test would
 notice if the implementation were wrong.
 
-Phase 5 of the flow (§8) already solves this by hand: a `todo!()` body panics, so any test that
+Phase 5 of the flow ([§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) already solves this by hand: a `todo!()` body panics, so any test that
 genuinely exercises the cited function must fail against the skeleton. "Confirm
 red" is a proof of non-vacuity performed when it costs nothing. The problem is
 that it's a human ritual done once, and nothing preserves it.
@@ -392,7 +392,7 @@ Two narrowings compose to keep it inside a per-PR budget:
   tests validating the specs `F` implements. The `xtask` obtains each crate's
   `IMPLEMENTATIONS`/`VALIDATIONS` from that crate's **own `--lib` test
   binary** — a dump mode emitted by `intent_graph!()` — because validation
-  edges exist in no other binary (§5.2 applies to the tooling too). A mutant
+  edges exist in no other binary ([§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html) applies to the tooling too). A mutant
   whose narrowed test set is empty runs the full suite instead: zero reachable
   tests must never mean zero tests run.
 
@@ -408,7 +408,7 @@ structural check can catch this, because every structural property holds.
 
 That is the bidirectional-differential pass's job: reconstruct the claim from the
 code in a fresh session and diff it against the written one. Run it periodically,
-not per-PR. Per §1.1, this being the *only* residual is the system working as
+not per-PR. Per [§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html), this being the *only* residual is the system working as
 designed, not a shortfall.
 
 ### 4.5 The gate, in order
@@ -698,10 +698,10 @@ Phase 5 establishes it.
 **Phase 6 — Implement leaves.** *(agent, minimal review)*
 The acceleration. Signature pinned, name pinned, claim cited, test red and
 specific. The surrounding skeleton constrains what the function is *allowed to
-be*, so the agent has almost no room to invent structure. Per §1.1, review here
+be*, so the agent has almost no room to invent structure. Per [§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html), review here
 is a small local semantic question.
 
-**Phase 7 — Gate.** Run §4.5. Commit the slice.
+**Phase 7 — Gate.** Run [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html). Commit the slice.
 
 **Phase 8 — Change.**
 Every change is an LLD edit, cascaded: edit `lld.md` → re-derive affected specs →
@@ -747,7 +747,7 @@ mod intent_graph;
 
 ### Phase 2 — claims
 
-The three from §3.1. `BackendFailureIsIndistinguishableToUser` captures the
+The three from [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html). `BackendFailureIsIndistinguishableToUser` captures the
 non-observability invariant — exactly the kind of thing that otherwise lives only
 in someone's head and gets quietly violated by an agent writing a "helpful" error
 message.
@@ -1028,10 +1028,10 @@ codebase gates correctly on the part that's traced.
 <!-- ANCHOR: limits -->
 ## 12. Honest limits
 
-- **The semantic residual.** Per §4.4, a test can cite the wrong claim and pass
-  every gate. This is by design (§1.1), but it means the differential pass is
+- **The semantic residual.** Per [§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html), a test can cite the wrong claim and pass
+  every gate. This is by design ([§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html)), but it means the differential pass is
   load-bearing and needs a scheduled owner, not good intentions.
-- **`linkme` has platform edges.** See §5.4. The canary converts silent failure
+- **`linkme` has platform edges.** See [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html). The canary converts silent failure
   into loud failure, but on an unusual target you will be debugging a linker
   mechanism. The `inventory` fallback exists for that case.
 - **Two pieces are unbuilt.** The `lid`/`lid-macros` crates, and the xtask that
@@ -1055,13 +1055,13 @@ codebase gates correctly on the part that's traced.
    `#[distributed_slice]` declarations, `canary`, `__private` re-export.
 3. `lid-macros`: `derive(Spec)`, `implements`, `validates`,
    `implements_module!`, `spec`.
-4. `Cargo.toml` workspace lints + `clippy.toml` thresholds (§7).
+4. `Cargo.toml` workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)).
 5. `docs/intent/hld.md`, included via `#![doc = include_str!(...)]`.
 6. `src/spec/mod.rs` with `//!` docs explaining what the module is for.
 7. `src/intent_graph.rs` under `#[cfg(test)]` — canary first, then checks 10, 11.
 8. `[profile.test] opt-level = 0`; install `cargo-mutants`; `xtask` for
    registry-driven test filtering.
-9. CI running §4.5 in order, all of it gating.
+9. CI running [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) in order, all of it gating.
 10. `AGENTS.md` / `CLAUDE.md` stating the eight phases and the dispatch-vs-work
     rule, so the agent proposes skeletons rather than implementations.
 11. First slice end to end before writing a second LLD. The phase boundaries are

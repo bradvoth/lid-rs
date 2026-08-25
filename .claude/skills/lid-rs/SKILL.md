@@ -65,7 +65,7 @@ use lid::Spec;
 pub struct ValidCredentialsYieldScopedSession;
 ```
 
-Names are descriptive sentences, never numbers (§3.2) — except genuine
+Names are descriptive sentences, never numbers ([§3.2](https://bradvoth.github.io/lid-rs/spec/mapping.html)) — except genuine
 foreign keys, which get `#[lid::spec("SOC2-CC6.1-003")]` as a doc alias.
 Reject claims that are two claims; reject claims that restate the LLD without
 asserting anything. **STOP for review.**
@@ -84,7 +84,7 @@ branch becomes an ordinary unit test.
 
 **Phase 5 — Failing-first validations.** One test per claim, as
 `#[cfg(test)]` **unit tests inside the library** — never under `tests/`,
-where separate binaries silently drop out of the registry (§5.2):
+where separate binaries silently drop out of the registry ([§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html)):
 
 ```rust
 #[test]
@@ -125,7 +125,7 @@ propagating into another slice's LLD territory.
 
 ## Mechanics reference
 
-- **New project**: `lid` + workspace lints + `clippy.toml` thresholds (§7),
+- **New project**: `lid` + workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)),
   `[profile.test] opt-level = 0`, `docs/intent/hld.md` included from
   `lib.rs`, and the graph checks:
 
@@ -175,10 +175,10 @@ propagating into another slice's LLD territory.
 
 ## What no gate catches (your residual duties)
 
-- A test citing the **wrong** claim passes every gate (§4.4). Periodically
+- A test citing the **wrong** claim passes every gate ([§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html)). Periodically
   reconstruct the claim from the code cold and diff it against the written
   one — that differential pass is scheduled work, not good intentions.
-- Shape-coincidence reuse hidden behind an `Option` parameter (§8).
+- Shape-coincidence reuse hidden behind an `Option` parameter ([§8](https://bradvoth.github.io/lid-rs/spec/flow.html)).
 - A module outgrowing its `implements_module!` citation — watch module size.
 - Ceremonial claims that restate rather than assert; reject them in Phase 2.
 

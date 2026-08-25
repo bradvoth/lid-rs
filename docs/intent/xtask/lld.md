@@ -11,13 +11,13 @@ are obtained **from each crate's own `--lib` test binary**: `intent_graph!()`
 emits an inert `registry_dump_for_tooling` test that prints the registries as
 tab-separated lines when `LID_DUMP=1`, and xtask runs it per workspace crate
 and parses the output into owned edge records. A crate's `#[validates]` edges
-exist *only* in that crate's test binary (README §5.2 applies recursively:
+exist *only* in that crate's test binary (README [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html) applies recursively:
 they are absent from the xtask binary itself, and absent from `lid` as linked
 into anything else), so the test binary is the sole honest source.
 
 `xtask` is a thin `main` over a library, so its logic sits under
 `cargo test --lib` and its doctests run — the same shape the specification
-prescribes for applications (§4.1 toolchain note).
+prescribes for applications ([§4.1](https://bradvoth.github.io/lid-rs/spec/gates.html) toolchain note).
 
 The second command, `gate-selftest`, discharges HLD Goal 3 for the checks no
 lib test can demonstrate: each lint-, doc-, and mutation-gate gets a fixture
@@ -40,7 +40,7 @@ over-approximates safely.
   `--exact` filters.
 - **Untraced mutant**: per `untraced_fallback = "module"`, the tests
   validating specs implemented by the enclosing module (edges whose item
-  shares the module prefix); when none exist, the full suite (README §6.2).
+  shares the module prefix); when none exist, the full suite (README [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html)).
 - Mutants are grouped by identical test set; one `cargo mutants` run per
   group, selected by an anchored, escaped `-F` alternation of mutant names,
   `--baseline skip` (the ungated suite already ran earlier in the gate).
@@ -84,7 +84,7 @@ tests; synthetic-registry tests) and are not duplicated here.
 | Argument parsing | `std::env` loop | `clap` | Two subcommands and three flags do not justify a dependency tree (tenet 3). |
 | JSON / metadata parsing | `serde_json` untyped `Value`; config via `cargo metadata` | `toml` crate for Cargo.toml; typed serde derives | One parsing dependency instead of two: `cargo metadata` re-serves `[workspace.metadata.lid]` as JSON. Untyped access keeps the surface small. |
 | Selftest fixtures | Synthesized detached crates, one gate each, expected-diagnostic assertions | A single fixture crate tripping all lints; asserting only nonzero exit | One-check-one-fixture keeps a diagnosis readable and proves each gate individually; exit-code-only assertions would let the wrong gate's failure vouch for the right one. |
-| Baseline handling | `--baseline skip` | Default baseline run per group | The gate runs the full suite before mutation (§4.5 order); re-running it per group multiplies wall-clock for no information. |
+| Baseline handling | `--baseline skip` | Default baseline run per group | The gate runs the full suite before mutation ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order); re-running it per group multiplies wall-clock for no information. |
 | Test scope per mutant | `--test-workspace true` | Engine default (test only the mutated package) | Found by a surviving mutant: a broken `derive` in the proc-macro crate is killed only by `lid`'s tests, and the package-scoped default never runs them. Cross-crate kill paths are the norm here, not the exception. |
 
 ## Open Questions & Future Decisions
@@ -96,6 +96,6 @@ tests; synthetic-registry tests) and are not duplicated here.
 
 ## References
 
-- README §4.3 (non-vacuity by scoped mutation), §6.2 (untraced fallback).
+- README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html) (non-vacuity by scoped mutation), [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html) (untraced fallback).
 - [`cargo-mutants` documentation](https://mutants.rs) — flags relied on:
   `--list --json`, `-F`, `--in-diff`, `--cargo-test-arg`, `--baseline`.

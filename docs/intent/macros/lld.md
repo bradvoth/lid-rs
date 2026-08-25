@@ -51,7 +51,7 @@ paragraph break.
 ### Argument validation
 
 Errors are reported by `syn::Error` at the offending span, before linkme sees
-anything malformed (README §5.4): an empty citation list ("cite at least one
+anything malformed (README [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html)): an empty citation list ("cite at least one
 spec, or remove the attribute"), non-path arguments, paths with generic
 arguments. Path rendering for doc lines joins segments with `::` from the
 parsed `syn::Path`, never from token-stream stringification (which inserts
@@ -77,7 +77,7 @@ swap and carry no contract.
 ## Compile-failure demonstrations (check 1, Goal 3)
 
 `trybuild` UI tests in `lid/tests/ui.rs` (a plain integration-test harness —
-no `#[validates]` under `tests/`, per README §5.2):
+no `#[validates]` under `tests/`, per README [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html)):
 
 - **fail**: citing a path that doesn't resolve; citing a type that isn't a
   `Spec`; empty citation list; generic-argument path.
@@ -115,5 +115,5 @@ no `#[validates]` under `tests/`, per README §5.2):
 
 - `docs/intent/registry/lld.md` — the expansion contract this slice must
   reproduce; its doctest keeps the hand form compiling.
-- README §3.3 (citation anatomy), §5.4 (macro error surfacing), §6.3
+- README [§3.3](https://bradvoth.github.io/lid-rs/spec/mapping.html) (citation anatomy), [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html) (macro error surfacing), [§6.3](https://bradvoth.github.io/lid-rs/spec/traced.html)
   (module-level tracing).

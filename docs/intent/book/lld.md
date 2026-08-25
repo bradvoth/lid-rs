@@ -26,6 +26,7 @@ attribution leads the README.
 | Drift gating | `mdbook build book` runs in the main gate *and* gates the Pages deploy | Deploy-workflow-only build | A renamed anchor or moved doc must fail the repository's own gate (tenet 2), not surface later as a broken site. |
 | Playground buttons | Disabled (`runnable = false`) | Default runnable rust blocks | The examples cite `lid`, which the playground cannot resolve; a run button that always errors is noise. |
 | Diagrams | Mermaid blocks render as code | `mdbook-mermaid` preprocessor | One fewer binary in two workflows; the HLD's diagram reads acceptably as text. Revisit if diagrams multiply (tenet 3 escalation path). |
+| §-references | Markdown links to the published book page, by absolute URL, in every markdown artifact | Same-page `#anchor` links; book-relative paths; a link-rewriting preprocessor | The artifacts render in three contexts (GitHub, this book's sliced chapters, rustdoc), and only an absolute URL resolves identically in all of them: page anchors break once the README is sliced, relative paths break outside the book, and a preprocessor is tooling the absolute form makes unnecessary (tenet 3). Page-level targets, not heading fragments — fragment slugs are a rendering detail no gate checks. |
 
 ## Open Questions & Future Decisions
 

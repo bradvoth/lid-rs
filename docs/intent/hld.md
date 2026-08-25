@@ -12,7 +12,7 @@ are weakest.
 `README.md` (the LID-rs specification) designs the fix: make the
 spec layer out of Rust items so the compiler resolves every edge of the intent
 graph, and gate every structural property so reviewer attention lands on
-semantics alone. The specification names its own gap in §12: the `lid` and
+semantics alone. The specification names its own gap in [§12](https://bradvoth.github.io/lid-rs/spec/limits.html): the `lid` and
 `lid-macros` crates, the registry-driven mutation `xtask`, and the operating
 skill are unbuilt. This workspace builds them.
 
@@ -26,11 +26,11 @@ intent graph, and when each gate demonstrably fails on a deliberate violation.
 Three load-bearing mechanisms:
 
 - **Compiler-resolved citations.** `#[implements]` / `#[validates]` expand to a
-  const type-assertion, so a bad citation is a type error (README §3.3).
+  const type-assertion, so a bad citation is a type error (README [§3.3](https://bradvoth.github.io/lid-rs/spec/mapping.html)).
 - **Link-time enumeration.** `linkme` distributed slices collect every spec,
   citation, and validation into the test binary with no source parsing
-  (README §5), guarded by a canary against silently-empty registries.
-- **Gated structure.** Twelve checks (README §4), every one failing the build
+  (README [§5](https://bradvoth.github.io/lid-rs/spec/registry.html)), guarded by a canary against silently-empty registries.
+- **Gated structure.** Twelve checks (README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)), every one failing the build
   when its property breaks; anything that can't gate gets deleted.
 
 ### Bootstrap staging
@@ -42,7 +42,7 @@ staging that resolves this:
 1. `lid` core ships first: `Spec` trait, `Edge`, `SpecMeta`, the three
    distributed slices, `__private` linkme re-export — plus **one hand-written
    spec/implementation/validation triple registered with hand-expanded statics,
-   which is the permanent canary** (README §5.3). Hand-expanding first is
+   which is the permanent canary** (README [§5.3](https://bradvoth.github.io/lid-rs/spec/registry.html)). Hand-expanding first is
    deliberate write-the-expansion-before-the-macro discipline: it validates the
    expansion design while changing it is free.
 2. `lid-macros` ships second and must reproduce the hand-expanded registrations
@@ -82,14 +82,14 @@ Falsifiable, in delivery order:
 
 - **No demo/example crate.** Self-hosting plus `xtask`-as-downstream-consumer
   is the E2E proof; a showcase app is surface area without new evidence.
-- **No nightly, no rustc internals, no source parsing** (README §2 constraints,
+- **No nightly, no rustc internals, no source parsing** (README [§2](https://bradvoth.github.io/lid-rs/spec/constraints.html) constraints,
   inherited wholesale).
 - **No dependency-rename support.** Consumers must depend on the crate as
   `lid`; `extern crate self` + literal `::lid` paths make renames unsupported,
   documented rather than engineered around.
 - **No plugin packaging yet.** The skill lives in-repo until proven; promotion
   to a distributable plugin is a later slice, not scoped here.
-- **No support for prototypes.** README §1.2: the correct amount of LID-rs in
+- **No support for prototypes.** README [§1.2](https://bradvoth.github.io/lid-rs/spec/purpose.html): the correct amount of LID-rs in
   disposable code is zero. Nothing here optimizes for low-ceremony adoption.
 
 ## Tenets
@@ -145,7 +145,7 @@ exercised outside the self-referential crate.
 | 4 | "A vacuous test fails the build" | `xtask` mutation scoping via registry; `[profile.test] opt-level = 0` |
 | 5 | "An agent operates the methodology" | `.claude/skills/lid-rs/` skill, validated by producing a slice under it |
 
-Each slice runs Phases 0–7 (README §8) with stops at every phase boundary.
+Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) with stops at every phase boundary.
 
 ## Key Design Decisions
 
@@ -154,14 +154,14 @@ Each slice runs Phases 0–7 (README §8) with stops at every phase boundary.
 | Self-hosting is the E2E proof; no demo crate | Workspace demo crate implementing README's worked examples | The demo adds no gate the self-host lacks; `xtask` already exercises the downstream-consumer path where linkme/path bugs live. Revisit if a consumer-facing bug class appears that self-hosting can't reproduce. |
 | `extern crate self as lid` + literal `::lid` expansion paths | `proc-macro-crate` name lookup at expansion time | Zero dependencies and stable vs. compile-time TOML parsing with workspace-layout fragility, to support renames nobody needs (tenet 3). |
 | Hand-expand the canary triple before writing macros | Leave `lid` untraced until macros exist, then brownfield-retrofit | Validates the expansion design when changing it is free; gives slice 2 an exact, testable target; the hand-expansion becomes the canary rather than throwaway work. |
-| Claims are Rust items in `src/spec/`, descriptive names | Prose EARS files with numbered IDs (classic LID, as the installed `linked-intent-dev` skill defaults to) | README §3.1–3.2: compiler-resolved citations require items; names make citation sites self-documenting; rename-breaks-citations is the desired re-review behaviour. `#[spec("...")]` aliases cover genuine foreign keys. |
-| `linkme` sections, `inventory` behind a feature flag as fallback | `inventory` primary; build-script codegen; source scanning | Zero runtime cost and no life-before-main on mainstream targets; the escape hatch is a feature flag, not a rewrite (README §5.4). Source scanning violates constraint 2. |
+| Claims are Rust items in `src/spec/`, descriptive names | Prose EARS files with numbered IDs (classic LID, as the installed `linked-intent-dev` skill defaults to) | README [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html)–3.2: compiler-resolved citations require items; names make citation sites self-documenting; rename-breaks-citations is the desired re-review behaviour. `#[spec("...")]` aliases cover genuine foreign keys. |
+| `linkme` sections, `inventory` behind a feature flag as fallback | `inventory` primary; build-script codegen; source scanning | Zero runtime cost and no life-before-main on mainstream targets; the escape hatch is a feature flag, not a rewrite (README [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html)). Source scanning violates constraint 2. |
 | Skill developed in-repo, promoted to plugin later | Plugin-shaped from the start | Dogfood the skill where it's built; packaging before the methodology settles would version-churn the plugin. |
 | Gates on from the first commit | Switch gates on when all twelve exist | Tenet 2; the bootstrap window is precisely when untraced drift would accrete. |
 
 ## Success Metrics
 
-- The §4.5 gate passes on this workspace at every slice boundary, and CI runs
+- The [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) gate passes on this workspace at every slice boundary, and CI runs
   it on every push.
 - Each of the twelve checks has a committed failure demonstration (Goal 3). A
   check with no demonstrated failure is presumed vacuous and either gets one or

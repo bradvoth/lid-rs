@@ -4,7 +4,7 @@
 
 Every LID-rs check that asserts over "all specs" or "all citations" needs an
 enumeration of the graph, and constraint 2 of the specification (`README.md`
-§2) forbids reconstructing it by parsing source. The registry collects the
+[§2](https://bradvoth.github.io/lid-rs/spec/constraints.html)) forbids reconstructing it by parsing source. The registry collects the
 graph at link time instead: every registration is a `static` placed in a named
 linker section via `linkme::distributed_slice`, and the linker's own gathering
 of those sections *is* the enumeration. No initialization, no runtime cost, no
@@ -16,7 +16,7 @@ the macros will later emit (write-the-expansion-first discipline; the
 hand-expansion is the macros' conformance target). One hand-registered
 spec/implementation/validation triple is permanent — the canary — because a
 check built on enumeration must first prove the enumeration is non-empty
-(README §2 constraint 3 corollary, §5.3).
+(README [§2](https://bradvoth.github.io/lid-rs/spec/constraints.html) constraint 3 corollary, [§5.3](https://bradvoth.github.io/lid-rs/spec/registry.html)).
 
 ## Data shapes
 
@@ -110,9 +110,9 @@ tested with empty slices.
 ## Workspace scaffolding (carried by this slice, tenet 2)
 
 Tier 0 lint configuration gates from this slice onward: workspace `[lints]`
-tables and `clippy.toml` thresholds exactly per README §7, `[profile.test]
+tables and `clippy.toml` thresholds exactly per README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html), `[profile.test]
 opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
-(README §12 pins in CI; pinning the workspace makes local and CI identical).
+(README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html) pins in CI; pinning the workspace makes local and CI identical).
 
 ## Decisions & Alternatives
 
@@ -139,7 +139,7 @@ opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
 
 ## References
 
-- `README.md` §2 (constraints), §3.3 (citation anatomy), §5 (registry), §5.3
+- `README.md` [§2](https://bradvoth.github.io/lid-rs/spec/constraints.html) (constraints), [§3.3](https://bradvoth.github.io/lid-rs/spec/mapping.html) (citation anatomy), [§5](https://bradvoth.github.io/lid-rs/spec/registry.html) (registry), [§5.3](https://bradvoth.github.io/lid-rs/spec/registry.html)
   (canary).
 - [`linkme` documentation](https://docs.rs/linkme) — distributed slice
   semantics and scoped-static support.
