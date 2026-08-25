@@ -2,8 +2,7 @@
 //!
 //! Each item is one EARS claim. Nothing here has runtime behaviour; these
 //! types exist so that citations are resolved by the compiler rather than by
-//! grep. During the bootstrap window (before `lid-macros` exists) the claims
-//! carry hand-expanded registrations in exactly the form the macros will emit.
+//! grep.
 
 mod citation;
 mod registry;
@@ -20,20 +19,20 @@ pub use registry::{
 
 #[cfg(test)]
 mod tests {
-    //! Pin tests: assert the exact observable registry state produced by the
-    //! hand expansions, so that swapping in the macro forms is equivalence-
-    //! checked field by field (`docs/intent/macros/lld.md § Equivalence`).
+    //! Pin tests: assert the exact observable registry state the citation
+    //! macros must produce, established against the hand expansions and kept
+    //! green across the swap to macro forms
+    //! (`docs/intent/macros/lld.md § Equivalence`).
 
-    use crate::{Edge, IMPLEMENTATIONS, SPECS, Spec, VALIDATIONS};
+    use crate::{Edge, IMPLEMENTATIONS, SPECS, Spec, VALIDATIONS, validates};
 
     /// True if `slice` holds an edge joining `spec` to `item`.
     fn has_edge(slice: &[Edge], spec: &str, item: &str) -> bool {
         slice.iter().any(|e| e.spec == spec && e.item == item)
     }
 
-    // Hand-expansion of:
-    //   #[validates(spec::DerivedSpecsCarryTheirDefinitionPath)]
     #[test]
+    #[validates(crate::spec::DerivedSpecsCarryTheirDefinitionPath)]
     fn derived_specs_carry_their_definition_path() {
         assert_eq!(
             <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
@@ -44,20 +43,9 @@ mod tests {
             "lid::spec::citation::MalformedCitationsFailToCompile"
         );
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::DerivedSpecsCarryTheirDefinitionPath as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::derived_specs_carry_their_definition_path"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 
-    // Hand-expansion of:
-    //   #[validates(spec::DerivedSpecsRegisterIntoSpecs)]
     #[test]
+    #[validates(crate::spec::DerivedSpecsRegisterIntoSpecs)]
     fn derived_specs_register_into_specs() {
         let expected = [
             "lid::spec::registry::LinkedRegistrationsAreEnumerable",
@@ -77,20 +65,9 @@ mod tests {
             );
         }
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::DerivedSpecsRegisterIntoSpecs as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::derived_specs_register_into_specs"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 
-    // Hand-expansion of:
-    //   #[validates(spec::ImplementsCitationsRegisterEdges)]
     #[test]
+    #[validates(crate::spec::ImplementsCitationsRegisterEdges)]
     fn implements_citations_register_edges() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
@@ -103,20 +80,9 @@ mod tests {
             "lid::canary::triple_is_present"
         ));
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::ImplementsCitationsRegisterEdges as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::implements_citations_register_edges"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 
-    // Hand-expansion of:
-    //   #[validates(spec::ValidatesCitationsRegisterEdges)]
     #[test]
+    #[validates(crate::spec::ValidatesCitationsRegisterEdges)]
     fn validates_citations_register_edges() {
         assert!(has_edge(
             &VALIDATIONS,
@@ -134,20 +100,9 @@ mod tests {
             "lid::canary::tests::canary_detects_a_stripped_registry"
         ));
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::ValidatesCitationsRegisterEdges as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::validates_citations_register_edges"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 
-    // Hand-expansion of:
-    //   #[validates(spec::ModuleCitationsTraceByContainment)]
     #[test]
+    #[validates(crate::spec::ModuleCitationsTraceByContainment)]
     fn module_citations_trace_by_containment() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
@@ -155,33 +110,12 @@ mod tests {
             "lid::registry"
         ));
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::ModuleCitationsTraceByContainment as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::module_citations_trace_by_containment"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 
-    // Hand-expansion of:
-    //   #[validates(spec::MalformedCitationsFailToCompile)]
     #[test]
+    #[validates(crate::spec::MalformedCitationsFailToCompile)]
     fn malformed_citations_fail_to_compile() {
         let t = trybuild::TestCases::new();
         t.compile_fail("tests/ui/fail/*.rs");
         t.pass("tests/ui/pass/*.rs");
     }
-    const _: () = {
-        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
-        static EDGE: ::lid::Edge = ::lid::Edge {
-            spec: <crate::spec::MalformedCitationsFailToCompile as ::lid::Spec>::NAME,
-            item: concat!(module_path!(), "::malformed_citations_fail_to_compile"),
-            file: file!(),
-            line: line!(),
-        };
-    };
 }

@@ -97,6 +97,7 @@ no `#[validates]` under `tests/`, per README §5.2):
 | Doc-line emission is design prose, not a spec claim | Un-claimed, documented here | A `CitationsRenderAsDocLinks` claim | No stable mechanism observes an item's rendered docs from a gating test; a claim that cannot gate gets deleted (constraint 3). rustdoc's link check still gates *resolvability* of whatever doc lines exist. Revisit if rustdoc JSON output stabilizes. |
 | `#[spec]` searchability un-claimed | UI pass-test for compilation only | A greppability/search claim | Same constraint-3 honesty: `doc(alias)` affects rustdoc search, which no gate can observe on stable. |
 | Macro dependencies | `syn` (features `full`), `quote`, `proc-macro2` | Hand-rolled token matching | `full` is needed to parse fn items for body injection; the trio is the floor for attribute macros that rewrite items, not an escalation (tenet 3). `trybuild` added as dev-dependency of `lid` — compile-failure assertion is impossible without it. |
+| Item-kind dispatch | Sequential parse-attempts (`ItemFn`, `ItemStruct`, `ItemEnum`) | `match` over `syn::Item` | `syn::Item` is foreign and `#[non_exhaustive]`, so it cannot be matched without the wildcard arm check 6 denies; caught by our own gate. Reject-by-default for unknown item kinds is the wanted behaviour, and parse-attempts express it without a wildcard. |
 
 ## Open Questions & Future Decisions
 

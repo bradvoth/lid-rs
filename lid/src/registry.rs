@@ -38,17 +38,7 @@ pub static IMPLEMENTATIONS: [Edge];
 #[distributed_slice]
 pub static VALIDATIONS: [Edge];
 
-// Hand-authored implementation edge for the enumeration claim: the slice
-// declarations above are what deliver it, and statics cannot carry
-// `#[implements]`. Replaced by module-level tracing once it exists.
-#[doc = "Implements [`crate::spec::LinkedRegistrationsAreEnumerable`]."]
-const _: () = {
-    #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-    #[::lid::__private::linkme::distributed_slice(::lid::IMPLEMENTATIONS)]
-    static EDGE: ::lid::Edge = ::lid::Edge {
-        spec: <crate::spec::LinkedRegistrationsAreEnumerable as ::lid::Spec>::NAME,
-        item: module_path!(),
-        file: file!(),
-        line: line!(),
-    };
-};
+// The slice declarations above are what deliver the enumeration claim, and
+// statics cannot carry `#[implements]` — the whole module is traced by
+// containment instead.
+lid::implements_module!(crate::spec::LinkedRegistrationsAreEnumerable);
