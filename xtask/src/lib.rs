@@ -19,6 +19,14 @@ pub fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
+/// The workspace root, one level above xtask's manifest.
+pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(std::path::Path::to_path_buf)
+        .ok_or_else(|| "xtask has no parent directory".to_string())
+}
+
 #[cfg(test)]
 mod intent_graph {
     //! xtask's own instance of the graph checks (README §4.2).

@@ -108,6 +108,26 @@ macro_rules! intent_graph {
             .expect("canary triple missing - registry cannot be trusted (README §5.3)");
             assert!(orphans.is_empty(), "specs with no validation:\n{orphans:#?}");
         }
+
+        /// Registry dump for tooling. Validation edges exist only in this
+        /// crate's own test binary (README §5.2), so `cargo xtask mutants`
+        /// obtains them by running this test with `LID_DUMP=1` and parsing
+        /// the emitted lines. Inert in normal test runs.
+        #[test]
+        fn registry_dump_for_tooling() {
+            if std::env::var_os("LID_DUMP").is_none() {
+                return;
+            }
+            for s in $crate::SPECS.iter() {
+                println!("LID-DUMP\tSPEC\t{}\t{}\t{}", s.name, s.file, s.line);
+            }
+            for e in $crate::IMPLEMENTATIONS.iter() {
+                println!("LID-DUMP\tIMPL\t{}\t{}\t{}", e.spec, e.item, e.file);
+            }
+            for e in $crate::VALIDATIONS.iter() {
+                println!("LID-DUMP\tVALID\t{}\t{}\t{}", e.spec, e.item, e.file);
+            }
+        }
     };
 }
 

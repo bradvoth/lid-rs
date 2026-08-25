@@ -1,6 +1,6 @@
 //! Check 12 orchestration: enumerate mutants, join them to their validating
-//! tests through the registry, and run `cargo-mutants` per test-set group
-//! (`docs/intent/xtask/lld.md`).
+//! tests through the dumped registries, and run `cargo-mutants` per test-set
+//! group (`docs/intent/xtask/lld.md`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -8,7 +8,7 @@ use std::process::Command;
 
 use lid::implements;
 
-use crate::mapping::{TestPlan, plan_for_mutant};
+use crate::mapping::{EdgeRecord, TestPlan, plan_for_mutant};
 use crate::spec;
 
 /// One mutant from `cargo mutants --list --json`.
@@ -20,6 +20,15 @@ pub struct Mutant {
     pub file: String,
     /// Unqualified function name.
     pub function: String,
+}
+
+/// The dumped registries the planner joins over.
+#[derive(Debug, Default)]
+pub struct Registry {
+    /// Implementation edges across the workspace's crates.
+    pub impls: Vec<EdgeRecord>,
+    /// Validation edges across the workspace's crates.
+    pub validations: Vec<EdgeRecord>,
 }
 
 /// How much of the tree to mutate, from `[workspace.metadata.lid]` or flags.
@@ -34,12 +43,13 @@ pub enum Scope {
     Full,
 }
 
-/// Runs the mutants task: scope, list, plan, execute.
+/// Runs the mutants task: scope, list, collect registries, plan, execute.
 pub fn run(args: &[String]) -> Result<(), String> {
     let scope = parse_scope(args)?;
     let diff = write_diff_file(&scope)?;
     let mutants = list_mutants(diff.as_deref())?;
-    let groups = group_by_plan(&mutants);
+    let registry = collect_registries()?;
+    let groups = group_by_plan(&mutants, &registry);
     run_groups(&groups, diff.as_deref())
 }
 
@@ -71,18 +81,22 @@ fn apply_flag<'a>(flag: &str, tail: &'a [String]) -> Result<(Scope, &'a [String]
 /// `cargo metadata` so no TOML parser is needed. Diff scope defaults its base
 /// to `main`; CI overrides with `--diff-base`.
 fn configured_scope() -> Result<Scope, String> {
-    let out = capture(cargo_command().args(["metadata", "--format-version", "1", "--no-deps"]))?;
-    let value: serde_json::Value =
-        serde_json::from_str(&out).map_err(|e| format!("parsing cargo metadata: {e}"))?;
-    let configured = value
+    let configured = metadata()?
         .pointer("/metadata/lid/mutation_scope")
         .and_then(serde_json::Value::as_str)
-        .unwrap_or("diff");
+        .unwrap_or("diff")
+        .to_string();
     if configured == "full" {
         Ok(Scope::Full)
     } else {
         Ok(Scope::Diff { base: "main".to_string() })
     }
+}
+
+/// The parsed `cargo metadata` document.
+fn metadata() -> Result<serde_json::Value, String> {
+    let out = capture(cargo_command().args(["metadata", "--format-version", "1", "--no-deps"]))?;
+    serde_json::from_str(&out).map_err(|e| format!("parsing cargo metadata: {e}"))
 }
 
 /// For diff scope, writes `git diff <base>` to a file under `target/` and
@@ -92,8 +106,9 @@ fn write_diff_file(scope: &Scope) -> Result<Option<PathBuf>, String> {
     let Scope::Diff { base } = scope else {
         return Ok(None);
     };
-    let diff = capture(Command::new("git").args(["diff", base]))?;
-    let path = PathBuf::from("target/lid-mutants.diff");
+    let root = crate::workspace_root()?;
+    let diff = capture(Command::new("git").args(["diff", base]).current_dir(&root))?;
+    let path = root.join("target/lid-mutants.diff");
     std::fs::write(&path, &diff).map_err(|e| format!("writing {}: {e}", path.display()))?;
     Ok(Some(path))
 }
@@ -140,16 +155,81 @@ fn mutant_of(value: &serde_json::Value) -> Result<Mutant, String> {
     })
 }
 
+/// Collects the registries of every workspace crate by running each crate's
+/// own `--lib` test binary in dump mode — the only binary whose `#[validates]`
+/// edges exist (README §5.2). Crates without the graph checks dump nothing
+/// and contribute nothing.
+#[implements(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
+pub fn collect_registries() -> Result<Registry, String> {
+    let mut registry = Registry::default();
+    for package in workspace_packages()? {
+        let dumped = dump_registry(&package)?;
+        registry.impls.extend(dumped.impls);
+        registry.validations.extend(dumped.validations);
+    }
+    Ok(registry)
+}
+
+/// Names of the workspace's member packages.
+fn workspace_packages() -> Result<Vec<String>, String> {
+    let doc = metadata()?;
+    let packages = doc
+        .pointer("/packages")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("cargo metadata has no packages array")?;
+    Ok(packages
+        .iter()
+        .filter_map(|p| p.pointer("/name").and_then(serde_json::Value::as_str))
+        .map(str::to_string)
+        .collect())
+}
+
+/// One crate's registry, dumped by its `intent_graph!()` dump test.
+#[implements(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
+pub fn dump_registry(package: &str) -> Result<Registry, String> {
+    let out = capture(
+        cargo_command()
+            .args([
+                "test", "-p", package, "--lib", "--", "--exact",
+                "intent_graph::registry_dump_for_tooling", "--nocapture",
+            ])
+            .env("LID_DUMP", "1"),
+    )?;
+    Ok(parse_dump(&out))
+}
+
+/// Parses `LID-DUMP` lines into edge records.
+fn parse_dump(output: &str) -> Registry {
+    let mut registry = Registry::default();
+    for line in output.lines() {
+        let fields: Vec<&str> = line.split('\t').collect();
+        let ["LID-DUMP", kind, spec_name, item, file] = fields.as_slice() else {
+            continue;
+        };
+        let record = EdgeRecord {
+            spec: (*spec_name).to_string(),
+            item: (*item).to_string(),
+            file: (*file).to_string(),
+        };
+        match *kind {
+            "IMPL" => registry.impls.push(record),
+            "VALID" => registry.validations.push(record),
+            _ => {}
+        }
+    }
+    registry
+}
+
 /// Groups mutant names by their test plan, so each distinct test set gets one
 /// engine run. `BTreeMap` keeps run order deterministic.
-fn group_by_plan(mutants: &[Mutant]) -> BTreeMap<TestPlan, Vec<String>> {
+fn group_by_plan(mutants: &[Mutant], registry: &Registry) -> BTreeMap<TestPlan, Vec<String>> {
     let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
     for mutant in mutants {
         let plan = plan_for_mutant(
             &mutant.file,
             &mutant.function,
-            &lid::IMPLEMENTATIONS,
-            &lid::VALIDATIONS,
+            &registry.impls,
+            &registry.validations,
         );
         groups.entry(plan).or_default().push(mutant.name.clone());
     }
@@ -181,7 +261,11 @@ fn run_groups(
 /// of diff and test filters is unit-testable.
 fn group_args(names: &[String], plan: &TestPlan, diff: Option<&Path>) -> Vec<String> {
     let alternation: Vec<String> = names.iter().map(|n| regex_escape(n)).collect();
-    let mut args: Vec<String> = ["mutants", "--baseline", "skip", "-F"].map(String::from).into();
+    // --test-workspace: a mutant in one crate (e.g. the proc-macro crate) is
+    // often killed only by a dependent crate's tests; package-scoped testing
+    // would let it survive unexercised.
+    let mut args: Vec<String> =
+        ["mutants", "--baseline", "skip", "--test-workspace", "true", "-F"].map(String::from).into();
     args.push(format!("^({})$", alternation.join("|")));
     if let Some(d) = diff {
         args.push("--in-diff".to_string());
@@ -251,6 +335,61 @@ mod tests {
         assert_eq!(with[position.expect("checked above") + 1], "target/lid-diff.patch");
         let without = list_args(None);
         assert!(!without.contains(&"--in-diff".to_string()));
+    }
+
+    #[test]
+    #[validates(spec::DiffScopePassesThroughToTheEngine)]
+    fn diff_scope_writes_a_real_diff_file() {
+        let scope = Scope::Diff { base: "HEAD".to_string() };
+        let path = write_diff_file(&scope)
+            .expect("git diff HEAD must succeed in this repository")
+            .expect("diff scope must yield a diff file");
+        assert!(path.ends_with("lid-mutants.diff"), "{path:?}");
+        assert!(path.exists(), "diff file must exist at {path:?}");
+        assert_eq!(write_diff_file(&Scope::Full).expect("full scope never fails"), None);
+    }
+
+    #[test]
+    #[validates(spec::SurvivingMutantsFailTheGate)]
+    fn engine_failures_fail_the_gate() {
+        let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
+        groups.insert(TestPlan::FullSuite, vec!["any_mutant".to_string()]);
+        let missing_diff = Path::new("target/definitely-missing.diff");
+        let result = run_groups(&groups, Some(missing_diff));
+        assert!(result.is_err(), "an engine failure must fail the mutants gate");
+    }
+
+    #[test]
+    #[validates(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
+    fn registries_come_from_the_owning_crate_test_binary() {
+        let registry = collect_registries().expect("collecting workspace registries must succeed");
+        let lid_test_edge = registry.validations.iter().any(|e| {
+            e.item == "lid::canary::tests::canary_confirms_registry_presence"
+        });
+        assert!(
+            lid_test_edge,
+            "a cfg(test)-only lid validation edge must be present, proving the dump \
+             came from lid's own test binary: {:#?}",
+            registry.validations
+        );
+        let xtask_test_edge = registry.validations.iter().any(|e| e.item.starts_with("xtask::"));
+        assert!(
+            xtask_test_edge,
+            "collect_registries must have walked every workspace crate, xtask included"
+        );
+    }
+
+    #[test]
+    fn dump_lines_parse_into_records() {
+        let out = "noise\nLID-DUMP\tIMPL\ts\ti\tf\nLID-DUMP\tVALID\ts2\ti2\tf2\nLID-DUMP\tSPEC\tn\tf\t1\n";
+        let registry = parse_dump(out);
+        let shape = (
+            registry.impls.len(),
+            registry.validations.len(),
+            registry.impls[0].spec.as_str(),
+            registry.validations[0].item.as_str(),
+        );
+        assert_eq!(shape, (1, 1, "s", "i2"));
     }
 
     #[test]

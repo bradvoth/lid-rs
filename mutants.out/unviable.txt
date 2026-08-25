@@ -1,0 +1,1 @@
+lid-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())

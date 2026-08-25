@@ -9,6 +9,7 @@ use std::process::Command;
 use lid::implements;
 
 use crate::mutants::cargo_command;
+use crate::workspace_root;
 use crate::spec;
 
 /// Which gate command a fixture is expected to fail.
@@ -111,14 +112,6 @@ fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-/// The workspace root, one level above xtask's manifest.
-fn workspace_root() -> Result<PathBuf, String> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .parent()
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "xtask has no parent directory".to_string())
-}
-
 /// The synthesized crate's manifest: the workspace's lint set inlined, a
 /// `[workspace]` table so the parent workspace is not adopted, and `lid` as a
 /// path dependency where the fixture cites specs.
@@ -181,6 +174,7 @@ fn gate_command(gate: Gate) -> Command {
 }
 
 /// Runs the gate and demands it fail with the expected diagnostic.
+#[implements(spec::EveryGateFixtureFailsItsGate)]
 fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String> {
     let output = command
         .output()
@@ -205,18 +199,75 @@ fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String
 mod tests {
     use super::*;
     use lid::validates;
+    use std::sync::Mutex;
+
+    /// Serializes the tests that create and inspect fixture directories, so
+    /// one test's cleanup cannot race another's synthesis.
+    static FIXTURE_DIRS: Mutex<()> = Mutex::new(());
+
+    /// Removes a fixture's synthesized source so a later existence assertion
+    /// proves *this* run synthesized it, not a stale earlier one.
+    fn forget_fixture(name: &str) {
+        let dir = workspace_root()
+            .expect("workspace root resolves")
+            .join("target/gate-selftest")
+            .join(name)
+            .join("src");
+        let _ = std::fs::remove_dir_all(dir);
+    }
 
     #[test]
     #[validates(spec::SurvivingMutantsFailTheGate)]
     fn surviving_mutants_fail_the_gate() {
+        let _serialized = FIXTURE_DIRS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        forget_fixture("vacuous_test");
         run_fixture("vacuous_test").expect(
             "the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure",
         );
+        let synthesized = workspace_root()
+            .expect("workspace root resolves")
+            .join("target/gate-selftest/vacuous_test/src/lib.rs");
+        assert!(synthesized.exists(), "run_fixture must actually synthesize and run the fixture");
     }
 
     #[test]
     #[validates(spec::EveryGateFixtureFailsItsGate)]
     fn every_gate_fixture_fails_its_gate() {
+        let _serialized = FIXTURE_DIRS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        for fixture in FIXTURES {
+            forget_fixture(fixture.name);
+        }
         run_all().expect("every fixture must fail its designated gate with its designated diagnostic");
+        let root = workspace_root().expect("workspace root resolves");
+        for fixture in FIXTURES {
+            let dir = root.join("target/gate-selftest").join(fixture.name).join("src");
+            assert!(dir.exists(), "run_all must have exercised {}", fixture.name);
+        }
+    }
+
+    // Validates both claims: the lookup is part of run_fixture's role in the
+    // check-12 demonstration, so this test must sit in the narrowed test set
+    // of mutants in run_fixture — a lesson taught by a surviving mutant whose
+    // killing test cited only the other claim.
+    #[test]
+    #[validates(spec::EveryGateFixtureFailsItsGate)]
+    fn a_passing_gate_fails_the_selftest() {
+        let mut command = cargo_command();
+        command.arg("--version");
+        let result = expect_gate_failure(&mut command, "anything");
+        assert!(
+            result.is_err_and(|e| e.contains("PASSED")),
+            "a gate that passes on a violation fixture must fail the self-test"
+        );
+    }
+
+    #[test]
+    #[validates(spec::SurvivingMutantsFailTheGate, spec::EveryGateFixtureFailsItsGate)]
+    fn unknown_fixture_names_are_rejected() {
+        let result = run_fixture("no_such_fixture");
+        assert!(
+            result.is_err_and(|e| e.contains("no fixture")),
+            "asking for an unknown fixture must be an error, not a silent pass"
+        );
     }
 }

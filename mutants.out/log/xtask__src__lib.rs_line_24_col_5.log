@@ -1,0 +1,213 @@
+
+*** xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())
+
+*** mutation diff:
+--- xtask/src/lib.rs
++++ replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())
+@@ -16,19 +16,16 @@
+         Some("gate-selftest") => selftest::run_all(),
+         Some(other) => Err(format!("unknown command `{other}`\n{USAGE}")),
+         None => Err(USAGE.to_string()),
+     }
+ }
+ 
+ /// The workspace root, one level above xtask's manifest.
+ pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {
+-    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+-        .parent()
+-        .map(std::path::Path::to_path_buf)
+-        .ok_or_else(|| "xtask has no parent directory".to_string())
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ #[cfg(test)]
+ mod intent_graph {
+     //! xtask's own instance of the graph checks (README §4.2).
+     lid::intent_graph!();
+ }
+
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --no-run --verbose --workspace
+       Fresh unicode-ident v1.0.24
+       Fresh itoa v1.0.18
+       Fresh memchr v2.8.3
+       Fresh winnow v1.0.4
+       Fresh proc-macro2 v1.0.107
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh termcolor v1.4.1
+       Fresh glob v0.3.4
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.151
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh serde_spanned v1.1.1
+       Fresh serde v1.0.229
+       Fresh target-triple v1.0.1
+       Fresh linkme-impl v0.3.37
+       Dirty lid-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid-macros): the file `lid-macros/src/expand.rs` has changed (1787677769.401066983s, 1s after last build at 1787677768.985993368s)
+   Compiling lid-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid-macros)
+       Fresh toml v1.1.4+spec-1.1.0
+       Fresh serde_derive v1.0.229
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_macros --edition=2024 lid-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type proc-macro --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=c43e99934a54fecf -C extra-filename=-be3f6aa0e4d3de50 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+       Fresh linkme v0.3.37
+   Compiling trybuild v1.0.120
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_macros --edition=2024 lid-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=3abbeb46742444ea -C extra-filename=-7317fca37f4ae8b9 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name trybuild --edition=2024 /Users/brad/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/trybuild-1.0.120/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("diff"))' -C metadata=7b80afff8c5ef5ea -C extra-filename=-8c37eb6e1df75497 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern glob=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libglob-874f5def4bcc88d5.rmeta --extern serde=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde-b06e1bab71b84b35.rmeta --extern serde_derive=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde_derive-20b900f8ab7ccb85.dylib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta --extern target_triple=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libtarget_triple-8e166c4f9957d600.rmeta --extern termcolor=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libtermcolor-e8b4e5afc14334d2.rmeta --extern toml=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libtoml-50a3034dc9388279.rmeta --cap-lints allow`
+   Compiling lid v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid --edition=2024 lid/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=6d9f92c5e619a93d -C extra-filename=-93a812b82edfbd2f --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern lid_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblid_macros-be3f6aa0e4d3de50.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rmeta`
+   Compiling xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/xtask)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=32b43cfb9d409491 -C extra-filename=-0cc0e792b9f4f570 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern lid=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblid-93a812b82edfbd2f.rmeta --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=0ac0324f98899832 -C extra-filename=-ac5b7c2a02478715 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern lid=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblid-93a812b82edfbd2f.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=d0ff02627b44cbee -C extra-filename=-1e90c376dfe84153 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern lid=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblid-93a812b82edfbd2f.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib --extern xtask=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libxtask-0cc0e792b9f4f570.rlib`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid --edition=2024 lid/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=35f8602e0cc9dfb1 -C extra-filename=-d0fc39280de5c4cb --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps --extern lid_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblid_macros-be3f6aa0e4d3de50.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rlib --extern trybuild=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/libtrybuild-8c37eb6e1df75497.rlib`
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.00s
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/lid-d0fc39280de5c4cb`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/lid_macros-7317fca37f4ae8b9`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/xtask-ac5b7c2a02478715`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/xtask-1e90c376dfe84153`
+
+*** result: Success
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --verbose --workspace
+       Fresh unicode-ident v1.0.24
+       Fresh itoa v1.0.18
+       Fresh memchr v2.8.3
+       Fresh winnow v1.0.4
+       Fresh proc-macro2 v1.0.107
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh glob v0.3.4
+       Fresh termcolor v1.4.1
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.151
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh serde_spanned v1.1.1
+       Fresh serde v1.0.229
+       Fresh target-triple v1.0.1
+       Fresh linkme-impl v0.3.37
+       Fresh serde_derive v1.0.229
+       Fresh toml v1.1.4+spec-1.1.0
+       Fresh linkme v0.3.37
+       Fresh trybuild v1.0.120
+       Fresh lid-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid-macros)
+       Fresh lid v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid)
+       Fresh xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/xtask)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/lid-d0fc39280de5c4cb`
+
+running 18 tests
+test graph::tests::graph_checks_require_the_present_canary ... ok
+test canary::tests::linked_registrations_are_enumerable ... ok
+test canary::tests::canary_confirms_registry_presence ... ok
+test intent_graph::registry_is_populated ... ok
+test intent_graph::registry_dump_for_tooling ... ok
+test canary::tests::canary_detects_a_stripped_registry ... ok
+test spec::tests::derived_specs_carry_their_definition_path ... ok
+test spec::tests::derived_specs_register_into_specs ... ok
+test graph::tests::uncited_specs_fail_the_graph_check ... ok
+test intent_graph::every_spec_has_an_implementer ... ok
+test intent_graph::every_spec_has_a_validation ... ok
+test graph::tests::unvalidated_specs_fail_the_graph_check ... ok
+test spec::tests::implements_citations_register_edges ... ok
+test graph::tests::graph_checks_scope_to_the_current_crate ... ok
+test graph::tests::covered_graphs_pass_the_graph_check ... ok
+test spec::tests::module_citations_trace_by_containment ... ok
+test spec::tests::validates_citations_register_edges ... ok
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.24
+   Compiling quote v1.0.47
+   Compiling linkme-impl v0.3.37
+   Compiling linkme v0.3.37
+   Compiling syn v3.0.4
+   Compiling syn v2.0.119
+   Compiling lid-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid-macros)
+   Compiling lid v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/lid)
+   Compiling lid-tests v0.0.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/tests/trybuild/lid)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.30s
+
+
+test [0m[1mtests/ui/fail/derive_non_unit.rs[0m [should fail to compile] ... [0m[32mok
+[0mtest [0m[1mtests/ui/fail/empty_citation.rs[0m [should fail to compile] ... [0m[32mok
+[0mtest [0m[1mtests/ui/fail/generic_path.rs[0m [should fail to compile] ... [0m[32mok
+[0mtest [0m[1mtests/ui/fail/not_a_spec.rs[0m [should fail to compile] ... [0m[32mok
+[0mtest [0m[1mtests/ui/fail/unresolvable_path.rs[0m [should fail to compile] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/foreign_key.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/method_citation.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/module_tracing.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/renamed_use.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/retired_spec_definition.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/struct_enum_citation.rs[0m [should pass] ... [0m[32mok
+[0mtest [0m[1mtests/ui/pass/validates_with_test.rs[0m [should pass] ... [0m[32mok
+[0m
+
+test spec::tests::malformed_citations_fail_to_compile ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.28s
+
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/lid_macros-7317fca37f4ae8b9`
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-bQgjKS.tmp/target/debug/deps/xtask-ac5b7c2a02478715`
+
+running 18 tests
+test intent_graph::registry_is_populated ... ok
+test mapping::tests::empty_narrowed_sets_degrade_to_the_full_suite ... ok
+test intent_graph::every_spec_has_an_implementer ... ok
+test intent_graph::registry_dump_for_tooling ... ok
+test mutants::tests::diff_scope_passes_through_to_the_engine ... ok
+test mutants::tests::dump_lines_parse_into_records ... ok
+test mapping::tests::untraced_mutants_fall_back_to_module_tests ... ok
+test mapping::tests::traced_mutants_run_only_their_validating_tests ... ok
+test intent_graph::every_spec_has_a_validation ... ok
+test mutants::tests::full_suite_groups_run_unfiltered ... ok
+test mutants::tests::group_args_select_mutants_and_narrow_tests ... ok
+test selftest::tests::unknown_fixture_names_are_rejected ... ok
+test selftest::tests::every_gate_fixture_fails_its_gate ... FAILED
+test selftest::tests::surviving_mutants_fail_the_gate ... FAILED
+test mutants::tests::diff_scope_writes_a_real_diff_file ... FAILED
+test selftest::tests::a_passing_gate_fails_the_selftest ... ok
+ERROR Failed to open diff file: No such file or directory (os error 2)
+ERROR Failed to read diff file: No such file or directory (os error 2)
+test mutants::tests::engine_failures_fail_the_gate ... ok
+test mutants::tests::registries_come_from_the_owning_crate_test_binary ... ok
+
+failures:
+
+---- selftest::tests::every_gate_fixture_fails_its_gate stdout ----
+
+thread 'selftest::tests::every_gate_fixture_fails_its_gate' (8277909) panicked at xtask/src/selftest.rs:240:19:
+every fixture must fail its designated gate with its designated diagnostic: "gate self-test failures:\nbroken_doc_link: reading clippy.toml: No such file or directory (os error 2)\nmissing_docs: reading clippy.toml: No such file or directory (os error 2)\nskeleton_incoherence: reading clippy.toml: No such file or directory (os error 2)\nbroken_example: reading clippy.toml: No such file or directory (os error 2)\nswallowed_case: reading clippy.toml: No such file or directory (os error 2)\nundeclared_decision: reading clippy.toml: No such file or directory (os error 2)\nflag_argument: reading clippy.toml: No such file or directory (os error 2)\ninlined_concept: reading clippy.toml: No such file or directory (os error 2)\nretired_spec: reading clippy.toml: No such file or directory (os error 2)\nvacuous_test: reading clippy.toml: No such file or directory (os error 2)"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- selftest::tests::surviving_mutants_fail_the_gate stdout ----
+
+thread 'selftest::tests::surviving_mutants_fail_the_gate' (8277912) panicked at xtask/src/selftest.rs:224:37:
+the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure: "reading clippy.toml: No such file or directory (os error 2)"
+
+---- mutants::tests::diff_scope_writes_a_real_diff_file stdout ----
+
+thread 'mutants::tests::diff_scope_writes_a_real_diff_file' (8277898) panicked at xtask/src/mutants.rs:345:14:
+git diff HEAD must succeed in this repository: "running cd \"\" && \"git\" \"diff\" \"HEAD\": No such file or directory (os error 2)"
+
+
+failures:
+    mutants::tests::diff_scope_writes_a_real_diff_file
+    selftest::tests::every_gate_fixture_fails_its_gate
+    selftest::tests::surviving_mutants_fail_the_gate
+
+test result: FAILED. 15 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.70s
+
+error: test failed, to rerun pass `-p xtask --lib`
+
+*** result: Failure(101)

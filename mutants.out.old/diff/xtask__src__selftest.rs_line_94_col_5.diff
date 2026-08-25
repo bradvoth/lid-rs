@@ -1,0 +1,39 @@
+--- xtask/src/selftest.rs
++++ replace synthesize -> Result<PathBuf, String> with Ok(Default::default())
+@@ -86,35 +86,17 @@
+     let mut command = gate_command(fixture.gate);
+     command.current_dir(&dir);
+     expect_gate_failure(&mut command, fixture.expect)
+ }
+ 
+ /// Synthesizes the detached crate for a fixture under
+ /// `target/gate-selftest/<name>` and returns its directory.
+ fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {
+-    let root = workspace_root()?;
+-    let dir = root.join("target/gate-selftest").join(fixture.name);
+-    let write = |path: PathBuf, content: &str| {
+-        std::fs::write(&path, content).map_err(|e| format!("writing {}: {e}", path.display()))
+-    };
+-    std::fs::create_dir_all(dir.join("src"))
+-        .map_err(|e| format!("creating {}: {e}", dir.display()))?;
+-    write(dir.join("Cargo.toml"), &manifest(fixture, &root))?;
+-    let clippy_config = std::fs::read_to_string(root.join("clippy.toml"))
+-        .map_err(|e| format!("reading clippy.toml: {e}"))?;
+-    write(dir.join("clippy.toml"), &clippy_config)?;
+-    let source_path = root
+-        .join("xtask/fixtures")
+-        .join(fixture.name)
+-        .join("src/lib.rs");
+-    let source = std::fs::read_to_string(&source_path)
+-        .map_err(|e| format!("reading {}: {e}", source_path.display()))?;
+-    write(dir.join("src/lib.rs"), &source)?;
+-    Ok(dir)
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// The synthesized crate's manifest: the workspace's lint set inlined, a
+ /// `[workspace]` table so the parent workspace is not adopted, and `lid` as a
+ /// path dependency where the fixture cites specs.
+ fn manifest(fixture: &Fixture, root: &Path) -> String {
+     let lid_dep = if fixture.needs_lid {
+         format!("lid = {{ path = {:?} }}\n", root.join("lid"))

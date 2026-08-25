@@ -3,7 +3,9 @@
 use lid::Spec;
 
 /// When a mutant's function carries implementation edges, its mutation run
-/// shall use exactly the tests validating the specs those edges cite.
+/// shall use exactly the tests validating the specs those edges cite; when
+/// that set is empty, the full suite shall run instead, so zero reachable
+/// tests can never mean zero tests run.
 #[derive(Spec)]
 pub struct TracedMutantsRunOnlyTheirValidatingTests;
 
@@ -28,3 +30,9 @@ pub struct DiffScopePassesThroughToTheEngine;
 /// the self-test.
 #[derive(Spec)]
 pub struct EveryGateFixtureFailsItsGate;
+
+/// When registries are collected for mutation planning, each crate's edges
+/// shall come from that crate's own `--lib` test binary, the only binary its
+/// validation edges link into.
+#[derive(Spec)]
+pub struct ValidationEdgesComeFromTheOwningCrateTestBinary;

@@ -1,0 +1,1 @@
+xtask/src/selftest.rs:154:5: replace gate_command -> Command with Default::default()

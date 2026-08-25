@@ -375,9 +375,12 @@ Two narrowings compose to keep it inside a per-PR budget:
 
 - `--in-diff` mutates only functions the PR touched.
 - The registry supplies the test subset: for a mutant in function `F`, run the
-  tests validating the specs `F` implements. An `xtask` reads
-  `IMPLEMENTATIONS`/`VALIDATIONS`, resolves that set, and passes it as a test
-  filter.
+  tests validating the specs `F` implements. The `xtask` obtains each crate's
+  `IMPLEMENTATIONS`/`VALIDATIONS` from that crate's **own `--lib` test
+  binary** — a dump mode emitted by `intent_graph!()` — because validation
+  edges exist in no other binary (§5.2 applies to the tooling too). A mutant
+  whose narrowed test set is empty runs the full suite instead: zero reachable
+  tests must never mean zero tests run.
 
 Set `[profile.test] opt-level = 0` so inlining can't erase a mutation site. The
 registry-driven test filtering is the one piece that has to be built; the rest is

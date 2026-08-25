@@ -1,0 +1,66 @@
+[
+  {
+    "diff": "--- lid-macros/src/expand.rs\n+++ replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())\n@@ -35,39 +35,17 @@\n             Verb::Implements => quote!(::lid::IMPLEMENTATIONS),\n             Verb::Validates => quote!(::lid::VALIDATIONS),\n         }\n     }\n }\n \n /// Expands `derive(Spec)`.\n pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {\n-    let item: DeriveInput = syn::parse2(input)?;\n-    ensure_unit_struct(&item)?;\n-    let ident = &item.ident;\n-    Ok(quote! {\n-        // The derive's own emissions reference the struct they sit on; when a\n-        // spec is retired with #[deprecated], only *citation* sites should\n-        // warn, never the definition it decorates.\n-        #[automatically_derived]\n-        #[allow(deprecated)]\n-        impl ::lid::Spec for #ident {\n-            const NAME: &'static str = concat!(module_path!(), \"::\", stringify!(#ident));\n-        }\n-        const _: () = {\n-            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]\n-            #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]\n-            #[linkme(crate = ::lid::__private::linkme)]\n-            static META: ::lid::SpecMeta = ::lid::SpecMeta {\n-                name: <#ident as ::lid::Spec>::NAME,\n-                file: file!(),\n-                line: line!(),\n-            };\n-        };\n-    })\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// Rejects derive targets that are not plain unit structs.\n fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {\n     let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));\n     if !unit || !item.generics.params.is_empty() {\n         return Err(syn::Error::new_spanned(\n             &item.ident,\n",
+    "file": "lid-macros/src/expand.rs",
+    "function": {
+      "function_name": "derive_spec",
+      "return_type": "-> syn::Result<TokenStream>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 66
+        },
+        "start": {
+          "column": 1,
+          "line": 41
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "lid-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())",
+    "package": "lid-macros",
+    "replacement": "Ok(Default::default())",
+    "span": {
+      "end": {
+        "column": 7,
+        "line": 65
+      },
+      "start": {
+        "column": 5,
+        "line": 43
+      }
+    }
+  },
+  {
+    "diff": "--- xtask/src/lib.rs\n+++ replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())\n@@ -16,19 +16,16 @@\n         Some(\"gate-selftest\") => selftest::run_all(),\n         Some(other) => Err(format!(\"unknown command `{other}`\\n{USAGE}\")),\n         None => Err(USAGE.to_string()),\n     }\n }\n \n /// The workspace root, one level above xtask's manifest.\n pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {\n-    std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"))\n-        .parent()\n-        .map(std::path::Path::to_path_buf)\n-        .ok_or_else(|| \"xtask has no parent directory\".to_string())\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n #[cfg(test)]\n mod intent_graph {\n     //! xtask's own instance of the graph checks (README §4.2).\n     lid::intent_graph!();\n }\n",
+    "file": "xtask/src/lib.rs",
+    "function": {
+      "function_name": "workspace_root",
+      "return_type": "-> Result<std::path::PathBuf, String>",
+      "span": {
+        "end": {
+          "column": 2,
+          "line": 28
+        },
+        "start": {
+          "column": 1,
+          "line": 22
+        }
+      }
+    },
+    "genre": "FnValue",
+    "name": "xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())",
+    "package": "xtask",
+    "replacement": "Ok(Default::default())",
+    "span": {
+      "end": {
+        "column": 68,
+        "line": 27
+      },
+      "start": {
+        "column": 5,
+        "line": 24
+      }
+    }
+  }
+]
