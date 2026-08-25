@@ -6,7 +6,7 @@ LID links design intent to code through greppable requirement IDs, but the
 linkage is lexical: an `@spec` comment is a string that can cite a deleted
 requirement, describe behaviour a function no longer has, or be missing from
 code an agent invented. Specs and code drift apart despite the IDs, and the
-drift is invisible until a human notices at review time — exactly where humans
+drift is invisible until a human notices at review time — where humans
 are weakest.
 
 `README.md` (the LID-rs specification) designs the fix: make the
@@ -23,7 +23,7 @@ first commit. Self-hosting is not a stunt: it is the end-to-end proof. The
 system is judged working when its own twelve gates run green over its own
 intent graph, and when each gate demonstrably fails on a deliberate violation.
 
-Three load-bearing mechanisms:
+Three mechanisms carry it:
 
 - **Compiler-resolved citations.** `#[implements]` / `#[validates]` expand to a
   const type-assertion, so a bad citation is a type error (README [§3.3](https://bradvoth.github.io/lid-rs/spec/mapping.html)).
@@ -72,7 +72,7 @@ Falsifiable, in delivery order:
    (asserted by test, not by inspection).
 3. Every gate has a demonstrated failure: for each of the twelve checks, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
-   the gate actually catches its violation — not merely that green code passes.
+   the gate catches its violation — not merely that green code passes.
 4. `cargo xtask mutants --in-diff` narrows each mutant's test set through the
    registry, and a vacuous test (executes but doesn't assert) is caught by it.
 5. The skill at `.claude/skills/lid-rs/` walks an agent through the eight
@@ -157,7 +157,7 @@ Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spe
 | Claims are Rust items in `src/spec/`, descriptive names | Prose EARS files with numbered IDs (classic LID, as the installed `linked-intent-dev` skill defaults to) | README [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html)–3.2: compiler-resolved citations require items; names make citation sites self-documenting; rename-breaks-citations is the desired re-review behaviour. `#[spec("...")]` aliases cover genuine foreign keys. |
 | `linkme` sections, `inventory` behind a feature flag as fallback | `inventory` primary; build-script codegen; source scanning | Zero runtime cost and no life-before-main on mainstream targets; the escape hatch is a feature flag, not a rewrite (README [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html)). Source scanning violates constraint 2. |
 | Skill developed in-repo, promoted to plugin later | Plugin-shaped from the start | Dogfood the skill where it's built; packaging before the methodology settles would version-churn the plugin. |
-| Gates on from the first commit | Switch gates on when all twelve exist | Tenet 2; the bootstrap window is precisely when untraced drift would accrete. |
+| Gates on from the first commit | Switch gates on when all twelve exist | Tenet 2; the bootstrap window is when untraced drift would accrete. |
 
 ## Success Metrics
 

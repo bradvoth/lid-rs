@@ -167,7 +167,7 @@ propagating into another slice's LLD territory.
 | check 4 — skeleton doesn't type-check | The layer you designed doesn't fit together | Fix the design at this layer before descending; that's the point of skeleton-first |
 | check 6 — non-exhaustive match | An upstream case was added and a dispatch site would swallow it | Handle the new case; never `_ =>` it away |
 | check 7 — cognitive complexity | A leaf contains decisions nobody declared | **Return to Phase 1.** Write the claim (making the branch a declared dispatch), or restructure. Never raise the threshold |
-| check 8 — bool parameter | Two functions in a trench coat | Split into two leaves; share genuinely-common structure in a wrapper, never via a flag. The `Option`-parameter variant is your judgment — nothing catches it |
+| check 8 — bool parameter | Two functions in a trench coat | Split into two leaves; share common structure in a wrapper, never via a flag. The `Option`-parameter variant is your judgment — nothing catches it |
 | check 9 — too many lines | An unnamed sub-thought inlined | Extract and name it |
 | check 10/11 — uncited/unvalidated spec | The design says it; nothing does/would-notice it | Implement or validate the claim — or if the claim is wrong, cascade its removal from the LLD down |
 | check 12 — surviving mutant | A test executes the code but asserts nothing about it — or the test that *would* kill it cites a different claim, so the narrowed test set never ran it | Strengthen the test to assert the claim's observable behaviour, or fix the citation: a killing test must cite the claim the mutated function implements, because narrowing follows citations |

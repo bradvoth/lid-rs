@@ -12,7 +12,7 @@ Phases 1 and 3; the skill exists so the agent's share is done inside the
 constraints rather than reviewed into them afterwards.
 
 It lives at `.claude/skills/lid-rs/SKILL.md` in this repository (repo-local
-now; promotion to a distributable plugin is deliberately out of scope — HLD
+now; promotion to a distributable plugin is out of scope — HLD
 Non-Goals).
 
 ## This slice is untraced, by design
@@ -46,8 +46,8 @@ The skill must carry, in this order of importance:
 4. **Mechanics discovered building this workspace** — the crate-scoped graph
    checks, `intent_graph!()` placement, module tracing via
    `implements_module!`, spec retirement via `#[deprecated]` (definition site
-   stays clean; citation sites warn), the linkme wrapper attribute being
-   load-bearing, and the bootstrap/brownfield adoption order.
+   stays clean; citation sites warn), the required linkme wrapper
+   attribute, and the bootstrap/brownfield adoption order.
 
 ## Decisions & Alternatives
 

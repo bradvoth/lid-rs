@@ -71,7 +71,7 @@ in two steps that live in git history:
    must stay green unchanged. Any divergence in what the macros emit is a
    test failure naming the field that moved.
 
-`file`/`line` fields are deliberately outside the pin: they change with the
+`file`/`line` fields are left outside the pin: they change with the
 swap and carry no contract.
 
 ## Compile-failure demonstrations (check 1, Goal 3)

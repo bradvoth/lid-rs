@@ -69,7 +69,7 @@ const _: () = {
 (That block is live: the LLD is included as module documentation, so `cargo
 test --doc` compiles it — the expansion contract is itself compiler-checked.)
 
-The `#[linkme(crate = …)]` line is load-bearing for downstream crates:
+Downstream crates need the `#[linkme(crate = …)]` line:
 linkme's own element expansion emits `linkme::…` paths, which resolve only in
 crates that depend on linkme directly. The attribute redirects those paths
 through `lid`'s re-export — proven by `xtask`, the first consumer with no
@@ -124,7 +124,7 @@ opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
 | Join key between `SpecMeta` and `Edge` | Derive-generated `Spec::NAME` associated const (`module_path!()` + ident at the definition site) | `core::any::type_name::<T>()` on both sides; stringified path tokens at the citation site | `type_name` is not const-stable, so it cannot initialize a registration static on stable — proven by compile failure, not assumed. Stringified citation paths break the join when sites path differently. `NAME` is single-sourced at the definition, and the projection doubles as the citation's type assertion and `#[deprecated]` propagation point. |
 | Canary registration visibility | Unconditional, in the library proper | `#[cfg(test)]` alongside the graph checks | A cfg(test) canary never reaches downstream test binaries, silently un-guarding every consumer's registry checks — the exact vacuous-pass failure the canary exists to prevent. |
 | Canary validation edge | Sentinel edge naming `lid::canary::sentinel`, plus a real cfg(test) test | Only a real test (edge appears in test builds only); no validation edge (canary checks 2 of 3 slices) | The sentinel keeps all three sections guarded in every binary; the real test keeps the claim behaviorally validated. Documented as a sentinel so the edge is never mistaken for a runnable test. |
-| Stripped-registry testability | `triple_is_present` leaf parameterized over slices | Testing `present()` only (true case solely); linker tricks to actually strip sections in a test target | Parameterization makes the false branch an ordinary unit test; linker-trick tests are target-dependent and belong, if anywhere, in CI matrix work later. |
+| Stripped-registry testability | `triple_is_present` leaf parameterized over slices | Testing `present()` only (true case solely); linker tricks to strip sections in a test target | Parameterization makes the false branch an ordinary unit test; linker-trick tests are target-dependent and belong, if anywhere, in CI matrix work later. |
 
 ## Open Questions & Future Decisions
 

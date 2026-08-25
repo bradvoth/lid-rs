@@ -28,7 +28,7 @@ EARS one-liners state atomic claims, tests assert those claims, and code carries
 That linkage is mechanical but *lexical*. An `@spec` comment is a string. It can
 cite a requirement that was deleted, describe behaviour the function no longer
 has, or be absent entirely from code the agent invented on its own initiative.
-LID's own `bidirectional-differential` experiment exists precisely because specs
+LID's own `bidirectional-differential` experiment exists because specs
 and code drift apart despite the IDs.
 
 The adjustment: **replace the free-text spec layer with a refinement skeleton
@@ -43,7 +43,7 @@ compiler resolves. Two additional principles come from stepwise refinement:
   layer for one user-visible operation before descending, so cross-cutting
   corrections land before implementation effort is sunk.
 
-The consequence worth stating up front: **a leaf with a branch in it is a
+One consequence up front: **a leaf with a branch in it is a
 requirement nobody wrote down.** That turns the complexity rule into a drift
 detector you can put in CI.
 <!-- ANCHOR_END: premise -->
@@ -174,7 +174,7 @@ pub struct UnknownCredentialsAreRejected;
 pub struct BackendFailureIsIndistinguishableToUser;
 ```
 
-A derive rather than a block macro, deliberately. Doc comments stay ordinary doc
+A derive rather than a block macro. Doc comments stay ordinary doc
 comments, so rustdoc, rust-analyzer hover, `missing_docs`, and go-to-definition
 all behave normally instead of interacting with a macro arm. Each claim is a real
 item at a real source location.
@@ -184,7 +184,7 @@ item at a real source location.
 `AUTH-UI-001` is a holdover from requirements-document culture, where an ID is a
 stable handle for cross-reference in prose. Citations here aren't prose — they're
 paths the compiler resolves — so the number buys nothing the name doesn't.
-`grep -r ValidCredentialsYieldScopedSession` works exactly as well, and rustdoc
+`grep -r ValidCredentialsYieldScopedSession` works as well, and rustdoc
 search finds the item by its real name.
 
 More importantly, a descriptive name makes every citation site self-documenting.
@@ -310,7 +310,7 @@ Rust source.
 | 8 | **Flag argument** | `clippy::fn_params_excessive_bools`, threshold 0 | Two functions in a trench coat. A `bool` parameter is a branch smuggled into a leaf. |
 | 9 | **Inlined concept** | `clippy::too_many_lines` | A coherent sub-thought was manually inlined instead of being named. |
 
-Check 7 is load-bearing. Its logic: every branch is a decision, every decision
+Check 7 does the most work. Its logic: every branch is a decision, every decision
 should be a spec claim, and dispatch nodes are the only place decisions may live.
 A leaf whose complexity exceeds 1 is *either* an undeclared dispatch node *or* a
 requirement that was never written down — an agent making a judgment call you
@@ -372,7 +372,7 @@ design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/
 notice if the implementation were wrong.
 
 Phase 5 of the flow ([§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) already solves this by hand: a `todo!()` body panics, so any test that
-genuinely exercises the cited function must fail against the skeleton. "Confirm
+exercises the cited function must fail against the skeleton. "Confirm
 red" is a proof of non-vacuity performed when it costs nothing. The problem is
 that it's a human ritual done once, and nothing preserves it.
 
@@ -548,7 +548,7 @@ dodged, since `retry(|| authenticate(&c))` calls nothing traced — the closure
 does. And enforcing it needs a call graph, meaning source parsing or rustc
 internals: both constraints violated, for a rule that leaks anyway.
 
-### 6.2 What actually holds the line
+### 6.2 What holds the line
 
 **Mutation answers the empirical version.** If mutating an untraced function
 kills a `#[validates]` test, that function is causally on a spec-governed path
@@ -649,7 +649,7 @@ max-fn-params-bools            = 0
 
 `cognitive-complexity-threshold = 4` is a starting point, not scripture. The
 number matters less than the invariant it protects: *a leaf should not branch*.
-If you're raising it, check whether the code is genuinely irreducible or whether
+If you're raising it, check whether the code is irreducible or whether
 writing the claim was merely inconvenient.
 <!-- ANCHOR_END: configuration -->
 
@@ -670,7 +670,7 @@ is the layer that cannot be recovered from code — rationale, rejected
 alternatives, invariants that aren't type-expressible. Your time goes here.
 
 **Phase 2 — Derive claims.** *(agent proposes, human approves)*
-Agent emits `#[derive(Spec)]` items. Reject claims that are really two claims;
+Agent emits `#[derive(Spec)]` items. Reject claims that are two claims;
 reject claims that restate the LLD rather than asserting something. Names should
 read as sentences.
 
@@ -748,7 +748,7 @@ mod intent_graph;
 ### Phase 2 — claims
 
 The three from [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html). `BackendFailureIsIndistinguishableToUser` captures the
-non-observability invariant — exactly the kind of thing that otherwise lives only
+non-observability invariant — the kind of thing that otherwise lives only
 in someone's head and gets quietly violated by an agent writing a "helpful" error
 message.
 
@@ -858,7 +858,7 @@ lockout is in scope, and if so writing the claim — at which point the branch i
 declared, `load_account` becomes a dispatch node, and store access moves down a
 layer into its own leaf.
 
-**That is the whole point of the system.** The agent made a judgment call, and a
+**That is the point of the system.** The agent made a judgment call, and a
 clippy threshold caught it in the same session, without a human reading the diff
 carefully enough to notice a fourth error variant.
 <!-- ANCHOR_END: example-login -->
@@ -868,7 +868,7 @@ carefully enough to notice a fourth error variant.
 <!-- ANCHOR: example-settings -->
 ## 10. Worked example B — applying a settings change
 
-Chosen because it's genuinely dispatch-shaped, so it exercises the cascade and
+Chosen because it is dispatch-shaped, so it exercises the cascade and
 the flag-argument rule.
 
 ### Phase 1 — LLD excerpt
@@ -927,8 +927,7 @@ fn begin_email_change(account: &mut Account, email: EmailAddress) -> Result<Appl
 
 `apply` is a textbook dispatch node: one `match`, three arms, zero work. Its
 entire purpose is expressing where control goes. Complexity stays low because
-clippy's cognitive metric doesn't penalise flat `match` arms — which is exactly
-why cognitive complexity is the right metric here and cyclomatic is not. A
+clippy's cognitive metric doesn't penalise flat `match` arms — which is why cognitive complexity is the right metric here and cyclomatic is not. A
 twelve-arm dispatch is fine; three nested `if`s in a leaf is not.
 
 ### The cascade, concretely
@@ -971,7 +970,7 @@ with its dispatch buried mid-body. And the abstraction is a coincidence of shape
 `Field`/`Value` erase the types doing the real work.
 
 Two clean leaves is the answer. The transaction boundary the LLD mentions is
-genuinely shared and belongs in a wrapper around `apply`, not threaded through
+shared and belongs in a wrapper around `apply`, not threaded through
 the leaves.
 <!-- ANCHOR_END: example-settings -->
 
@@ -1029,8 +1028,8 @@ codebase gates correctly on the part that's traced.
 ## 12. Honest limits
 
 - **The semantic residual.** Per [§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html), a test can cite the wrong claim and pass
-  every gate. This is by design ([§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html)), but it means the differential pass is
-  load-bearing and needs a scheduled owner, not good intentions.
+  every gate. This is by design ([§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html)), but it means the differential pass
+  needs a scheduled owner, not good intentions.
 - **`linkme` has platform edges.** See [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html). The canary converts silent failure
   into loud failure, but on an unusual target you will be debugging a linker
   mechanism. The `inventory` fallback exists for that case.

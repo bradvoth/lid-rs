@@ -21,7 +21,7 @@ its build.
 
 The source of the idea is
 [Linked-Intent Development (LID)](https://linked-intent.dev/) — the
-language-agnostic methodology of which LID-rs is a deliberately
+language-agnostic methodology of which LID-rs is an
 opinionated, Rust-only refinement. Read LID for the *why* of intent
 arrows; read this book for what happens when the arrow is made of Rust
 items and the compiler enforces every edge.
