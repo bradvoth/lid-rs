@@ -1,8 +1,17 @@
+<!-- ANCHOR: header -->
 # LID-rs
 
 **Linked-Intent Development, compiled.**
 A spec-driven workflow for Rust in which the intent graph is made of Rust items,
 so the compiler — not grep, and not a second parser — enforces the links.
+
+LID-rs is an opinionated, Rust-specific implementation of
+[Linked-Intent Development (LID)](https://linked-intent.dev/), which is the
+source of the idea: link design intent to code through a walkable arrow of
+HLDs, LLDs, atomic claims, tests, and citations. Where LID is
+language-agnostic and enforces the arrow by convention and tooling, LID-rs
+trades that generality for teeth — every edge of the graph becomes something
+the Rust compiler, linker, or test harness resolves and gates.
 
 *Revision 4. Supersedes r3 with findings from the reference implementation:
 the citation expansion is corrected for stable Rust — `type_name` is not
@@ -11,8 +20,11 @@ const, whose projection at the citation site is itself the type assertion —
 and registration statics are scoped inside `const _` blocks rather than
 name-mangled.*
 
+<!-- ANCHOR_END: header -->
+
 ---
 
+<!-- ANCHOR: premise -->
 ## 0. The premise
 
 LID (Linked-Intent Development) links a design document to the code built from
@@ -41,9 +53,11 @@ compiler resolves. Two additional principles come from stepwise refinement:
 The consequence worth stating up front: **a leaf with a branch in it is a
 requirement nobody wrote down.** That turns the complexity rule into a drift
 detector you can put in CI.
+<!-- ANCHOR_END: premise -->
 
 ---
 
+<!-- ANCHOR: purpose -->
 ## 1. What this is for
 
 ### 1.1 The goal is to make semantic drift the only thing left to review
@@ -93,9 +107,11 @@ Adopting mid-life is a supported path — see the brownfield note in §11 — an
 better than adopting early. A spike that earned its way into production arrives
 with its design decisions already discovered; writing the LLD after the fact is
 cheap because you know the answers.
+<!-- ANCHOR_END: purpose -->
 
 ---
 
+<!-- ANCHOR: constraints -->
 ## 2. Design constraints
 
 Three constraints shaped every decision below, and they rule out most of the
@@ -115,9 +131,11 @@ Constraint 3 has a corollary that recurs throughout: **a check built on
 enumeration must first prove the enumeration is non-empty.** A registry that
 silently fails to populate turns every check over it into a vacuous pass. See
 §5.3.
+<!-- ANCHOR_END: constraints -->
 
 ---
 
+<!-- ANCHOR: mapping -->
 ## 3. Mapping: LID concept → Rust mechanism
 
 | LID artifact | Rust mechanism | Why this mechanism |
@@ -274,9 +292,11 @@ Same three effects, registering into `VALIDATIONS`. **These must be
 registry, so they cannot register. Keep them — they're the best form of the
 "claim and assertion in the same block of text" property, and they're excellent
 public-facing documentation — but they are *examples*, not the gate.
+<!-- ANCHOR_END: mapping -->
 
 ---
 
+<!-- ANCHOR: gates -->
 ## 4. Validation checks
 
 Twelve gates in two tiers. Both tiers gate; both run on stable; neither parses
@@ -412,9 +432,11 @@ cargo xtask mutants                              # 12 (scope from metadata;
 
 Cheapest and most specific first. Mutation runs last because it's the only step
 that rebuilds.
+<!-- ANCHOR_END: gates -->
 
 ---
 
+<!-- ANCHOR: registry -->
 ## 5. The registry mechanism
 
 Checks 10 and 11 need to enumerate every spec, every citation, and every
@@ -503,9 +525,11 @@ becomes a named failure instead of an inferred pass.
   The canary catches it; the fix is a documented profile setting.
 - **Dependency audits.** It appears in `cargo tree` and `cargo deny` output.
   Fine — just don't let anyone be surprised by it.
+<!-- ANCHOR_END: registry -->
 
 ---
 
+<!-- ANCHOR: traced -->
 ## 6. Traced and untraced code
 
 Not every function should carry a citation. A parsing helper, a `Display` impl, a
@@ -580,9 +604,11 @@ attributes are not stable Rust; the emitted edge is identical, with
 inherits the citation. Use this for a slice's
 private machinery; use per-function citations at the public surface where
 precision matters.
+<!-- ANCHOR_END: traced -->
 
 ---
 
+<!-- ANCHOR: configuration -->
 ## 7. Configuration
 
 Three files, each the canonical home for one kind of setting. None of it lives
@@ -631,9 +657,11 @@ max-fn-params-bools            = 0
 number matters less than the invariant it protects: *a leaf should not branch*.
 If you're raising it, check whether the code is genuinely irreducible or whether
 writing the claim was merely inconvenient.
+<!-- ANCHOR_END: configuration -->
 
 ---
 
+<!-- ANCHOR: flow -->
 ## 8. The flow
 
 Eight phases. Human authorship concentrates in 1 and 3; agent effort concentrates
@@ -692,9 +720,11 @@ wants something slice *n−1* built. Reuse only when the shared thing is one
 concept, not a coincidence of shape — and never by adding a parameter to make two
 behaviours fit one body. Check 8 catches the `bool` version; nothing catches the
 `Option` version, so that one stays a human judgment.
+<!-- ANCHOR_END: flow -->
 
 ---
 
+<!-- ANCHOR: example-login -->
 ## 9. Worked example A — user login
 
 ### Phase 1 — LLD (`docs/intent/auth/lld.md`)
@@ -837,9 +867,11 @@ layer into its own leaf.
 **That is the whole point of the system.** The agent made a judgment call, and a
 clippy threshold caught it in the same session, without a human reading the diff
 carefully enough to notice a fourth error variant.
+<!-- ANCHOR_END: example-login -->
 
 ---
 
+<!-- ANCHOR: example-settings -->
 ## 10. Worked example B — applying a settings change
 
 Chosen because it's genuinely dispatch-shaped, so it exercises the cascade and
@@ -947,9 +979,11 @@ with its dispatch buried mid-body. And the abstraction is a coincidence of shape
 Two clean leaves is the answer. The transaction boundary the LLD mentions is
 genuinely shared and belongs in a wrapper around `apply`, not threaded through
 the leaves.
+<!-- ANCHOR_END: example-settings -->
 
 ---
 
+<!-- ANCHOR: layout -->
 ## 11. Repo layout
 
 ```
@@ -993,9 +1027,11 @@ dispatch node. Then write LLDs for the slices you're actively changing, and let
 `#[implements]` spread through the code you touch rather than in a big-bang pass.
 Checks 10 and 11 only ever assert over specs that exist, so a partially-traced
 codebase gates correctly on the part that's traced.
+<!-- ANCHOR_END: layout -->
 
 ---
 
+<!-- ANCHOR: limits -->
 ## 12. Honest limits
 
 - **The semantic residual.** Per §4.4, a test can cite the wrong claim and pass
@@ -1013,9 +1049,11 @@ codebase gates correctly on the part that's traced.
   approximate. Treat module size as the check on this — nothing enforces it.
 - **`cognitive_complexity` is a nursery lint.** It has known false positives and
   its behaviour can change between clippy releases. Pin the toolchain in CI.
+<!-- ANCHOR_END: limits -->
 
 ---
 
+<!-- ANCHOR: bootstrap -->
 ## 13. Bootstrap checklist
 
 1. `cargo new --lib` plus a thin `bin`.
@@ -1035,3 +1073,4 @@ codebase gates correctly on the part that's traced.
 11. First slice end to end before writing a second LLD. The phase boundaries are
     where the tedium hides; find out where it bites on one slice before
     committing to the shape.
+<!-- ANCHOR_END: bootstrap -->

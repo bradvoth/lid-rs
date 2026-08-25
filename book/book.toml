@@ -1,0 +1,13 @@
+[book]
+title = "LID-rs"
+description = "Linked-Intent Development, compiled: an opinionated Rust implementation of LID."
+authors = ["Brad Voth"]
+src = "src"
+language = "en"
+
+[output.html]
+git-repository-url = "https://github.com/bradvoth/lid-rs"
+site-url = "/lid-rs/"
+
+[output.html.playground]
+runnable = false

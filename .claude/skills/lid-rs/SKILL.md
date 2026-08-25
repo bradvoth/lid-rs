@@ -2,6 +2,7 @@
 name: lid-rs
 description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the eight-phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
 ---
+<!-- ANCHOR: skill -->
 
 # Operating LID-rs
 
@@ -180,3 +181,5 @@ propagating into another slice's LLD territory.
 - Shape-coincidence reuse hidden behind an `Option` parameter (§8).
 - A module outgrowing its `implements_module!` citation — watch module size.
 - Ceremonial claims that restate rather than assert; reject them in Phase 2.
+
+<!-- ANCHOR_END: skill -->

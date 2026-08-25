@@ -59,6 +59,7 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
 cargo xtask mutants                  # diff scope; --full / --diff-base override
+mdbook build book                    # the site is assembled by inclusion; breaks on drift
 ```
 
 ## Tenets (order wins on conflict; full statements in the HLD)

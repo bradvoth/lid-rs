@@ -20,3 +20,12 @@ jobs:
       - run: cargo install cargo-mutants --locked
       - run: cargo test --lib
       - run: cargo xtask mutants --diff-base origin/main
+      # The book is assembled by inclusion; a renamed anchor or moved doc
+      # breaks its build, and that breakage gates here, not only at deploy.
+      - name: Install mdBook
+        run: |
+          mkdir -p "$HOME/.local/bin"
+          curl -sSL https://github.com/rust-lang/mdBook/releases/download/v0.5.4/mdbook-v0.5.4-x86_64-unknown-linux-gnu.tar.gz \
+            | tar -xz -C "$HOME/.local/bin"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - run: mdbook build book
