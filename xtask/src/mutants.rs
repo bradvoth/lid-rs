@@ -64,8 +64,15 @@ fn write_diff_file(scope: &Scope) -> Result<Option<PathBuf>, String> {
 }
 
 /// Enumerates mutants, restricted by the diff when one is given.
-#[implements(spec::DiffScopePassesThroughToTheEngine)]
 fn list_mutants(diff: Option<&Path>) -> Result<Vec<Mutant>, String> {
+    let _ = diff;
+    todo!()
+}
+
+/// The `cargo mutants --list` argument list — pure, so the diff pass-through
+/// is unit-testable.
+#[implements(spec::DiffScopePassesThroughToTheEngine)]
+fn list_args(diff: Option<&Path>) -> Vec<String> {
     let _ = diff;
     todo!()
 }
@@ -104,4 +111,33 @@ fn regex_escape(name: &str) -> String {
 fn capture(command: &mut Command) -> Result<String, String> {
     let _ = command;
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lid::validates;
+
+    #[test]
+    #[validates(spec::DiffScopePassesThroughToTheEngine)]
+    fn diff_scope_passes_through_to_the_engine() {
+        let with = list_args(Some(Path::new("target/lid-diff.patch")));
+        let position = with.iter().position(|a| a == "--in-diff");
+        assert!(position.is_some(), "--in-diff missing: {with:?}");
+        assert_eq!(with[position.expect("checked above") + 1], "target/lid-diff.patch");
+        let without = list_args(None);
+        assert!(!without.contains(&"--in-diff".to_string()));
+    }
+
+    #[test]
+    fn group_args_carry_selection_and_filters() {
+        let plan = TestPlan::Traced(vec!["a::tests::t1".to_string()]);
+        let args = group_args(&["m(1)".to_string()], &plan, None);
+        assert!(args.contains(&r"-F".to_string()), "{args:?}");
+        assert!(args.contains(&r"^(m\(1\))$".to_string()), "{args:?}");
+        assert!(args.contains(&"--cargo-test-arg=--lib".to_string()), "{args:?}");
+        assert!(args.contains(&"--cargo-test-arg=a::tests::t1".to_string()), "{args:?}");
+        let full = group_args(&["m".to_string()], &TestPlan::FullSuite, None);
+        assert!(!full.iter().any(|a| a.starts_with("--cargo-test-arg")), "{full:?}");
+    }
 }

@@ -85,3 +85,21 @@ fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String
     let _ = (command, expect);
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lid::validates;
+
+    #[test]
+    #[validates(spec::SurvivingMutantsFailTheGate)]
+    fn surviving_mutants_fail_the_gate() {
+        run_fixture("vacuous_test").expect("the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure");
+    }
+
+    #[test]
+    #[validates(spec::EveryGateFixtureFailsItsGate)]
+    fn every_gate_fixture_fails_its_gate() {
+        run_all().expect("every fixture must fail its designated gate with its designated diagnostic");
+    }
+}
