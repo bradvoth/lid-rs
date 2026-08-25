@@ -1,0 +1,5 @@
+# README §12: cognitive_complexity is a nursery lint whose behaviour can shift
+# between clippy releases — the toolchain is pinned so local and CI agree.
+[toolchain]
+channel = "1.97.1"
+components = ["clippy", "rustfmt"]
