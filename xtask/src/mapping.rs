@@ -7,7 +7,7 @@ use lid::implements;
 use crate::spec;
 
 /// The tests to run against one mutant.
-#[derive(Debug, PartialEq, Eq, Hash, Clone)]
+#[derive(Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Clone)]
 pub enum TestPlan {
     /// The mutated fn is traced: exactly the tests validating its specs.
     Traced(Vec<String>),
@@ -28,31 +28,48 @@ pub fn plan_for_mutant(
     impls: &[Edge],
     validations: &[Edge],
 ) -> TestPlan {
-    let _ = (file, function, impls, validations);
-    todo!()
+    let direct = specs_for_fn(file, function, impls);
+    if !direct.is_empty() {
+        return TestPlan::Traced(tests_validating(&direct, validations));
+    }
+    let module = specs_in_file(file, impls);
+    if module.is_empty() {
+        TestPlan::FullSuite
+    } else {
+        TestPlan::ModuleFallback(tests_validating(&module, validations))
+    }
 }
 
 /// Spec names cited by implementation edges whose item is `function` in
 /// `file`. File equality disambiguates same-named fns in different modules.
 fn specs_for_fn(file: &str, function: &str, impls: &[Edge]) -> Vec<&'static str> {
-    let _ = (file, function, impls);
-    todo!()
+    let suffix = format!("::{function}");
+    impls
+        .iter()
+        .filter(|e| e.file == file && e.item.ends_with(&suffix))
+        .map(|e| e.spec)
+        .collect()
 }
 
 /// Distinct spec names implemented anywhere in `file` — the module-fallback
 /// spec set for untraced fns, whose module path the mutant list does not
 /// carry.
 fn specs_in_file(file: &str, impls: &[Edge]) -> Vec<&'static str> {
-    let _ = (file, impls);
-    todo!()
+    impls.iter().filter(|e| e.file == file).map(|e| e.spec).collect()
 }
 
 /// Sorted, deduplicated libtest filters for the tests validating `specs`:
 /// each validation edge's item with its leading crate segment stripped, since
 /// libtest names are crate-relative.
 fn tests_validating(specs: &[&str], validations: &[Edge]) -> Vec<String> {
-    let _ = (specs, validations);
-    todo!()
+    let mut filters: Vec<String> = validations
+        .iter()
+        .filter(|e| specs.contains(&e.spec))
+        .filter_map(|e| e.item.split_once("::").map(|(_, rest)| rest.to_string()))
+        .collect();
+    filters.sort();
+    filters.dedup();
+    filters
 }
 
 #[cfg(test)]

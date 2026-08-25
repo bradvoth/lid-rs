@@ -3,11 +3,12 @@
 //! asserts the gate fails on it with the expected diagnostic
 //! (`docs/intent/xtask/lld.md § Gate self-test`, HLD Goal 3).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use lid::implements;
 
+use crate::mutants::cargo_command;
 use crate::spec;
 
 /// Which gate command a fixture is expected to fail.
@@ -45,10 +46,10 @@ pub const FIXTURES: &[Fixture] = &[
     Fixture { name: "missing_docs", gate: Gate::Clippy, expect: "missing documentation", needs_lid: false },
     Fixture { name: "skeleton_incoherence", gate: Gate::Check, expect: "mismatched types", needs_lid: false },
     Fixture { name: "broken_example", gate: Gate::Doctest, expect: "FAILED", needs_lid: false },
-    Fixture { name: "swallowed_case", gate: Gate::Clippy, expect: "wildcard-enum-match-arm", needs_lid: false },
-    Fixture { name: "undeclared_decision", gate: Gate::Clippy, expect: "cognitive-complexity", needs_lid: false },
-    Fixture { name: "flag_argument", gate: Gate::Clippy, expect: "fn-params-excessive-bools", needs_lid: false },
-    Fixture { name: "inlined_concept", gate: Gate::Clippy, expect: "too-many-lines", needs_lid: false },
+    Fixture { name: "swallowed_case", gate: Gate::Clippy, expect: "wildcard matches known variants", needs_lid: false },
+    Fixture { name: "undeclared_decision", gate: Gate::Clippy, expect: "cognitive complexity", needs_lid: false },
+    Fixture { name: "flag_argument", gate: Gate::Clippy, expect: "bool", needs_lid: false },
+    Fixture { name: "inlined_concept", gate: Gate::Clippy, expect: "too many lines", needs_lid: false },
     Fixture { name: "retired_spec", gate: Gate::Clippy, expect: "deprecated", needs_lid: true },
     Fixture { name: "vacuous_test", gate: Gate::Mutants, expect: "MISSED", needs_lid: false },
 ];
@@ -56,34 +57,148 @@ pub const FIXTURES: &[Fixture] = &[
 /// Runs every fixture, reporting all failures at once.
 #[implements(spec::EveryGateFixtureFailsItsGate)]
 pub fn run_all() -> Result<(), String> {
-    todo!()
+    let failures: Vec<String> = FIXTURES
+        .iter()
+        .filter_map(|f| check_fixture(f).err().map(|e| format!("{}: {e}", f.name)))
+        .collect();
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(format!("gate self-test failures:\n{}", failures.join("\n")))
+    }
 }
 
 /// Runs a single fixture by name (used by the check-12 validation, which
 /// pins the vacuous-test demonstration on its own).
 #[implements(spec::SurvivingMutantsFailTheGate)]
 pub fn run_fixture(name: &str) -> Result<(), String> {
-    let _ = name;
-    todo!()
+    let fixture = FIXTURES
+        .iter()
+        .find(|f| f.name == name)
+        .ok_or_else(|| format!("no fixture named `{name}`"))?;
+    check_fixture(fixture)
+}
+
+/// Synthesizes and gates one fixture.
+fn check_fixture(fixture: &Fixture) -> Result<(), String> {
+    let dir = synthesize(fixture)?;
+    let mut command = gate_command(fixture.gate);
+    command.current_dir(&dir);
+    expect_gate_failure(&mut command, fixture.expect)
 }
 
 /// Synthesizes the detached crate for a fixture under
 /// `target/gate-selftest/<name>` and returns its directory.
 fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {
-    let _ = fixture;
-    todo!()
+    let root = workspace_root()?;
+    let dir = root.join("target/gate-selftest").join(fixture.name);
+    let write = |path: PathBuf, content: &str| {
+        std::fs::write(&path, content).map_err(|e| format!("writing {}: {e}", path.display()))
+    };
+    std::fs::create_dir_all(dir.join("src"))
+        .map_err(|e| format!("creating {}: {e}", dir.display()))?;
+    write(dir.join("Cargo.toml"), &manifest(fixture, &root))?;
+    let clippy_config = std::fs::read_to_string(root.join("clippy.toml"))
+        .map_err(|e| format!("reading clippy.toml: {e}"))?;
+    write(dir.join("clippy.toml"), &clippy_config)?;
+    let source_path = root
+        .join("xtask/fixtures")
+        .join(fixture.name)
+        .join("src/lib.rs");
+    let source = std::fs::read_to_string(&source_path)
+        .map_err(|e| format!("reading {}: {e}", source_path.display()))?;
+    write(dir.join("src/lib.rs"), &source)?;
+    Ok(dir)
 }
 
-/// The gate command for a fixture, run in `dir`.
-fn gate_command(gate: Gate, dir: &PathBuf) -> Command {
-    let _ = (gate, dir);
-    todo!()
+/// The workspace root, one level above xtask's manifest.
+fn workspace_root() -> Result<PathBuf, String> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "xtask has no parent directory".to_string())
+}
+
+/// The synthesized crate's manifest: the workspace's lint set inlined, a
+/// `[workspace]` table so the parent workspace is not adopted, and `lid` as a
+/// path dependency where the fixture cites specs.
+fn manifest(fixture: &Fixture, root: &Path) -> String {
+    let lid_dep = if fixture.needs_lid {
+        format!("lid = {{ path = {:?} }}\n", root.join("lid"))
+    } else {
+        String::new()
+    };
+    format!(
+        r#"[package]
+name = "{name}"
+version = "0.0.0"
+edition = "2024"
+
+[dependencies]
+{lid_dep}
+[workspace]
+
+[lints.rust]
+missing_docs = "deny"
+
+[lints.rustdoc]
+broken_intra_doc_links = "deny"
+
+[lints.clippy]
+cognitive_complexity = "warn"
+fn_params_excessive_bools = "warn"
+too_many_lines = "warn"
+wildcard_enum_match_arm = "deny"
+missing_docs_in_private_items = "warn"
+"#,
+        name = fixture.name,
+        lid_dep = lid_dep,
+    )
+}
+
+/// The gate command for a fixture kind.
+fn gate_command(gate: Gate) -> Command {
+    let mut command = cargo_command();
+    match gate {
+        Gate::Check => {
+            command.args(["check", "--all-targets"]);
+        }
+        Gate::Clippy => {
+            command.args(["clippy", "--all-targets", "--", "-D", "warnings"]);
+        }
+        Gate::Doc => {
+            command.args(["doc", "--no-deps"]);
+            command.env("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links");
+        }
+        Gate::Doctest => {
+            command.args(["test", "--doc"]);
+        }
+        Gate::Mutants => {
+            command.arg("mutants");
+        }
+    }
+    command
 }
 
 /// Runs the gate and demands it fail with the expected diagnostic.
 fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String> {
-    let _ = (command, expect);
-    todo!()
+    let output = command
+        .output()
+        .map_err(|e| format!("spawning gate: {e}"))?;
+    let text = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if output.status.success() {
+        return Err("gate PASSED on a fixture that must fail it".to_string());
+    }
+    if !text.contains(expect) {
+        return Err(format!(
+            "gate failed, but without the expected diagnostic `{expect}`; output:\n{text}"
+        ));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -94,7 +209,9 @@ mod tests {
     #[test]
     #[validates(spec::SurvivingMutantsFailTheGate)]
     fn surviving_mutants_fail_the_gate() {
-        run_fixture("vacuous_test").expect("the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure");
+        run_fixture("vacuous_test").expect(
+            "the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure",
+        );
     }
 
     #[test]

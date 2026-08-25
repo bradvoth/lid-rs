@@ -8,9 +8,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - run: rustup show
       - run: cargo check --all-targets
       - run: cargo clippy --all-targets -- -D warnings
       - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
       - run: cargo test --doc
       - run: cargo test --lib
+      - run: cargo install cargo-mutants --locked
+      - run: cargo xtask mutants --diff-base origin/main

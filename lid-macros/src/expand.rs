@@ -44,11 +44,16 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
     ensure_unit_struct(&item)?;
     let ident = &item.ident;
     Ok(quote! {
+        // The derive's own emissions reference the struct they sit on; when a
+        // spec is retired with #[deprecated], only *citation* sites should
+        // warn, never the definition it decorates.
+        #[automatically_derived]
+        #[allow(deprecated)]
         impl ::lid::Spec for #ident {
             const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
         }
         const _: () = {
-            #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
             #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]
             #[linkme(crate = ::lid::__private::linkme)]
             static META: ::lid::SpecMeta = ::lid::SpecMeta {

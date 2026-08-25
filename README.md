@@ -403,7 +403,8 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" \
   cargo doc --no-deps                            # 2
 cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11 + behaviour
-cargo xtask mutants --in-diff                    # 12
+cargo xtask mutants                              # 12 (scope from metadata;
+                                                 #     --full / --diff-base override)
 ```
 
 Cheapest and most specific first. Mutation runs last because it's the only step
