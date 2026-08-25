@@ -9,7 +9,8 @@ LID-rs is an opinionated, Rust-specific implementation of
 [Linked-Intent Development (LID)](https://linked-intent.dev/), which is the
 source of the idea: link design intent to code through an *arrow* — the
 directed chain running HLD → LLD → atomic claim → test and code — walkable in
-either direction because every artifact cites its neighbours. Where LID is
+either direction because every artifact cites its neighbours. Compiled into
+Rust items, that arrow is what these pages call the *intent graph*. Where LID is
 language-agnostic and enforces the arrow by convention and tooling, LID-rs
 trades that generality for teeth — every edge of the graph becomes something
 the Rust compiler, linker, or test harness resolves and gates.
@@ -142,8 +143,8 @@ silently fails to populate turns every check over it into a vacuous pass. See
 | **LLD** — the *how*, per slice | `#[doc = include_str!("../docs/intent/auth/lld.md")] pub mod auth;` | One LLD per module. The design and the module boundary become the same boundary. |
 | **EARS claim** | `#[derive(Spec)]` on a unit struct; the doc comment *is* the claim | A claim becomes a nameable, linkable, resolvable item. The derive reads the `#[doc]` attributes, so the text is single-sourced. |
 | **Spec ID** | The struct's own name, written descriptively | See [§3.2](https://bradvoth.github.io/lid-rs/spec/mapping.html). |
-| **`@spec` annotation** | `#[implements(spec::ValidCredentialsYieldScopedSession)]` | Emits the doc link, a const type-assertion, and a registry entry. A bad citation is a **type error**, not a broken link. |
-| **Test → claim link** | `#[validates(spec::ValidCredentialsYieldScopedSession)]` | Same three effects, on the test side. |
+| **`@spec` annotation** | `#[implements(spec::ValidCredentialsYieldScopedSession)]` | Emits a doc link and a registry entry whose `NAME` projection is a type assertion. A bad citation is a **type error**, not a broken link. |
+| **Test → claim link** | `#[validates(spec::ValidCredentialsYieldScopedSession)]` | Same two emissions, on the test side. |
 | **Coverage of the graph** | `linkme` distributed slices + an ordinary `#[test]` | Enumeration at link time. No source parsing anywhere. See [§5](https://bradvoth.github.io/lid-rs/spec/registry.html). |
 | **Non-vacuous assertion** | Diff-scoped `cargo-mutants`, test subset narrowed by the registry | Proves the test *depends on* the implementation, not merely that it executed it. |
 | **Spec → code cascade** | Recompilation; `#[non_exhaustive]`; exhaustive `match` | Adding a case breaks every dispatch site. A compiler error, not an agent pass. |
@@ -180,8 +181,10 @@ pub struct BackendFailureIsIndistinguishableToUser;
 
 A derive rather than a block macro. Doc comments stay ordinary doc
 comments, so rustdoc, rust-analyzer hover, `missing_docs`, and go-to-definition
-all behave normally instead of interacting with a macro arm. Each claim is a real
-item at a real source location.
+all behave normally instead of interacting with a macro arm. Vocabulary, used
+throughout: the *claim* is the sentence in the doc comment; the *spec* is the
+Rust item carrying it — what citations resolve to and registries enumerate.
+Each spec is a real item at a real source location.
 
 ### 3.2 Names, not numbers
 
@@ -214,8 +217,9 @@ requirement — the dash-case ID is a genuine foreign key:
 pub struct AuthAttemptsAreAudited;
 ```
 
-`#[spec("...")]` emits `#[doc(alias)]` so the foreign ID stays greppable and
-rustdoc-searchable. Inert unless there's an external system to key against; don't
+`#[spec("...")]` (spelled `#[lid::spec("…")]` where the bare name would
+collide with your `spec` module) emits `#[doc(alias)]` so the foreign ID stays
+greppable and rustdoc-searchable. Inert unless there's an external system to key against; don't
 reach for it by default.
 
 ### 3.3 Anatomy of a citation
@@ -283,7 +287,7 @@ fn wrong_password_is_rejected() {
 }
 ```
 
-Same three effects, registering into `VALIDATIONS`. **These must be
+Same two emissions, registering into `VALIDATIONS`. **These must be
 `#[cfg(test)]` unit tests inside the library, not files under `tests/`** — see
 [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html) for why.
 
@@ -296,10 +300,10 @@ public-facing documentation — but they are *examples*, not the gate.
 ---
 
 <!-- ANCHOR: gates -->
-## 4. Validation checks
+## 4. The twelve checks
 
-Twelve gates in two tiers. Both tiers gate; both run on stable; neither parses
-Rust source.
+Twelve checks in two tiers; run in order they form *the gate* ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html)).
+Both tiers gate; both run on stable; neither parses Rust source.
 
 ### 4.1 Tier 0 — compiler, rustdoc, clippy
 

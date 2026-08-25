@@ -89,8 +89,8 @@ exercised by slice 2's UI tests; the canary hand-expansion carries the shape.
 ## The canary
 
 `lid::canary` ships the known triple, registered unconditionally — **not**
-`#[cfg(test)]` — because downstream crates link `lid` compiled without `cfg
-(test)`, and the canary must reach *their* test binaries for their registry
+`#[cfg(test)]` — because downstream crates link `lid` compiled without
+`cfg(test)`, and the canary must reach *their* test binaries for their registry
 checks to be non-vacuous:
 
 - the spec `CanaryConfirmsRegistryPresence` (a real claim in `lid::spec`),
@@ -111,7 +111,7 @@ tested with empty slices.
 
 Tier 0 lint configuration gates from this slice onward: workspace `[lints]`
 tables and `clippy.toml` thresholds exactly per README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html), `[profile.test]
-opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
+opt-level = 0` (README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)), toolchain pinned via `rust-toolchain.toml`
 (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html) pins in CI; pinning the workspace makes local and CI identical).
 
 ## Decisions & Alternatives
@@ -123,7 +123,7 @@ opt-level = 0` (README §4.3), toolchain pinned via `rust-toolchain.toml`
 | Registration static scoping | `const _: () = { static … }` wrapper | Sibling statics with name-mangled uniquifiers (`__LID_IMPL_a3f2`) | Scoping removes the uniqueness problem entirely instead of solving it with hashes; keeps hand-expansion and macro output trivially comparable; same wrapper works in future function-body expansion positions. |
 | Join key between `SpecMeta` and `Edge` | Derive-generated `Spec::NAME` associated const (`module_path!()` + ident at the definition site) | `core::any::type_name::<T>()` on both sides; stringified path tokens at the citation site | `type_name` is not const-stable, so it cannot initialize a registration static on stable — proven by compile failure, not assumed. Stringified citation paths break the join when sites path differently. `NAME` is single-sourced at the definition, and the projection doubles as the citation's type assertion and `#[deprecated]` propagation point. |
 | Canary registration visibility | Unconditional, in the library proper | `#[cfg(test)]` alongside the graph checks | A cfg(test) canary never reaches downstream test binaries, silently un-guarding every consumer's registry checks — the exact vacuous-pass failure the canary exists to prevent. |
-| Canary validation edge | Sentinel edge naming `lid::canary::sentinel`, plus a real cfg(test) test | Only a real test (edge appears in test builds only); no validation edge (canary checks 2 of 3 slices) | The sentinel keeps all three sections guarded in every binary; the real test keeps the claim behaviorally validated. Documented as a sentinel so the edge is never mistaken for a runnable test. |
+| Canary validation edge | Sentinel edge naming `lid::canary::sentinel`, plus a real `#[cfg(test)]` test | Only a real test (edge appears in test builds only); no validation edge (canary checks 2 of 3 slices) | The sentinel keeps all three sections guarded in every binary; the real test keeps the claim behaviorally validated. Documented as a sentinel so the edge is never mistaken for a runnable test. |
 | Stripped-registry testability | `triple_is_present` leaf parameterized over slices | Testing `present()` only (true case solely); linker tricks to strip sections in a test target | Parameterization makes the false branch an ordinary unit test; linker-trick tests are target-dependent and belong, if anywhere, in CI matrix work later. |
 
 ## Open Questions & Future Decisions

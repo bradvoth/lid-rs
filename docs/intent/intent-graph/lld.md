@@ -1,4 +1,4 @@
-# Intent-graph checks — uncited and unvalidated claims fail the build
+# Intent-graph checks — uncited and unvalidated specs fail the build
 
 ## Context and Design Philosophy
 

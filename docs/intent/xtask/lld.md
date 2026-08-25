@@ -21,7 +21,7 @@ prescribes for applications ([§4.1](https://bradvoth.github.io/lid-rs/spec/gate
 
 The second command, `gate-selftest`, discharges HLD Goal 3 for the checks no
 lib test can demonstrate: each lint-, doc-, and mutation-gate gets a fixture
-crate that violates exactly one check, and the selftest asserts the gate
+crate that violates exactly one check, and the self-test asserts the gate
 fails on it with the expected diagnostic. A gate that cannot be shown to
 catch its violation is presumed vacuous (constraint 3).
 
@@ -30,8 +30,8 @@ catch its violation is presumed vacuous (constraint 3).
 `cargo mutants --list --json` yields `(file, function_name)` per mutant;
 edges carry `(file, item)` where `item` is `module::path::fn`. A mutant's
 function is matched by `edge.file == mutant.file && edge.item` ending in
-`::function_name` — file equality disambiguates same-named fns in different
-modules; same-named fns in the same file share a test set, which
+`::function_name` — file equality disambiguates same-named functions in
+different modules; same-named functions in the same file share a test set, which
 over-approximates safely.
 
 - **Traced mutant**: implementation edges found → specs → validation edges →
@@ -55,7 +55,7 @@ re-implemented here.
 
 ## Gate self-test
 
-Fixtures live in `xtask/fixtures/<name>/src/lib.rs`; the selftest synthesizes
+Fixtures live in `xtask/fixtures/<name>/src/lib.rs`; the self-test synthesizes
 a detached crate per fixture under `target/gate-selftest/<name>` (own
 `[workspace]` table, the repo's `clippy.toml`, the workspace lint set inlined,
 `lid` as a path dependency where cited) and runs one gate command against it,

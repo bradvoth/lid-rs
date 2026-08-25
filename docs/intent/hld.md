@@ -21,7 +21,7 @@ coding agent loads to run the methodology's flow.
 
 Build the toolchain as a Cargo workspace that applies LID-rs to itself from the
 first commit. Self-hosting is not a stunt: it is the end-to-end proof. The
-system is judged working when its own twelve gates run green over its own
+system is judged working when its own twelve checks run green over its own
 intent graph, and when each gate demonstrably fails on a deliberate violation.
 
 Three mechanisms carry it:
@@ -71,7 +71,7 @@ Falsifiable, in delivery order:
    unvalidated spec) over a canary-verified non-empty registry.
 2. `lid-macros` reproduces the hand-expanded canary registrations exactly
    (asserted by test, not by inspection).
-3. Every gate has a demonstrated failure: for each of the twelve checks, a test
+3. Every check has a demonstrated failure: for each of the twelve, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
    the gate catches its violation — not merely that green code passes.
 4. `cargo xtask mutants` (diff-scoped) narrows each mutant's test set through
@@ -142,7 +142,7 @@ exercised outside the self-referential crate.
 |---|---|---|
 | 1 | "A claim, an implementation, and a validation are enumerable at link time" | Workspace scaffolding + Tier 0 lint config (tenet 2), `lid` core, hand-expanded canary triple |
 | 2 | "A citation is written as an attribute and resolved by the compiler" | `lid-macros`; canary converts to macro form; expansion-equivalence test |
-| 3 | "An uncited or unvalidated claim fails the build" | `graph.rs` checks and the `intent_graph!()` emitter; tracing spread through `lid` itself; gate-failure fixtures |
+| 3 | "An uncited or unvalidated spec fails the build" | `graph.rs` checks and the `intent_graph!()` emitter; tracing spread through `lid` itself; gate-failure fixtures |
 | 4 | "A vacuous test fails the build" | `xtask` mutation scoping via registry; `[profile.test] opt-level = 0` |
 | 5 | "An agent operates the methodology" | `.claude/skills/lid-rs/` skill, validated by producing a slice under it |
 | 6 | "The methodology is readable without cloning the repo" | mdBook assembled by inclusion, deployed to GitHub Pages; `docs/intent/book/lld.md` |
