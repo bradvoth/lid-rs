@@ -7,7 +7,11 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+lid-macros.workspace = true
 linkme.workspace = true
+
+[dev-dependencies]
+trybuild.workspace = true
 
 [lints]
 workspace = true

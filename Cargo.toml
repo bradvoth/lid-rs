@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lid"]
+members = ["lid", "lid-macros"]
 
 [workspace.package]
 edition = "2024"
@@ -8,7 +8,12 @@ rust-version = "1.97"
 license = "MIT OR Apache-2.0"
 
 [workspace.dependencies]
+lid-macros = { path = "lid-macros", version = "0.1.0" }
 linkme = "0.3"
+proc-macro2 = "1"
+quote = "1"
+syn = { version = "2", features = ["full"] }
+trybuild = "1"
 
 [workspace.lints.rust]
 missing_docs = "deny"

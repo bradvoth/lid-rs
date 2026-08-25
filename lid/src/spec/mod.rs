@@ -5,8 +5,14 @@
 //! grep. During the bootstrap window (before `lid-macros` exists) the claims
 //! carry hand-expanded registrations in exactly the form the macros will emit.
 
+mod citation;
 mod registry;
 
+pub use citation::{
+    DerivedSpecsCarryTheirDefinitionPath, DerivedSpecsRegisterIntoSpecs,
+    ImplementsCitationsRegisterEdges, MalformedCitationsFailToCompile,
+    ModuleCitationsTraceByContainment, ValidatesCitationsRegisterEdges,
+};
 pub use registry::{
     CanaryConfirmsRegistryPresence, CanaryDetectsAStrippedRegistry,
     LinkedRegistrationsAreEnumerable,
