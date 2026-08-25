@@ -19,8 +19,9 @@ to the test fns a consuming crate needs. Consumers invoke one macro in a
 A consumer's test binary links `lid`, so its registries contain `lid`'s specs
 alongside its own. `lid`'s implementation edges ride along in the library, but
 its `#[validates]` edges are `#[cfg(test)]` and exist only in `lid`'s own test
-binary — in a consumer's binary, upstream specs would look unvalidated and
-fail an unscoped check 11 vacuously-in-reverse.
+binary — in a consumer's binary, upstream specs would look unvalidated, and
+an unscoped check 11 would report a false failure (the mirror image of the
+vacuous pass the canary guards against).
 
 The checks therefore scope to the invoking crate: `Spec::NAME` begins with the
 defining crate's name, and the macro passes `env!("CARGO_CRATE_NAME")` at

@@ -7,8 +7,9 @@ so the compiler — not grep, and not a second parser — enforces the links.
 
 LID-rs is an opinionated, Rust-specific implementation of
 [Linked-Intent Development (LID)](https://linked-intent.dev/), which is the
-source of the idea: link design intent to code through a walkable arrow of
-HLDs, LLDs, atomic claims, tests, and citations. Where LID is
+source of the idea: link design intent to code through an *arrow* — the
+directed chain running HLD → LLD → atomic claim → test and code — walkable in
+either direction because every artifact cites its neighbours. Where LID is
 language-agnostic and enforces the arrow by convention and tooling, LID-rs
 trades that generality for teeth — every edge of the graph becomes something
 the Rust compiler, linker, or test harness resolves and gates.
@@ -22,14 +23,16 @@ the Rust compiler, linker, or test harness resolves and gates.
 
 LID (Linked-Intent Development) links a design document to the code built from
 it via greppable requirement IDs: an HLD states the *why*, LLDs state the *how*,
-EARS one-liners state atomic claims, tests assert those claims, and code carries
+EARS one-liners (Easy Approach to Requirements Syntax — "When X, the system
+shall Y") state atomic claims, tests assert those claims, and code carries
 `@spec` annotations citing them. `grep -r AUTH-UI-001` returns the whole arrow.
 
 That linkage is mechanical but *lexical*. An `@spec` comment is a string. It can
 cite a requirement that was deleted, describe behaviour the function no longer
 has, or be absent entirely from code the agent invented on its own initiative.
-LID's own `bidirectional-differential` experiment exists because specs
-and code drift apart despite the IDs.
+LID's own `bidirectional-differential` experiment — reconstructing the spec
+from the code in a fresh session and diffing it against the written one —
+exists because specs and code drift apart despite the IDs.
 
 The adjustment: **replace the free-text spec layer with a refinement skeleton
 made of real signatures**, and make every edge of the graph something the
@@ -39,9 +42,10 @@ compiler resolves. Two additional principles come from stepwise refinement:
   decision (one `match`, one `if/else` chain, however many arms) or it does one
   unit of work. Never both. Every branch is a decision; every decision should
   have been declared in the design.
-- **Refine breadth-first within a vertical slice.** Complete a whole abstraction
-  layer for one user-visible operation before descending, so cross-cutting
-  corrections land before implementation effort is sunk.
+- **Refine breadth-first within a vertical slice** — a slice being one
+  user-visible operation, end to end. Complete a whole abstraction layer for
+  that operation before descending, so cross-cutting corrections land before
+  implementation effort is sunk.
 
 One consequence up front: **a leaf with a branch in it is a
 requirement nobody wrote down.** That turns the complexity rule into a drift
@@ -189,9 +193,9 @@ search finds the item by its real name.
 
 More importantly, a descriptive name makes every citation site self-documenting.
 `#[implements(spec::BackendFailureIsIndistinguishableToUser)]` states its own
-content; `#[implements(spec::AuthUi003)]` requires a lookup. This is the same
-verbose-name-as-specification move the refinement practice makes everywhere else,
-applied to the spec layer.
+content; `#[implements(spec::AuthUi003)]` requires a lookup. A descriptive name is itself a small
+specification — the move stepwise refinement makes with function names,
+applied here to the spec layer.
 
 The objection is rename cost: rewording a claim should change its name, breaking
 every citation. That's the correct behaviour — a reworded claim *should* force
@@ -358,8 +362,10 @@ fn every_spec_has_a_validation() { /* same shape against VALIDATIONS */ }
 Note there is no check for a *function with no citation*. That is a deliberate
 design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/traced.html).
 
-> **Scoping note.** The registry is binary-global: a consumer's test binary
-> links `lid` (and any other traced crate), so `SPECS` contains upstream
+> **Scoping note** *(uses the linking model of [§5](https://bradvoth.github.io/lid-rs/spec/registry.html) and "traced" from [§6](https://bradvoth.github.io/lid-rs/spec/traced.html);
+> return here after those if it reads dense).* The registry is binary-global:
+> a consumer's test binary links `lid` (and any other traced crate, meaning
+> any crate carrying citations), so `SPECS` contains upstream
 > claims whose `#[validates]` edges — being `#[cfg(test)]` in their home
 > crates — are absent from this binary. The checks therefore scope to specs
 > whose `NAME` begins with the current crate's name; edge sets stay
@@ -661,8 +667,9 @@ writing the claim was merely inconvenient.
 <!-- ANCHOR: flow -->
 ## 8. The flow
 
-Eight phases. Human authorship concentrates in 1 and 3; agent effort concentrates
-in 6.
+Nine phases, 0 through 8: Phases 0–7 deliver a slice, and Phase 8 is the
+change loop that re-enters them. Human authorship concentrates in 1 and 3;
+agent effort concentrates in 6.
 
 **Phase 0 — Name the slice.**
 A user-visible operation, not a component. "User logs in", not "auth module".

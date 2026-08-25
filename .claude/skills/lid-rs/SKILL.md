@@ -1,6 +1,6 @@
 ---
 name: lid-rs
-description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the eight-phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
+description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
 ---
 <!-- ANCHOR: skill -->
 
@@ -30,7 +30,7 @@ section references below point there.
 
 ## Coherence pre-flight (before starting or resuming any change)
 
-Verify the segment you're about to touch is internally coherent: the LLD
+Verify the slice you're about to touch is internally coherent: the LLD
 reflects the HLD, the claims in `src/spec/` trace to the current LLD, and
 `cargo test --lib` is green (checks 10/11 prove claims↔tests coherence
 mechanically). If docs have drifted from intent, fix the docs first, then
@@ -38,7 +38,7 @@ implement. Docs are written fresh-author: no narration of how they changed, no
 meaning that needs this conversation, rejected alternatives recorded in the
 LLD's Decisions & Alternatives table.
 
-## The eight phases
+## The phases (0–8)
 
 **Phase 0 — Name the slice.** A user-visible operation ("user logs in"), not a
 component ("auth module"). One LLD, one module boundary.
@@ -79,8 +79,8 @@ signatures, not prose. **STOP for review.**
 **Phase 4 — Descend breadth-first.** Each layer-0 leaf gets its own skeleton;
 `cargo check`; review; descend. Stop refining when you'd trust the leaf on
 sight. A branch that can't be produced from real inputs at test time means
-the leaf should be parameterized (take slices/data as arguments) so the
-branch becomes an ordinary unit test.
+the leaf should take its inputs as plain data arguments so the branch
+becomes an ordinary unit test.
 
 **Phase 5 — Failing-first validations.** One test per claim, as
 `#[cfg(test)]` **unit tests inside the library** — never under `tests/`,
@@ -120,7 +120,7 @@ re-derive affected claims → rename or `#[deprecated]` changed claims →
 *should* break citations — that is forced re-review, not friction. Bug fixes
 walk the same arrow: find where behaviour diverged from intent, decide
 whether intent was wrong, unexpressed, or misimplemented, and cascade from
-there. Cascade freely within one slice's segment; pause and ask before
+there. Cascade freely within one slice; pause and ask before
 propagating into another slice's LLD territory.
 
 ## Mechanics reference

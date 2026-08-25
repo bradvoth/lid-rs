@@ -4,9 +4,10 @@
 
 The specification, the reference implementation's design documents, and the
 operating skill are the project's public face; a rustdoc-styled mdBook on
-GitHub Pages makes them readable without cloning the repo. The governing
-constraint is tenet 1's corollary for prose: **the book contains no prose of
-its own beyond the landing page.** Every chapter is assembled by `{{#include}}`
+GitHub Pages makes them readable without cloning the repo. Tenet 1 makes the
+README the single living statement of the methodology; applied to this book,
+that means **no prose of its own beyond the landing page.** Every chapter is
+assembled by `{{#include}}`
 from the living artifacts — `README.md` sliced by invisible `<!-- ANCHOR -->`
 comments into one chapter per section, the HLD and LLDs included whole, the
 skill included past its frontmatter. A forked copy would drift; an include

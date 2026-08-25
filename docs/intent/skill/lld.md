@@ -4,7 +4,7 @@
 
 The toolchain enforces structure; it cannot make an agent *propose* the right
 artifacts in the right order. The skill closes that gap: it is the standing
-instruction set under which an agent walks a Rust change through the eight
+instruction set under which an agent walks a Rust change through the
 phases (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)), producing claims as `derive(Spec)` structs, skeletons as
 `todo!()` signatures, validations as failing-first `#[validates]` tests, and
 running the gate before every commit. Human authorship stays concentrated in
@@ -31,7 +31,7 @@ aspiration.
 
 The skill must carry, in this order of importance:
 
-1. **The phase walk** — all eight phases with their LID-rs mechanics, each
+1. **The phase walk** — every phase with its LID-rs mechanics, each
    phase's exit condition, and the stop discipline (present, get approval,
    proceed). Bugs walk the arrow like any other change.
 2. **The non-negotiables** — dispatch/work separation; a leaf with a branch is

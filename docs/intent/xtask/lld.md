@@ -42,9 +42,11 @@ over-approximates safely.
   file — the mutant list carries no module path, so file identity stands in
   for the enclosing module; when the file implements none, the full suite
   (README [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html)).
-- Mutants are grouped by identical test set; one `cargo mutants` run per
-  group, selected by an anchored, escaped `-F` alternation of mutant names,
-  `--baseline skip` (the ungated suite already ran earlier in the gate).
+- Mutants are grouped by identical test set, one `cargo mutants` run per
+  group. `-F` takes a regex, so the group is selected by an anchored
+  alternation of its escaped mutant names. `--baseline skip` drops the
+  engine's own pre-mutation suite run: the gate already ran the full suite
+  earlier ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order).
 
 Scope: `mutation_scope = "diff"` generates `git diff <base>` (default base
 `main`; CI passes `--diff-base origin/main`; `--full` overrides the scope) and

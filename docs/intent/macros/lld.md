@@ -15,10 +15,12 @@ tests.
 links into no target binary, and therefore can neither carry citations nor
 register anything itself. Its behaviour is specified by claims in
 `lid::spec::citation`, cited by hand-authored edges at the re-export site in
-`lid` (the standing exception for proc-macro crates), and validated by `lid`'s
-tests, which are downstream of the macros and can expand them.
+`lid` — the one sanctioned exception to macro-written citations, granted here
+because a proc-macro crate has no binary for a citation to register into —
+and validated by `lid`'s tests, which are downstream of the macros and can
+expand them.
 
-## The four macros
+## The five macros
 
 | Macro | Kind | On | Emits |
 |---|---|---|---|

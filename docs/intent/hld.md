@@ -14,7 +14,8 @@ spec layer out of Rust items so the compiler resolves every edge of the intent
 graph, and gate every structural property so reviewer attention lands on
 semantics alone. This workspace builds the toolchain the specification
 requires: the `lid` and `lid-macros` crates, the registry-driven mutation
-`xtask`, and the operating skill.
+`xtask`, and the operating skill — the standing instruction document an AI
+coding agent loads to run the methodology's flow.
 
 ## Approach
 
@@ -146,7 +147,7 @@ exercised outside the self-referential crate.
 | 5 | "An agent operates the methodology" | `.claude/skills/lid-rs/` skill, validated by producing a slice under it |
 | 6 | "The methodology is readable without cloning the repo" | mdBook assembled by inclusion, deployed to GitHub Pages; `docs/intent/book/lld.md` |
 
-Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) with stops at every phase boundary.
+Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html); Phase 8 is the post-slice change loop) with stops at every phase boundary.
 
 ## Key Design Decisions
 
