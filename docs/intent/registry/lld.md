@@ -107,7 +107,10 @@ stripped registry — cannot be produced at runtime from the real statics, so
 the testable leaf takes the slices as parameters and the stripped case is
 tested with empty slices.
 
-## Workspace scaffolding (carried by this slice, tenet 2)
+## Also delivered by this slice: workspace scaffolding
+
+Bootstrap freight, not registry design — slice 1 carries it because tenet 2
+requires the lints to gate before any code exists to violate them.
 
 Tier 0 lint configuration gates from this slice onward: workspace `[lints]`
 tables and `clippy.toml` thresholds exactly per README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html), `[profile.test]

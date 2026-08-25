@@ -60,18 +60,17 @@ detector you can put in CI.
 
 ### 1.1 The goal is to make semantic drift the only thing left to review
 
+The design goal is not "catch drift." It's **to make every structural
+property hold automatically, so that reviewer attention lands on meaning and
+nothing else.**
+
 Structural correctness — does this code cite a real claim, does a test depend on
 this code, did the design change reach every call site — is mechanical work.
 Machines are good at it and humans are terrible at it, especially at review time,
-especially across a diff an agent produced in one pass.
-
-Semantic correctness — does this code mean what the claim says — is the opposite.
-No tool can check it. It's the entire reason a human is in the loop.
-
-So the design goal is not "catch drift." It's **to make every structural
-property hold automatically, so that reviewer attention lands on meaning and
-nothing else.** Every check in [§4](https://bradvoth.github.io/lid-rs/spec/gates.html) exists to remove a class of question from
-review, not to add a hurdle. When someone reviews a refinement skeleton
+especially across a diff an agent produced in one pass. Semantic correctness —
+does this code mean what the claim says — is the opposite. No tool can check
+it. It's the entire reason a human is in the loop. Every check in [§4](https://bradvoth.github.io/lid-rs/spec/gates.html) exists
+to remove a class of question from review, not to add a hurdle. When someone reviews a refinement skeleton
 (Phase 3 of the flow, [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)), the
 composition already type-checks, every citation already resolves, and the
 cascade has already reached every affected site — so the only remaining question
@@ -319,11 +318,12 @@ Both tiers gate; both run on stable; neither parses Rust source.
 | 8 | **Flag argument** | `clippy::fn_params_excessive_bools`, threshold 0 | Two functions in a trench coat. A `bool` parameter is a branch smuggled into a leaf. |
 | 9 | **Inlined concept** | `clippy::too_many_lines` | A coherent sub-thought was manually inlined instead of being named. |
 
-Check 7 does the most work. Its logic: every branch is a decision, every decision
-should be a spec claim, and dispatch nodes are the only place decisions may live.
+Check 7 does the most work: it is §0's dispatch/work rule made mechanical.
 A leaf whose complexity exceeds 1 is *either* an undeclared dispatch node *or* a
 requirement that was never written down — an agent making a judgment call you
-never saw, caught mechanically.
+never saw. Cognitive complexity is the right metric and cyclomatic is not,
+because the cognitive metric doesn't penalise flat `match` arms: a twelve-arm
+dispatch is fine; three nested `if`s in a leaf is not.
 
 > **Toolchain notes.** Intra-doc links are resolved by rustdoc, not `cargo
 > build`, so check 2 needs its own `cargo doc` step. Doctests only run for
@@ -331,7 +331,11 @@ never saw, caught mechanically.
 
 ### 4.2 Tier 1 — registry intersection
 
-Enumeration happens at link time ([§5](https://bradvoth.github.io/lid-rs/spec/registry.html)). These are ordinary unit tests.
+Enumeration happens at link time ([§5](https://bradvoth.github.io/lid-rs/spec/registry.html)). These are ordinary unit tests,
+and `lid` ships them: invoke `lid::intent_graph!()` in a `#[cfg(test)]` module
+of the library, and the checks below are emitted — crate-scoped, canary-first,
+plus an inert registry-dump test the mutation xtask reads ([§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)).
+Hand-writing them invites drift in the one place drift-detection lives.
 
 | # | Check | Failure means |
 |---|---|---|
@@ -373,10 +377,7 @@ design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/
 > claims whose `#[validates]` edges — being `#[cfg(test)]` in their home
 > crates — are absent from this binary. The checks therefore scope to specs
 > whose `NAME` begins with the current crate's name; edge sets stay
-> unfiltered. `lid::intent_graph!()` expands to the three tests above with
-> that scoping applied, plus an inert registry-dump test the mutation xtask
-> reads ([§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)) — invoke it
-> in a `#[cfg(test)]` module rather than hand-writing the checks.
+> unfiltered.
 
 ### 4.3 Tier 1 — non-vacuity by scoped mutation
 
@@ -445,8 +446,9 @@ that rebuilds.
 <!-- ANCHOR: registry -->
 ## 5. The registry mechanism
 
-Checks 10 and 11 need to enumerate every spec, every citation, and every
-validation. Doing that without parsing source (constraint 2) means collecting
+The registry is how the intent graph becomes enumerable: every spec, citation,
+and validation, collected where checks (10 and 11 among them) can iterate
+them. Doing that without parsing source (constraint 2) means collecting
 them at link time.
 
 ### 5.1 How it works
@@ -545,24 +547,9 @@ are worse than none because they make the graph look denser than it is.
 **Definition: an untraced function is a leaf helper with no spec-governed
 behaviour.** If it participates in spec behaviour, it wasn't one.
 
-### 6.1 Why there is no syntactic rule
+### 6.1 What holds the line
 
-The tempting rule is "an untraced function may not call a traced one." Note the
-direction: traced → untraced is fine and expected. Untraced → traced is the
-suspicious edge.
-
-But the strict version collapses. `#[implements]` becomes viral upward — every
-caller of traced code must be traced, so `main` calls the composition root calls
-the entry point, and `main` ends up carrying every spec in the crate. Any
-workable version needs a bound, and needs an exemption list: `main`,
-`#[cfg(test)]` fixtures, `From`/`Display` forwarding impls. It's also trivially
-dodged, since `retry(|| authenticate(&c))` calls nothing traced — the closure
-does. And enforcing it needs a call graph, meaning source parsing or rustc
-internals: both constraints violated, for a rule that leaks anyway.
-
-### 6.2 What holds the line
-
-**Mutation answers the empirical version.** If mutating an untraced function
+**Mutation answers the question empirically.** If mutating an untraced function
 kills a `#[validates]` test, that function is causally on a spec-governed path
 and should carry a citation. If nothing fails, it isn't participating, and
 doesn't need one. Check 12 already produces this signal:
@@ -571,29 +558,40 @@ doesn't need one. Check 12 already produces this signal:
 - *killed mutant on untraced function* → trace it, or move it behind a traced
   boundary
 
-This is strictly better than the syntactic rule, because it tests *participation*
-rather than the presence of a call. A function can call traced code incidentally
-without carrying its behaviour; it can also carry spec behaviour through a
-closure that no syntactic rule would see.
-
 For untraced mutants, the xtask can't narrow the test set through the
 registry, so it runs the tests validating whatever specs are implemented in
 the same file (the mutant list carries no module path), falling back to the
 full suite when the file implements none. New untraced code is therefore
-gated: it may exist only if it either
-breaks nothing when mutated, or is traced.
+gated: it may exist only if it either breaks nothing when mutated, or is
+traced.
 
 **Privacy does the containment.** The real risk isn't untraced code calling
 traced code — it's untraced code *bypassing a dispatch node* to reach a leaf
 directly. Rust prevents that already: `apply_display_name` is private, so only
-its module can reach it, and that module carries the slice's claims. The version
-of the rule that bites is across `pub` boundaries, and public functions should
-carry citations anyway.
+its module can reach it, and that module carries the slice's claims. The
+boundary that bites is `pub`, and public functions should carry citations
+anyway.
 
 **Complexity bounds what an untraced function can be.** At complexity 1 it
 contains no decision, so it cannot harbour an undeclared requirement by
 construction. The explosion worth fearing is untraced *decisions*, and check 7
 catches those regardless of tracing.
+
+### 6.2 Why not a syntactic call rule
+
+The tempting rule is "an untraced function may not call a traced one" —
+traced → untraced is fine and expected; untraced → traced is the suspicious
+edge. But the strict version collapses. `#[implements]` becomes viral upward —
+every caller of traced code must be traced, so `main` calls the composition
+root calls the entry point, and `main` ends up carrying every spec in the
+crate. Any workable version needs a bound, and needs an exemption list:
+`main`, `#[cfg(test)]` fixtures, `From`/`Display` forwarding impls. It's
+trivially dodged, since `retry(|| authenticate(&c))` calls nothing traced —
+the closure does. And enforcing it needs a call graph, meaning source parsing
+or rustc internals: both constraints violated, for a rule that leaks anyway.
+Mutation's participation test ([§6.1](https://bradvoth.github.io/lid-rs/spec/traced.html)) is stronger on both counts: a
+function can call traced code incidentally without carrying its behaviour,
+and can carry spec behaviour through a closure no call rule would see.
 
 ### 6.3 Module-level tracing
 
@@ -660,10 +658,9 @@ max-fn-params-bools            = 0
 
 **`[workspace.metadata.lid]`** — LID-rs's own knobs, read by the xtask.
 
-`cognitive-complexity-threshold = 4` is a starting point, not scripture. The
-number matters less than the invariant it protects: *a leaf should not branch*.
-If you're raising it, check whether the code is irreducible or whether
-writing the claim was merely inconvenient.
+`cognitive-complexity-threshold = 4` is a starting point, not scripture. If
+you're raising it, check whether the code is irreducible or whether writing
+the claim ([§0](https://bradvoth.github.io/lid-rs/spec/premise.html)'s rule) was merely inconvenient.
 <!-- ANCHOR_END: configuration -->
 
 ---
@@ -940,9 +937,8 @@ fn begin_email_change(account: &mut Account, email: EmailAddress) -> Result<Appl
 ```
 
 `apply` is a textbook dispatch node: one `match`, three arms, zero work. Its
-entire purpose is expressing where control goes. Complexity stays low because
-clippy's cognitive metric doesn't penalise flat `match` arms — which is why cognitive complexity is the right metric here and cyclomatic is not. A
-twelve-arm dispatch is fine; three nested `if`s in a leaf is not.
+purpose is expressing where control goes, and the flat arms keep cognitive
+complexity low ([§4.1](https://bradvoth.github.io/lid-rs/spec/gates.html)'s metric choice, demonstrated).
 
 ### The cascade, concretely
 
@@ -1040,9 +1036,8 @@ codebase gates correctly on the part that's traced.
 <!-- ANCHOR: limits -->
 ## 12. Honest limits
 
-- **The semantic residual.** Per [§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html), a test can cite the wrong claim and pass
-  every gate. This is by design ([§1.1](https://bradvoth.github.io/lid-rs/spec/purpose.html)), but it means the differential pass
-  needs a scheduled owner, not good intentions.
+- **The semantic residual.** A test can cite the wrong claim and pass every
+  gate ([§4.4](https://bradvoth.github.io/lid-rs/spec/gates.html)); the differential pass needs a scheduled owner.
 - **`linkme` has platform edges.** See [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html). The canary converts silent failure
   into loud failure, but on an unusual target you will be debugging a linker
   mechanism. The `inventory` fallback exists for that case.

@@ -101,7 +101,8 @@ that is green before implementation exists needs an explanation in the commit
 remaining question is small and local. Implement; keep each leaf's cognitive
 complexity within the threshold without restructuring tricks.
 
-**Phase 7 — Gate, then commit.** In order, all gating:
+**Phase 7 — Gate, then commit.** In order, all gating (README §4.5
+verbatim — a change to either copy must reach both):
 
 ```bash
 cargo check --all-targets

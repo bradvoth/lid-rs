@@ -2,6 +2,10 @@
 
 ## Context and Design Philosophy
 
+xtask carries two commands: `cargo xtask mutants`, which is check 12, and
+`cargo xtask gate-selftest`, which proves every other gate catches its
+violation. This document designs both.
+
 Check 12 proves a `#[validates]` test *depends on* the code it cites: mutate
 the implementation, and the test must fail. `cargo-mutants` supplies the
 mutation engine; what has to be built is the narrowing that keeps it inside a
@@ -41,7 +45,7 @@ over-approximates safely.
 - **Untraced mutant**: the tests validating specs implemented in the same
   file — the mutant list carries no module path, so file identity stands in
   for the enclosing module; when the file implements none, the full suite
-  (README [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html)).
+  (README [§6.1](https://bradvoth.github.io/lid-rs/spec/traced.html)).
 - Mutants are grouped by identical test set, one `cargo mutants` run per
   group. `-F` takes a regex, so the group is selected by an anchored
   alternation of its escaped mutant names. `--baseline skip` drops the
@@ -99,6 +103,6 @@ tests; synthetic-registry tests) and are not duplicated here.
 
 ## References
 
-- README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html) (non-vacuity by scoped mutation), [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html) (untraced fallback).
+- README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html) (non-vacuity by scoped mutation), [§6.1](https://bradvoth.github.io/lid-rs/spec/traced.html) (untraced fallback).
 - [`cargo-mutants` documentation](https://mutants.rs) — flags relied on:
   `--list --json`, `-F`, `--in-diff`, `--cargo-test-arg`, `--baseline`.
