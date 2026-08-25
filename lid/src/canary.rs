@@ -23,7 +23,7 @@ const CANARY_SPEC: &str =
 //   #[implements(spec::CanaryConfirmsRegistryPresence)]
 #[doc = "Implements [`crate::spec::CanaryConfirmsRegistryPresence`]."]
 pub fn present() -> bool {
-    todo!()
+    triple_is_present(&crate::SPECS, &crate::IMPLEMENTATIONS, &crate::VALIDATIONS)
 }
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
@@ -45,7 +45,9 @@ const _: () = {
 //   #[implements(spec::CanaryDetectsAStrippedRegistry)]
 #[doc = "Implements [`crate::spec::CanaryDetectsAStrippedRegistry`]."]
 fn triple_is_present(specs: &[SpecMeta], impls: &[Edge], validations: &[Edge]) -> bool {
-    todo!()
+    specs.iter().any(|s| s.name == CANARY_SPEC)
+        && impls.iter().any(|e| e.spec == CANARY_SPEC)
+        && validations.iter().any(|e| e.spec == CANARY_SPEC)
 }
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]

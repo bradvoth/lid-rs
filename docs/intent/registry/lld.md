@@ -53,6 +53,7 @@ Registration statics are wrapped so they cannot collide with user names and
 cannot trip the documentation lints on code the user didn't write:
 
 ```rust
+# use lid::spec::CanaryConfirmsRegistryPresence;
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]
@@ -63,6 +64,9 @@ const _: () = {
     };
 };
 ```
+
+(That block is live: the LLD is included as module documentation, so `cargo
+test --doc` compiles it — the expansion contract is itself compiler-checked.)
 
 The `const _: () = { … }` wrapper gives each registration its own scope, so
 static names inside need no uniquifying hash — `META` / `EDGE` are fine, and
