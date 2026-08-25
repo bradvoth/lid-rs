@@ -57,6 +57,7 @@ cannot trip the documentation lints on code the user didn't write:
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]
+    #[linkme(crate = ::lid::__private::linkme)]
     static META: ::lid::SpecMeta = ::lid::SpecMeta {
         name: <CanaryConfirmsRegistryPresence as ::lid::Spec>::NAME,
         file: file!(),
@@ -67,6 +68,12 @@ const _: () = {
 
 (That block is live: the LLD is included as module documentation, so `cargo
 test --doc` compiles it — the expansion contract is itself compiler-checked.)
+
+The `#[linkme(crate = …)]` line is load-bearing for downstream crates:
+linkme's own element expansion emits `linkme::…` paths, which resolve only in
+crates that depend on linkme directly. The attribute redirects those paths
+through `lid`'s re-export — proven by `xtask`, the first consumer with no
+direct linkme dependency, which fails to compile without it.
 
 The `const _: () = { … }` wrapper gives each registration its own scope, so
 static names inside need no uniquifying hash — `META` / `EDGE` are fine, and

@@ -1,0 +1,15 @@
+[package]
+name = "xtask"
+version = "0.1.0"
+description = "LID-rs workspace tasks: registry-scoped mutation testing and the gate self-test."
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+lid = { path = "../lid" }
+serde_json.workspace = true
+
+[lints]
+workspace = true

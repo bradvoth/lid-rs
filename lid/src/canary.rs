@@ -45,6 +45,7 @@ pub(crate) fn triple_is_present(specs: &[SpecMeta], impls: &[Edge], validations:
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
+    #[linkme(crate = ::lid::__private::linkme)]
     static EDGE: ::lid::Edge = ::lid::Edge {
         spec: <crate::spec::CanaryConfirmsRegistryPresence as ::lid::Spec>::NAME,
         item: concat!(module_path!(), "::sentinel"),

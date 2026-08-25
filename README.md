@@ -447,6 +447,11 @@ pub mod __private {
 }
 ```
 
+The re-export alone is not sufficient: linkme's *own* element expansion also
+emits `linkme::…` paths. Every generated registration therefore carries
+`#[linkme(crate = ::lid::__private::linkme)]`, linkme's wrapper-crate
+override, which redirects those paths through the re-export.
+
 Generated statics are scoped inside `const _` blocks and carry
 `#[allow(missing_docs, clippy::missing_docs_in_private_items)]` — without the
 allows, check 3 fires on every citation in the crate, catching code the user

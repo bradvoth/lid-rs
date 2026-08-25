@@ -40,6 +40,7 @@ const _: () = {
             const _: () = {
                 #[allow(missing_docs, clippy::missing_docs_in_private_items)]
                 #[::lid::__private::linkme::distributed_slice(::lid::IMPLEMENTATIONS)]
+                #[linkme(crate = ::lid::__private::linkme)]
                 static EDGE: ::lid::Edge = ::lid::Edge {
                     spec: <$spec as ::lid::Spec>::NAME,
                     item: $item,

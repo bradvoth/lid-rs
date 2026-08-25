@@ -50,6 +50,7 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
         const _: () = {
             #[allow(missing_docs, clippy::missing_docs_in_private_items)]
             #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]
+            #[linkme(crate = ::lid::__private::linkme)]
             static META: ::lid::SpecMeta = ::lid::SpecMeta {
                 name: <#ident as ::lid::Spec>::NAME,
                 file: file!(),
@@ -219,6 +220,7 @@ fn edge_registration(verb: &Verb, path: &Path, item_expr: &TokenStream) -> Token
         const _: () = {
             #[allow(missing_docs, clippy::missing_docs_in_private_items)]
             #[::lid::__private::linkme::distributed_slice(#slice)]
+            #[linkme(crate = ::lid::__private::linkme)]
             static EDGE: ::lid::Edge = ::lid::Edge {
                 spec: <#path as ::lid::Spec>::NAME,
                 item: #item_expr,
