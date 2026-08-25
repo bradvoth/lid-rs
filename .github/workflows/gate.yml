@@ -1,0 +1,16 @@
+# The LID-rs gate (README §4.5), cheapest and most specific first. Every step
+# gates; the toolchain is pinned by rust-toolchain.toml, which `rustup show`
+# installs.
+name: gate
+on: [push, pull_request]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - run: cargo check --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
+      - run: cargo test --doc
+      - run: cargo test --lib

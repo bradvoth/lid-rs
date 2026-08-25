@@ -32,7 +32,14 @@ pub fn graph_orphans(
     validations: &[Edge],
     kind: EdgeKind,
 ) -> Result<Vec<String>, CanaryStripped> {
-    todo!()
+    if !canary::triple_is_present(specs, impls, validations) {
+        return Err(CanaryStripped);
+    }
+    let edges = match kind {
+        EdgeKind::Implementations => impls,
+        EdgeKind::Validations => validations,
+    };
+    Ok(orphaned_specs(crate_name, specs, edges))
 }
 
 /// Specs whose `NAME` begins with `crate_name::` and that no edge cites,
@@ -44,7 +51,14 @@ pub fn graph_orphans(
     spec::CoveredGraphsPassTheGraphCheck,
 )]
 fn orphaned_specs(crate_name: &str, specs: &[SpecMeta], edges: &[Edge]) -> Vec<String> {
-    todo!()
+    let prefix = format!("{crate_name}::");
+    let cited: HashSet<&str> = edges.iter().map(|e| e.spec).collect();
+    specs
+        .iter()
+        .filter(|s| s.name.starts_with(&prefix))
+        .filter(|s| !cited.contains(s.name))
+        .map(|s| format!("{} ({}:{})", s.name, s.file, s.line))
+        .collect()
 }
 
 /// Expands to the three intent-graph tests (README §4.2): canary presence,
