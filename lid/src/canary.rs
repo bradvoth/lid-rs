@@ -72,3 +72,63 @@ const _: () = {
         line: line!(),
     };
 };
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Hand-expansion of:
+    //   #[validates(spec::LinkedRegistrationsAreEnumerable)]
+    #[test]
+    fn linked_registrations_are_enumerable() {
+        assert!(lid::SPECS.iter().any(|s| s.name == CANARY_SPEC));
+        assert!(lid::IMPLEMENTATIONS.iter().any(|e| e.spec == CANARY_SPEC));
+        assert!(lid::VALIDATIONS.iter().any(|e| e.spec == CANARY_SPEC));
+    }
+    const _: () = {
+        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
+        static EDGE: ::lid::Edge = ::lid::Edge {
+            spec: <crate::spec::LinkedRegistrationsAreEnumerable as ::lid::Spec>::NAME,
+            item: concat!(module_path!(), "::linked_registrations_are_enumerable"),
+            file: file!(),
+            line: line!(),
+        };
+    };
+
+    // Hand-expansion of:
+    //   #[validates(spec::CanaryConfirmsRegistryPresence)]
+    #[test]
+    fn canary_confirms_registry_presence() {
+        assert!(present());
+    }
+    const _: () = {
+        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
+        static EDGE: ::lid::Edge = ::lid::Edge {
+            spec: <crate::spec::CanaryConfirmsRegistryPresence as ::lid::Spec>::NAME,
+            item: concat!(module_path!(), "::canary_confirms_registry_presence"),
+            file: file!(),
+            line: line!(),
+        };
+    };
+
+    // Hand-expansion of:
+    //   #[validates(spec::CanaryDetectsAStrippedRegistry)]
+    #[test]
+    fn canary_detects_a_stripped_registry() {
+        assert!(!triple_is_present(&[], &lid::IMPLEMENTATIONS, &lid::VALIDATIONS));
+        assert!(!triple_is_present(&lid::SPECS, &[], &lid::VALIDATIONS));
+        assert!(!triple_is_present(&lid::SPECS, &lid::IMPLEMENTATIONS, &[]));
+    }
+    const _: () = {
+        #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+        #[::lid::__private::linkme::distributed_slice(::lid::VALIDATIONS)]
+        static EDGE: ::lid::Edge = ::lid::Edge {
+            spec: <crate::spec::CanaryDetectsAStrippedRegistry as ::lid::Spec>::NAME,
+            item: concat!(module_path!(), "::canary_detects_a_stripped_registry"),
+            file: file!(),
+            line: line!(),
+        };
+    };
+}
