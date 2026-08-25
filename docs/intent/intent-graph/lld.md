@@ -11,7 +11,7 @@ must first prove the enumeration exists.
 
 `lid` ships the checks themselves, not a recipe for writing them: pure
 functions over registry slices, plus an `intent_graph!()` macro that expands
-to the three test fns a consuming crate needs. Consumers invoke one macro in a
+to the test fns a consuming crate needs. Consumers invoke one macro in a
 `#[cfg(test)]` module; `lid` invokes the same macro on itself.
 
 ## The registry is binary-global; the checks are crate-scoped
@@ -34,7 +34,7 @@ edges are not filtered, since any crate may legitimately cite any spec.
 | `EdgeKind` (`Implementations` / `Validations`) | Selects the edge set a check runs against — an enum, not a `bool`, because check 8 is right about flag arguments in our code too. |
 | `orphaned_specs(crate_name, specs, edges) → Vec<String>` | Work leaf: own-crate specs with no edge, formatted `name (file:line)`. |
 | `graph_orphans(crate_name, specs, impls, validations, kind) → Result<Vec<String>, CanaryStripped>` | Dispatch node: canary-first guard over all three slices, then one `match` on `EdgeKind` delegating to the leaf. |
-| `intent_graph!()` | `macro_rules!` emitting three `#[test]` fns: `registry_is_populated`, `every_spec_has_an_implementer`, `every_spec_has_a_validation`, each calling `graph_orphans` against the real registries via `$crate`. |
+| `intent_graph!()` | `macro_rules!` emitting four `#[test]` fns: `registry_is_populated`, `every_spec_has_an_implementer`, `every_spec_has_a_validation` — each calling `graph_orphans` against the real registries via `$crate` — plus the inert `registry_dump_for_tooling` test the mutation xtask reads (`docs/intent/xtask/lld.md`). |
 | `CanaryStripped` | Error carried when the canary triple is absent: the registry cannot be trusted, so no orphan claim is made at all. |
 
 Everything is parameterized over slices (the `triple_is_present` trick from

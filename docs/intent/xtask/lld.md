@@ -38,15 +38,16 @@ over-approximates safely.
   test filters (edge `item` minus the leading `crate::` segment, since
   libtest names are crate-relative). Run with `--cargo-test-arg=--lib` plus
   `--exact` filters.
-- **Untraced mutant**: per `untraced_fallback = "module"`, the tests
-  validating specs implemented by the enclosing module (edges whose item
-  shares the module prefix); when none exist, the full suite (README [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html)).
+- **Untraced mutant**: the tests validating specs implemented in the same
+  file — the mutant list carries no module path, so file identity stands in
+  for the enclosing module; when the file implements none, the full suite
+  (README [§6.2](https://bradvoth.github.io/lid-rs/spec/traced.html)).
 - Mutants are grouped by identical test set; one `cargo mutants` run per
   group, selected by an anchored, escaped `-F` alternation of mutant names,
   `--baseline skip` (the ungated suite already ran earlier in the gate).
 
 Scope: `mutation_scope = "diff"` generates `git diff <base>` (default base
-`origin/main`, override `--diff-base`; `--full` overrides the scope) and
+`main`; CI passes `--diff-base origin/main`; `--full` overrides the scope) and
 passes it via `--in-diff`. Diff interpretation is the engine's contract, not
 re-implemented here.
 

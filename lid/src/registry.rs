@@ -3,9 +3,9 @@ use linkme::distributed_slice;
 /// One registered claim.
 #[derive(Debug)]
 pub struct SpecMeta {
-    /// `core::any::type_name` of the spec struct. The join key: every [`Edge`]
-    /// produces its `spec` field from the same expression, so the two sides of
-    /// a join can never disagree about naming.
+    /// The spec struct's [`Spec::NAME`](crate::Spec::NAME). The join key:
+    /// every [`Edge`] produces its `spec` field from the same associated
+    /// const, so the two sides of a join can never disagree about naming.
     pub name: &'static str,
     /// Source file of the registration site.
     pub file: &'static str,
@@ -16,7 +16,8 @@ pub struct SpecMeta {
 /// One citation: an implementation or validation site naming a claim.
 #[derive(Debug)]
 pub struct Edge {
-    /// `core::any::type_name` of the cited spec struct (joins [`SpecMeta::name`]).
+    /// The cited spec struct's [`Spec::NAME`](crate::Spec::NAME) (joins
+    /// [`SpecMeta::name`]).
     pub spec: &'static str,
     /// Path of the citing item, for human-readable reports.
     pub item: &'static str,

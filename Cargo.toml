@@ -31,7 +31,6 @@ missing_docs_in_private_items = "warn"
 
 [workspace.metadata.lid]
 mutation_scope = "diff"
-untraced_fallback = "module"
 
 # README §4.3: inlining must not erase a mutation site.
 [profile.test]

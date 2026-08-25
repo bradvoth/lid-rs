@@ -248,6 +248,7 @@ The attribute expands to two things:
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     #[::lid::__private::linkme::distributed_slice(::lid::IMPLEMENTATIONS)]
+    #[linkme(crate = ::lid::__private::linkme)]
     static EDGE: ::lid::Edge = ::lid::Edge {
         spec: <crate::spec::ValidCredentialsYieldScopedSession as ::lid::Spec>::NAME,
         item: concat!(module_path!(), "::authenticate"),
@@ -330,7 +331,7 @@ Enumeration happens at link time ([§5](https://bradvoth.github.io/lid-rs/spec/r
 | 11 | **Unvalidated spec** | A claim no test cites. Nothing would notice if it broke. |
 
 ```rust
-// src/intent_graph.rs — compiled into the lib, #[cfg(test)]
+// what lid::intent_graph!() expands to at its invocation site in lib.rs
 use lid::{SPECS, IMPLEMENTATIONS, VALIDATIONS};
 
 #[test]
@@ -363,8 +364,9 @@ design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/
 > crates — are absent from this binary. The checks therefore scope to specs
 > whose `NAME` begins with the current crate's name; edge sets stay
 > unfiltered. `lid::intent_graph!()` expands to the three tests above with
-> that scoping applied — invoke it in a `#[cfg(test)]` module rather than
-> hand-writing the checks.
+> that scoping applied, plus an inert registry-dump test the mutation xtask
+> reads ([§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)) — invoke it
+> in a `#[cfg(test)]` module rather than hand-writing the checks.
 
 ### 4.3 Tier 1 — non-vacuity by scoped mutation
 
@@ -564,9 +566,11 @@ rather than the presence of a call. A function can call traced code incidentally
 without carrying its behaviour; it can also carry spec behaviour through a
 closure that no syntactic rule would see.
 
-For untraced mutants, the xtask can't narrow the test set through the registry,
-so it runs the enclosing module's validating tests, falling back to the full
-suite. New untraced code is therefore gated: it may exist only if it either
+For untraced mutants, the xtask can't narrow the test set through the
+registry, so it runs the tests validating whatever specs are implemented in
+the same file (the mutant list carries no module path), falling back to the
+full suite when the file implements none. New untraced code is therefore
+gated: it may exist only if it either
 breaks nothing when mutated, or is traced.
 
 **Privacy does the containment.** The real risk isn't untraced code calling
@@ -625,8 +629,7 @@ wildcard_enum_match_arm     = "deny"
 missing_docs_in_private_items = "warn"
 
 [workspace.metadata.lid]
-mutation_scope   = "diff"        # diff | full
-untraced_fallback = "module"     # module | suite
+mutation_scope = "diff"          # diff | full
 ```
 
 Each member crate opts in with:
@@ -837,7 +840,7 @@ Suppose the agent implements `load_account` as:
 
 ```rust
 fn load_account(username: &Username) -> Result<Account, AuthError> {
-    match self.store.fetch(username) {
+    match credential_store().fetch(username) {
         Ok(Some(a)) if a.is_active() => Ok(a),
         Ok(Some(a)) if a.locked_until().is_some() => Err(AuthError::Locked),
         Ok(Some(_)) => Err(AuthError::InvalidCredentials),
@@ -988,8 +991,7 @@ docs/
     auth/lld.md                -> included by mod auth
     settings/lld.md            -> included by mod settings
 src/
-  lib.rs                       doc includes
-  intent_graph.rs              #[cfg(test)] — checks 10, 11, canary
+  lib.rs                       doc includes + #[cfg(test)] intent_graph!()
   spec/
     mod.rs                     re-exports
     auth.rs                    claims for the auth slice
@@ -1033,10 +1035,6 @@ codebase gates correctly on the part that's traced.
 - **`linkme` has platform edges.** See [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html). The canary converts silent failure
   into loud failure, but on an unusual target you will be debugging a linker
   mechanism. The `inventory` fallback exists for that case.
-- **Two pieces are unbuilt.** The `lid`/`lid-macros` crates, and the xtask that
-  reads the registry to narrow the mutation test subset. That filtering is what
-  keeps check 12 inside a per-PR budget; without it, mutation runs the full suite
-  per mutant.
 - **Module-level `implements_module!` is coarse.** It traces by containment, so a
   module that grows past its original claim will carry a citation that's become
   approximate. Treat module size as the check on this — nothing enforces it.
@@ -1057,7 +1055,8 @@ codebase gates correctly on the part that's traced.
 4. `Cargo.toml` workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)).
 5. `docs/intent/hld.md`, included via `#![doc = include_str!(...)]`.
 6. `src/spec/mod.rs` with `//!` docs explaining what the module is for.
-7. `src/intent_graph.rs` under `#[cfg(test)]` — canary first, then checks 10, 11.
+7. A `#[cfg(test)] mod intent_graph { lid::intent_graph!(); }` in `lib.rs` —
+   canary first, then checks 10, 11.
 8. `[profile.test] opt-level = 0`; install `cargo-mutants`; `xtask` for
    registry-driven test filtering.
 9. CI running [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) in order, all of it gating.

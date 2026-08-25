@@ -12,9 +12,9 @@ are weakest.
 `README.md` (the LID-rs specification) designs the fix: make the
 spec layer out of Rust items so the compiler resolves every edge of the intent
 graph, and gate every structural property so reviewer attention lands on
-semantics alone. The specification names its own gap in [§12](https://bradvoth.github.io/lid-rs/spec/limits.html): the `lid` and
-`lid-macros` crates, the registry-driven mutation `xtask`, and the operating
-skill are unbuilt. This workspace builds them.
+semantics alone. This workspace builds the toolchain the specification
+requires: the `lid` and `lid-macros` crates, the registry-driven mutation
+`xtask`, and the operating skill.
 
 ## Approach
 
@@ -73,8 +73,8 @@ Falsifiable, in delivery order:
 3. Every gate has a demonstrated failure: for each of the twelve checks, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
    the gate catches its violation — not merely that green code passes.
-4. `cargo xtask mutants --in-diff` narrows each mutant's test set through the
-   registry, and a vacuous test (executes but doesn't assert) is caught by it.
+4. `cargo xtask mutants` (diff-scoped) narrows each mutant's test set through
+   the registry, and a vacuous test (executes but doesn't assert) is caught by it.
 5. The skill at `.claude/skills/lid-rs/` walks an agent through the eight
    phases such that a slice of this workspace itself was produced under it.
 
@@ -113,10 +113,10 @@ Ordered; when two conflict, the higher wins.
 ```mermaid
 graph TD
     subgraph workspace
-        MACROS["lid-macros (proc-macro)\nderive(Spec) · implements · validates · spec"]
+        MACROS["lid-macros (proc-macro)\nderive(Spec) · implements · validates\nimplements_module! · spec"]
         LID["lid (runtime)\nSpec trait · Edge · SpecMeta\nSPECS / IMPLEMENTATIONS / VALIDATIONS slices\ncanary · __private linkme re-export\nextern crate self as lid"]
         XTASK["xtask\nregistry-driven mutation scoping\n(cargo-mutants orchestration)"]
-        GRAPH["lid/src/intent_graph.rs  #[cfg(test)]\ncanary check · uncited spec · unvalidated spec"]
+        GRAPH["lid/src/graph.rs + intent_graph!()\ncanary check · uncited spec · unvalidated spec"]
     end
     SKILL[".claude/skills/lid-rs/\noperates the eight phases"]
     DOCS["docs/intent/\nhld.md · per-slice lld.md\n(include_str! into rustdoc)"]
@@ -130,8 +130,8 @@ graph TD
 ```
 
 `lid` self-hosts: its own claims live in `lid/src/spec/`, its own code carries
-`#[implements]`, its own unit tests carry `#[validates]`, and `intent_graph.rs`
-checks the resulting graph. `xtask` depends on `lid` as an ordinary downstream
+`#[implements]`, its own unit tests carry `#[validates]`, and its
+`intent_graph!()` instance checks the resulting graph. `xtask` depends on `lid` as an ordinary downstream
 consumer, which is where macro path-resolution and linker-section behaviour get
 exercised outside the self-referential crate.
 
@@ -141,9 +141,10 @@ exercised outside the self-referential crate.
 |---|---|---|
 | 1 | "A claim, an implementation, and a validation are enumerable at link time" | Workspace scaffolding + Tier 0 lint config (tenet 2), `lid` core, hand-expanded canary triple |
 | 2 | "A citation is written as an attribute and resolved by the compiler" | `lid-macros`; canary converts to macro form; expansion-equivalence test |
-| 3 | "An uncited or unvalidated claim fails the build" | `intent_graph.rs` checks; tracing spread through `lid` itself; gate-failure fixtures |
+| 3 | "An uncited or unvalidated claim fails the build" | `graph.rs` checks and the `intent_graph!()` emitter; tracing spread through `lid` itself; gate-failure fixtures |
 | 4 | "A vacuous test fails the build" | `xtask` mutation scoping via registry; `[profile.test] opt-level = 0` |
 | 5 | "An agent operates the methodology" | `.claude/skills/lid-rs/` skill, validated by producing a slice under it |
+| 6 | "The methodology is readable without cloning the repo" | mdBook assembled by inclusion, deployed to GitHub Pages; `docs/intent/book/lld.md` |
 
 Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html)) with stops at every phase boundary.
 

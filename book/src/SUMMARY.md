@@ -27,6 +27,7 @@
 - [LLD: intent-graph checks](impl/lld-intent-graph.md)
 - [LLD: mutation and the gate self-test](impl/lld-xtask.md)
 - [LLD: the operating skill](impl/lld-skill.md)
+- [LLD: the book](impl/lld-book.md)
 
 # Operating It
 

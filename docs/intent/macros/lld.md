@@ -76,15 +76,19 @@ swap and carry no contract.
 
 ## Compile-failure demonstrations (check 1, Goal 3)
 
-`trybuild` UI tests in `lid/tests/ui.rs` (a plain integration-test harness —
-no `#[validates]` under `tests/`, per README [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html)):
+The trybuild harness is itself a `#[validates]` unit test inside the
+library (`lid/src/spec/mod.rs`), so its edge links into the registry per
+README [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html); only the
+fixture files live under `lid/tests/ui/`:
 
-- **fail**: citing a path that doesn't resolve; citing a type that isn't a
-  `Spec`; empty citation list; generic-argument path.
-- **pass**: a fn citing a real spec through a `use` rename (the case grep
+- **fail** (5): citing a path that doesn't resolve; citing a type that isn't
+  a `Spec`; empty citation list; generic-argument path; deriving `Spec` on a
+  non-unit struct.
+- **pass** (7): a fn citing a real spec through a `use` rename (the case grep
   cannot handle and the compiler must); `#[validates]` coexisting with
-  `#[test]`; a struct and an enum carrying `#[implements]`; `#[spec("…")]`
-  alias emission compiling.
+  `#[test]`; a struct and an enum carrying `#[implements]`; a method carrying
+  it inside an impl block; `implements_module!` tracing; `#[spec("…")]` alias
+  emission; a `#[deprecated]` spec whose definition site stays warning-free.
 
 ## Decisions & Alternatives
 
