@@ -12,10 +12,10 @@ help: the trait `Spec` is not implemented for `NotASpec`
   = help: the following other types implement trait `Spec`:
             CanaryConfirmsRegistryPresence
             CanaryDetectsAStrippedRegistry
+            CoveredGraphsPassTheGraphCheck
             DerivedSpecsCarryTheirDefinitionPath
             DerivedSpecsRegisterIntoSpecs
+            GraphChecksRequireThePresentCanary
+            GraphChecksScopeToTheCurrentCrate
             ImplementsCitationsRegisterEdges
-            LinkedRegistrationsAreEnumerable
-            MalformedCitationsFailToCompile
-            ModuleCitationsTraceByContainment
-            ValidatesCitationsRegisterEdges
+          and $N others
