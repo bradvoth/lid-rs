@@ -20,12 +20,11 @@ Non-Goals).
 The skill is prose executed by an agent, not code the compiler sees. A spec
 claim about it ("when the agent begins a slice, it shall draft an LLD first")
 has no implementation edge any build can resolve and no test any gate can
-run — a claim that cannot gate gets deleted, not written (constraint 3). So
-this slice contributes no `derive(Spec)` items; its validation is the process
-evidence the HLD's Goal 5 names: this repository's own git history is a
-sequence of slices produced under exactly the discipline the skill encodes,
-and the skill text is derived from that history's findings rather than from
-aspiration.
+run — and a claim that cannot gate doesn't get written (constraint 3). So
+this slice contributes no `derive(Spec)` items. Its validation is the process
+evidence the HLD's Goal 5 names: this repository's git history is a sequence
+of slices produced under the discipline the skill encodes, and the skill text
+is derived from that history's findings rather than from aspiration.
 
 ## Content requirements
 
@@ -36,7 +35,7 @@ The skill must carry, in this order of importance:
    proceed). Bugs walk the arrow like any other change.
 2. **The non-negotiables** — dispatch/work separation; a leaf with a branch is
    an unwritten requirement; never suppress a firing lint (the lint firing
-   *is* the system working); `#[validates]` only on `#[cfg(test)]` unit tests
+   is the system working); `#[validates]` only on `#[cfg(test)]` unit tests
    inside the library; claims are EARS-shaped doc comments on descriptive
    names.
 3. **Gate-failure remediation** — for each check, what its firing means and
@@ -53,8 +52,8 @@ The skill must carry, in this order of importance:
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Traceability of this slice | Untraced; process-evidence validation | Ceremonial `Spec` structs for skill behaviour; a skill-lint script | Ceremonial specs make the graph look denser than it is — worse than none (README [§6](https://bradvoth.github.io/lid-rs/spec/traced.html)). A script checking prose cannot check what matters (did the agent *follow* it). |
-| Skill scope | Operates LID-rs on any Rust codebase that adopts it, this repo included | A repo-specific runbook | The skill is a deliverable of the system, not documentation of this workspace; this repo is its first consumer, not its subject. |
+| Traceability of this slice | Untraced; process-evidence validation | Ceremonial `Spec` structs for skill behaviour; a skill-lint script | Ceremonial specs make the graph look denser than it is (README [§6](https://bradvoth.github.io/lid-rs/spec/traced.html)). A script checking prose cannot check what matters (did the agent *follow* it). |
+| Skill scope | Operates LID-rs on any Rust codebase that adopts it, this repo included | A repo-specific runbook | The skill is a deliverable of the system; this repo is its first consumer, not its subject. |
 | Relationship to the installed `linked-intent-dev` skill | This skill owns Rust-artifact mechanics; the generic skill's process discipline (stops, cascade, coherence pre-flight) is incorporated by restatement, not by reference | Deferring to the generic skill plus a delta document | A skill that requires composing two documents at run time is a skill agents will half-follow; restating the process rules keeps one authoritative walk. |
 | Failure remediation format | Per-check table with meaning and correct response | Prose guidance | The moment of use is "a gate just fired"; a lookup table matches it. |
 

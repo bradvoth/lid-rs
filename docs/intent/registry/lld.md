@@ -12,7 +12,7 @@ second implementation of name resolution.
 
 The registry is the foundation slice: it must exist before the macros that
 populate it, so its own registrations are written by hand in exactly the form
-the macros will later emit (write-the-expansion-first discipline; the
+the macros will later emit (the expansion written before the macro; the
 hand-expansion is the macros' conformance target). One hand-registered
 spec/implementation/validation triple is permanent — the canary — because a
 check built on enumeration must first prove the enumeration is non-empty
@@ -100,7 +100,7 @@ checks to be non-vacuous:
   proving the `VALIDATIONS` section survived linking. The runnable validation
   of the canary claim is an ordinary `#[cfg(test)]` unit test in `lid` itself.
 
-`present()` is a leaf over a leaf: `present()` applies the real registries to
+`present()` is pure delegation: it applies the real registries to
 `triple_is_present(specs, impls, validations)`, which checks that each canary
 entry appears in its slice. The split exists because the false branch — a
 stripped registry — cannot be produced at runtime from the real statics, so
@@ -113,7 +113,7 @@ Bootstrap freight, not registry design — slice 1 carries it because tenet 2
 requires the lints to gate before any code exists to violate them.
 
 Tier 0 lint configuration gates from this slice onward: workspace `[lints]`
-tables and `clippy.toml` thresholds exactly per README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html), `[profile.test]
+tables and `clippy.toml` thresholds per README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html), `[profile.test]
 opt-level = 0` (README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)), toolchain pinned via `rust-toolchain.toml`
 (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html) pins in CI; pinning the workspace makes local and CI identical).
 
@@ -123,9 +123,9 @@ opt-level = 0` (README [§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html
 |---|---|---|---|
 | Enumeration mechanism | `linkme` distributed slices | `inventory` (ctors); build-script codegen; source scanning | Zero runtime cost, no life-before-main; source scanning violates constraint 2. `inventory` remains the designated escape hatch behind a feature flag if a target's linker defeats sections — deferred until such a target exists (tenet 3). |
 | Self-reference | `extern crate self as lid` | `proc-macro-crate` name lookup | Zero dependencies, stable; renames declared unsupported rather than engineered for. |
-| Registration static scoping | `const _: () = { static … }` wrapper | Sibling statics with name-mangled uniquifiers (`__LID_IMPL_a3f2`) | Scoping removes the uniqueness problem entirely instead of solving it with hashes; keeps hand-expansion and macro output trivially comparable; same wrapper works in future function-body expansion positions. |
+| Registration static scoping | `const _: () = { static … }` wrapper | Sibling statics with name-mangled uniquifiers (`__LID_IMPL_a3f2`) | Scoping removes the uniqueness problem entirely instead of solving it with hashes; keeps hand-expansion and macro output directly comparable; same wrapper works in future function-body expansion positions. |
 | Join key between `SpecMeta` and `Edge` | Derive-generated `Spec::NAME` associated const (`module_path!()` + ident at the definition site) | `core::any::type_name::<T>()` on both sides; stringified path tokens at the citation site | `type_name` is not const-stable, so it cannot initialize a registration static on stable — proven by compile failure, not assumed. Stringified citation paths break the join when sites path differently. `NAME` is single-sourced at the definition, and the projection doubles as the citation's type assertion and `#[deprecated]` propagation point. |
-| Canary registration visibility | Unconditional, in the library proper | `#[cfg(test)]` alongside the graph checks | A cfg(test) canary never reaches downstream test binaries, silently un-guarding every consumer's registry checks — the exact vacuous-pass failure the canary exists to prevent. |
+| Canary registration visibility | Unconditional, in the library proper | `#[cfg(test)]` alongside the graph checks | A cfg(test) canary never reaches downstream test binaries, un-guarding every consumer's registry checks: the vacuous pass the canary exists to prevent. |
 | Canary validation edge | Sentinel edge naming `lid::canary::sentinel`, plus a real `#[cfg(test)]` test | Only a real test (edge appears in test builds only); no validation edge (canary checks 2 of 3 slices) | The sentinel keeps all three sections guarded in every binary; the real test keeps the claim behaviorally validated. Documented as a sentinel so the edge is never mistaken for a runnable test. |
 | Stripped-registry testability | `triple_is_present` leaf parameterized over slices | Testing `present()` only (true case solely); linker tricks to strip sections in a test target | Parameterization makes the false branch an ordinary unit test; linker-trick tests are target-dependent and belong, if anywhere, in CI matrix work later. |
 

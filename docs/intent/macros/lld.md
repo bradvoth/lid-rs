@@ -96,7 +96,7 @@ fixture files live under `lid/tests/ui/`:
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Equivalence assertion | Behavioral pin-then-swap over registry contents | `macrotest`/`cargo-expand` textual expansion comparison | Textual expansion needs nightly `-Zunpretty`, violating constraint 1; the registry *is* the macros' observable output, so pinning it asserts exactly what matters and nothing incidental. |
+| Equivalence assertion | Behavioral pin-then-swap over registry contents | `macrotest`/`cargo-expand` textual expansion comparison | Textual expansion needs nightly `-Zunpretty`, violating constraint 1. The registry is the macros' observable output, so pinning it asserts exactly what matters and nothing incidental. |
 | fn registration placement | Body injection | Sibling `const _` after the fn; associated `const _` in impl blocks | Sibling emission breaks for methods (`impl` blocks reject free consts); body injection is uniform everywhere a fn can appear. Slice 1 proved linkme accepts scoped statics. |
 | `#[spec]` foreign-key alias | Standalone attribute macro | Derive helper attribute read by `derive(Spec)` | A derive cannot attach `#[doc(alias)]` to its item — derives only append new items. An attribute macro rewrites the item, which is the whole job. |
 | Module-level tracing | `implements_module!(…)` function-like macro | `#![implements(…)]` inner attribute; attribute on `mod` declarations | Both alternatives are unstable Rust (custom inner attributes; attributes on non-inline modules). |

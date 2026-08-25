@@ -25,8 +25,8 @@ section references below point there.
    registration blocks, which you never write by hand.
 3. **A leaf with a branch in it is a requirement nobody wrote down.** A
    function either makes one flow decision (one `match` or one `if/else`
-   chain) or does one unit of work — never both. When you feel a branch
-   growing inside a leaf, the design is missing a claim: go back to Phase 1.
+   chain) or does one unit of work — never both. When a decision starts
+   creeping into a leaf, the design is missing a claim: go back to Phase 1.
 
 ## Coherence pre-flight (before starting or resuming any change)
 
@@ -84,7 +84,7 @@ becomes an ordinary unit test.
 
 **Phase 5 — Failing-first validations.** One test per claim, as
 `#[cfg(test)]` **unit tests inside the library** — never under `tests/`,
-where separate binaries silently drop out of the registry ([§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html)):
+where separate binaries never link into the registry ([§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html)):
 
 ```rust
 #[test]
@@ -165,7 +165,7 @@ propagating into another slice's LLD territory.
 | check 1 — citation fails to resolve | The claim was renamed/deleted, or the path is wrong | Revisit the citation site against the current spec module; this is forced re-review, not breakage |
 | check 2/5 — doc link or example broken | Docs/LLD drifted from the API | Fix the doc or the LLD — they are intent, not decoration |
 | check 3 — missing docs | An item exists with no stated intent | Write the intent; if you can't state it, the item shouldn't exist yet |
-| check 4 — skeleton doesn't type-check | The layer you designed doesn't fit together | Fix the design at this layer before descending; that's the point of skeleton-first |
+| check 4 — skeleton doesn't type-check | The layer you designed doesn't fit together | Fix the design at this layer before descending — catching it here is why skeletons come first |
 | check 6 — non-exhaustive match | An upstream case was added and a dispatch site would swallow it | Handle the new case; never `_ =>` it away |
 | check 7 — cognitive complexity | A leaf contains decisions nobody declared | **Return to Phase 1.** Write the claim (making the branch a declared dispatch), or restructure. Never raise the threshold |
 | check 8 — bool parameter | Two functions in a trench coat | Split into two leaves; share common structure in a wrapper, never via a flag. The `Option`-parameter variant is your judgment — nothing catches it |

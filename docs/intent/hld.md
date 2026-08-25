@@ -44,7 +44,7 @@ staging that resolves this:
    distributed slices, `__private` linkme re-export — plus **one hand-written
    spec/implementation/validation triple registered with hand-expanded statics,
    which is the permanent canary** (README [§5.3](https://bradvoth.github.io/lid-rs/spec/registry.html)). Hand-expanding first is
-   deliberate write-the-expansion-before-the-macro discipline: it validates the
+   deliberate macro discipline — write the expansion before the macro: it validates the
    expansion design while changing it is free.
 2. `lid-macros` ships second and must reproduce the hand-expanded registrations
    exactly; the canary then converts to macro-generated form, proving
@@ -70,7 +70,7 @@ Falsifiable, in delivery order:
 1. `cargo test --lib` on this workspace runs the registry checks (uncited spec,
    unvalidated spec) over a canary-verified non-empty registry.
 2. `lid-macros` reproduces the hand-expanded canary registrations exactly
-   (asserted by test, not by inspection).
+   (asserted by test).
 3. Every check has a demonstrated failure: for each of the twelve, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
    the gate catches its violation — not merely that green code passes.
@@ -89,7 +89,7 @@ Falsifiable, in delivery order:
   `lid`; `extern crate self` + literal `::lid` paths make renames unsupported,
   documented rather than engineered around.
 - **No plugin packaging yet.** The skill lives in-repo until proven; promotion
-  to a distributable plugin is a later slice, not scoped here.
+  to a distributable plugin is a later slice.
 - **No support for prototypes.** README [§1.2](https://bradvoth.github.io/lid-rs/spec/purpose.html): the correct amount of LID-rs in
   disposable code is zero. Nothing here optimizes for low-ceremony adoption.
 

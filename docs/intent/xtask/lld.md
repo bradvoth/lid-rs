@@ -11,10 +11,10 @@ the implementation, and the test must fail. `cargo-mutants` supplies the
 mutation engine; what has to be built is the narrowing that keeps it inside a
 per-PR budget — for a mutant in function `F`, run only the tests validating
 the specs `F` implements. That mapping is a registry join, and the registries
-are obtained **from each crate's own `--lib` test binary**: `intent_graph!()`
+are obtained **from each crate's own `--lib` test binary**. `intent_graph!()`
 emits an inert `registry_dump_for_tooling` test that prints the registries as
-tab-separated lines when `LID_DUMP=1`, and xtask runs it per workspace crate
-and parses the output into owned edge records. A crate's `#[validates]` edges
+tab-separated lines when `LID_DUMP=1`; xtask runs it per workspace crate and
+parses the output into owned edge records. A crate's `#[validates]` edges
 exist *only* in that crate's test binary (README [§5.2](https://bradvoth.github.io/lid-rs/spec/registry.html) applies recursively:
 they are absent from the xtask binary itself, and absent from `lid` as linked
 into anything else), so the test binary is the sole honest source.
@@ -86,13 +86,13 @@ tests; synthetic-registry tests) and are not duplicated here.
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
 | Registry access | Per-crate dump via the `intent_graph!()`-emitted test, parsed from tab-separated lines | Linking the traced crate into xtask (the original design); parsing source | Linking was chosen first and **disproven by the first real run**: `#[cfg(test)]` validation edges never link into the xtask binary, so every traced plan came back empty and zero tests ran per mutant. The owning crate's test binary is the only binary that holds its validation edges. Line format over JSON: no serializer needed in `lid`, no escaping surface. Parsing source still violates constraint 2. |
-| Empty narrowed test set | Degrades to the full suite | Running the (empty) filtered set; erroring out | Running zero tests lets every mutant survive trivially — the exact vacuous-pass shape constraint 3 exists to kill. Erroring would block brownfield crates where check 11 doesn't yet gate. |
+| Empty narrowed test set | Degrades to the full suite | Running the (empty) filtered set; erroring out | Running zero tests lets every mutant survive, which is itself a vacuous pass (constraint 3). Erroring would block brownfield crates where check 11 doesn't yet gate. |
 | Mutant identity | `(file, ends-with ::fn_name)` join | Qualified names from cargo-mutants (not provided); span-based matching | The JSON provides file + unqualified name; file equality plus suffix match is exact for everything but same-file same-name fns, which merge into one safe over-approximated test set. |
 | Argument parsing | `std::env` loop | `clap` | Two subcommands and three flags do not justify a dependency tree (tenet 3). |
 | JSON / metadata parsing | `serde_json` untyped `Value`; config via `cargo metadata` | `toml` crate for Cargo.toml; typed serde derives | One parsing dependency instead of two: `cargo metadata` re-serves `[workspace.metadata.lid]` as JSON. Untyped access keeps the surface small. |
 | Selftest fixtures | Synthesized detached crates, one gate each, expected-diagnostic assertions | A single fixture crate tripping all lints; asserting only nonzero exit | One-check-one-fixture keeps a diagnosis readable and proves each gate individually; exit-code-only assertions would let the wrong gate's failure vouch for the right one. |
 | Baseline handling | `--baseline skip` | Default baseline run per group | The gate runs the full suite before mutation ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order); re-running it per group multiplies wall-clock for no information. |
-| Test scope per mutant | `--test-workspace true` | Engine default (test only the mutated package) | Found by a surviving mutant: a broken `derive` in the proc-macro crate is killed only by `lid`'s tests, and the package-scoped default never runs them. Cross-crate kill paths are the norm here, not the exception. |
+| Test scope per mutant | `--test-workspace true` | Engine default (test only the mutated package) | Found by a surviving mutant: a broken `derive` in the proc-macro crate is killed only by `lid`'s tests, and the package-scoped default never runs them. Cross-crate kill paths are the norm here. |
 
 ## Open Questions & Future Decisions
 
