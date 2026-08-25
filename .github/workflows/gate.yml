@@ -15,6 +15,8 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
       - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
       - run: cargo test --doc
-      - run: cargo test --lib
+      # cargo-mutants must exist before `cargo test --lib`: the gate
+      # self-test's vacuous_test fixture spawns it (check 12's demonstration).
       - run: cargo install cargo-mutants --locked
+      - run: cargo test --lib
       - run: cargo xtask mutants --diff-base origin/main
