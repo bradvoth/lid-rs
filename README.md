@@ -547,15 +547,19 @@ catches those regardless of tracing.
 
 ### 6.3 Module-level tracing
 
-For a cluster of private helpers implementing one claim between them, an inner
-attribute traces by containment rather than per-function ceremony:
+For a cluster of private helpers implementing one claim between them, a
+module-level invocation traces by containment rather than per-function
+ceremony:
 
 ```rust
 // src/auth/password.rs
-#![implements(spec::PasswordsAreVerifiedInConstantTime)]
+lid::implements_module!(spec::PasswordsAreVerifiedInConstantTime);
 ```
 
-Every function in the module inherits the citation. Use this for a slice's
+(A function-like macro rather than an inner attribute, because custom inner
+attributes are not stable Rust; the emitted edge is identical, with
+`module_path!()` supplying the containment.) Every function in the module
+inherits the citation. Use this for a slice's
 private machinery; use per-function citations at the public surface where
 precision matters.
 
@@ -986,7 +990,7 @@ codebase gates correctly on the part that's traced.
   reads the registry to narrow the mutation test subset. That filtering is what
   keeps check 12 inside a per-PR budget; without it, mutation runs the full suite
   per mutant.
-- **Module-level `#![implements]` is coarse.** It traces by containment, so a
+- **Module-level `implements_module!` is coarse.** It traces by containment, so a
   module that grows past its original claim will carry a citation that's become
   approximate. Treat module size as the check on this — nothing enforces it.
 - **`cognitive_complexity` is a nursery lint.** It has known false positives and
@@ -999,7 +1003,8 @@ codebase gates correctly on the part that's traced.
 1. `cargo new --lib` plus a thin `bin`.
 2. `lid` support crate: `Spec` trait, `Edge`, `SpecMeta`, three
    `#[distributed_slice]` declarations, `canary`, `__private` re-export.
-3. `lid-macros`: `derive(Spec)`, `implements`, `validates`, `spec`.
+3. `lid-macros`: `derive(Spec)`, `implements`, `validates`,
+   `implements_module!`, `spec`.
 4. `Cargo.toml` workspace lints + `clippy.toml` thresholds (§7).
 5. `docs/intent/hld.md`, included via `#![doc = include_str!(...)]`.
 6. `src/spec/mod.rs` with `//!` docs explaining what the module is for.
