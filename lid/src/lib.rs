@@ -6,9 +6,17 @@
 extern crate self as lid;
 
 pub mod canary;
+#[doc = include_str!("../../docs/intent/intent-graph/lld.md")]
+pub mod graph;
 #[doc = include_str!("../../docs/intent/registry/lld.md")]
 pub mod registry;
 pub mod spec;
+
+#[cfg(test)]
+mod intent_graph {
+    //! lid's own instance of the graph checks (README §4.2).
+    lid::intent_graph!();
+}
 
 pub use registry::{Edge, IMPLEMENTATIONS, SPECS, SpecMeta, VALIDATIONS};
 

@@ -32,7 +32,7 @@ pub fn present() -> bool {
 /// the stripped case — which cannot be produced at runtime from the real
 /// statics — is testable with empty inputs.
 #[implements(spec::CanaryDetectsAStrippedRegistry)]
-fn triple_is_present(specs: &[SpecMeta], impls: &[Edge], validations: &[Edge]) -> bool {
+pub(crate) fn triple_is_present(specs: &[SpecMeta], impls: &[Edge], validations: &[Edge]) -> bool {
     specs.iter().any(|s| s.name == CANARY_SPEC)
         && impls.iter().any(|e| e.spec == CANARY_SPEC)
         && validations.iter().any(|e| e.spec == CANARY_SPEC)

@@ -5,7 +5,14 @@
 //! grep.
 
 mod citation;
+mod graph;
 mod registry;
+
+pub use graph::{
+    CoveredGraphsPassTheGraphCheck, GraphChecksRequireThePresentCanary,
+    GraphChecksScopeToTheCurrentCrate, UncitedSpecsFailTheGraphCheck,
+    UnvalidatedSpecsFailTheGraphCheck,
+};
 
 pub use citation::{
     DerivedSpecsCarryTheirDefinitionPath, DerivedSpecsRegisterIntoSpecs,

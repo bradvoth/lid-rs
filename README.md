@@ -343,6 +343,15 @@ fn every_spec_has_a_validation() { /* same shape against VALIDATIONS */ }
 Note there is no check for a *function with no citation*. That is a deliberate
 design decision, not a gap — see §6.
 
+> **Scoping note.** The registry is binary-global: a consumer's test binary
+> links `lid` (and any other traced crate), so `SPECS` contains upstream
+> claims whose `#[validates]` edges — being `#[cfg(test)]` in their home
+> crates — are absent from this binary. The checks therefore scope to specs
+> whose `NAME` begins with the current crate's name; edge sets stay
+> unfiltered. `lid::intent_graph!()` expands to the three tests above with
+> that scoping applied — invoke it in a `#[cfg(test)]` module rather than
+> hand-writing the checks.
+
 ### 4.3 Tier 1 — non-vacuity by scoped mutation
 
 `#[validates]` proves a test *claims* a spec. It cannot prove the test would
