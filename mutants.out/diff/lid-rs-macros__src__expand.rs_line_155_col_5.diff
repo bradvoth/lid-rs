@@ -1,0 +1,25 @@
+--- lid-rs-macros/src/expand.rs
++++ replace foreign_key -> syn::Result<TokenStream> with Ok(Default::default())
+@@ -147,21 +147,17 @@
+         .iter()
+         .map(|p| edge_registration(&Verb::Implements, p, &item_expr));
+     Ok(quote!(#(#registrations)*))
+ }
+ 
+ /// Expands `#[spec("FOREIGN-ID")]`: re-emits the struct with a doc alias so
+ /// the foreign ID stays greppable and rustdoc-searchable.
+ pub fn foreign_key(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+-    let id: LitStr = syn::parse2(args)
+-        .map_err(|e| syn::Error::new(e.span(), "lid-rs: expected a single foreign-ID string literal"))?;
+-    let mut item: DeriveInput = syn::parse2(item)?;
+-    item.attrs.push(parse_quote!(#[doc(alias = #id)]));
+-    Ok(item.into_token_stream())
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Parses a citation argument list: one or more plain, non-generic paths.
+ fn parse_spec_paths(args: TokenStream) -> syn::Result<Vec<Path>> {
+     let span = proc_macro2::Span::call_site();
+     let paths: Punctuated<Path, Token![,]> =
+         Punctuated::parse_terminated.parse2(args).map_err(|e| {
+             syn::Error::new(e.span(), "lid-rs: expected a comma-separated list of spec paths")

@@ -12,8 +12,8 @@ its build.
 
 - **The Specification** — the LID-rs methodology itself, section by
   section. Start at [The premise](spec/premise.md).
-- **The Reference Implementation** — the design documents of the `lid`,
-  `lid-macros`, and `xtask` crates, which were built by applying the
+- **The Reference Implementation** — the design documents of the `lid-rs`,
+  `lid-rs-macros`, and `xtask` crates, which were built by applying the
   methodology to itself. Their Decisions & Alternatives tables record
   what building it disproved and revised.
 - **Operating It** — [the skill](skill.md) an agent follows to run the

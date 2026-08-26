@@ -1,0 +1,28 @@
+--- lid-rs-macros/src/expand.rs
++++ replace ensure_unit_struct -> syn::Result<()> with Ok(())
+@@ -62,24 +62,17 @@
+                 line: line!(),
+             };
+         };
+     })
+ }
+ 
+ /// Rejects derive targets that are not plain unit structs.
+ fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {
+-    let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));
+-    if !unit || !item.generics.params.is_empty() {
+-        return Err(syn::Error::new_spanned(
+-            &item.ident,
+-            "lid-rs: derive(Spec) applies to non-generic unit structs only — a claim has no runtime shape",
+-        ));
+-    }
+-    Ok(())
++    Ok(()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Expands `#[implements]` / `#[validates]`: dispatches on the item kind.
+ ///
+ /// Dispatch is by parse-attempt rather than by matching `syn::Item`: that
+ /// enum is foreign and `#[non_exhaustive]`, so it cannot be matched without
+ /// the wildcard arm check 6 denies — and rejecting unknown item kinds is the
+ /// wanted behaviour anyway.

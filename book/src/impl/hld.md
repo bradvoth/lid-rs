@@ -1,1 +1,1 @@
-{{#include ../../../docs/intent/hld.md}}
+{{#include ../../../lid-rs/docs/intent/hld.md}}

@@ -1,5 +1,0 @@
-error: lid: derive(Spec) applies to non-generic unit structs only — a claim has no runtime shape
- --> tests/ui/fail/derive_non_unit.rs:4:8
-  |
-4 | struct Claim {
-  |        ^^^^^

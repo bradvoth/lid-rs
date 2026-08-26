@@ -1,0 +1,718 @@
+
+*** lid-rs-macros/src/expand.rs:87:5: replace citation -> syn::Result<TokenStream> with Ok(Default::default())
+
+*** mutation diff:
+--- lid-rs-macros/src/expand.rs
++++ replace citation -> syn::Result<TokenStream> with Ok(Default::default())
+@@ -79,30 +79,17 @@
+ 
+ /// Expands `#[implements]` / `#[validates]`: dispatches on the item kind.
+ ///
+ /// Dispatch is by parse-attempt rather than by matching `syn::Item`: that
+ /// enum is foreign and `#[non_exhaustive]`, so it cannot be matched without
+ /// the wildcard arm check 6 denies — and rejecting unknown item kinds is the
+ /// wanted behaviour anyway.
+ pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
+-    let paths = parse_spec_paths(args)?;
+-    if let Ok(f) = syn::parse2::<ItemFn>(item.clone()) {
+-        return Ok(cite_fn(f, &paths, &verb));
+-    }
+-    if let Ok(s) = syn::parse2::<ItemStruct>(item.clone()) {
+-        return Ok(cite_struct(s, &paths, &verb));
+-    }
+-    if let Ok(e) = syn::parse2::<ItemEnum>(item.clone()) {
+-        return Ok(cite_enum(e, &paths, &verb));
+-    }
+-    Err(syn::Error::new_spanned(
+-        item,
+-        "lid-rs: citations apply to fns, structs, and enums",
+-    ))
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Cites a fn by injecting one registration per spec at the top of its body
+ /// and appending the doc lines — uniform for free fns and methods, since
+ /// `impl` blocks admit no free consts but every fn body admits items.
+ fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
+     let item_expr = item_path_expr(&f.sig.ident);
+     for path in paths {
+
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --no-run --verbose --workspace
+       Fresh unicode-ident v1.0.24
+       Fresh itoa v1.0.18
+       Fresh memchr v2.8.3
+       Fresh proc-macro2 v1.0.107
+       Fresh winnow v1.0.4
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh target-triple v1.0.1
+       Fresh glob v0.3.4
+       Fresh termcolor v1.4.1
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.151
+       Fresh serde_spanned v1.1.1
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh serde v1.0.229
+       Dirty lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs-macros): the file `lid-rs-macros/src/expand.rs` has changed (1787755162.708091519s, 6s after last build at 1787755156.402685363s)
+   Compiling lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs-macros)
+       Fresh linkme-impl v0.3.37
+       Fresh toml v1.1.4+spec-1.1.0
+       Fresh serde_derive v1.0.229
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs_macros --edition=2024 lid-rs-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type proc-macro --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=74898d38ec80e945 -C extra-filename=-ece238cbc562aff6 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+       Fresh linkme v0.3.37
+       Fresh trybuild v1.0.120
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs_macros --edition=2024 lid-rs-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=5b2261e8bdcdfbf8 -C extra-filename=-4e5ca9de44791b17 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+warning: unused variable: `args`
+  --> lid-rs-macros/src/expand.rs:86:17
+   |
+86 | pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
+   |                 ^^^^ help: if this is intentional, prefix it with an underscore: `_args`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `item`
+  --> lid-rs-macros/src/expand.rs:86:36
+   |
+86 | pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
+   |                                    ^^^^ help: if this is intentional, prefix it with an underscore: `_item`
+
+warning: unused variable: `verb`
+  --> lid-rs-macros/src/expand.rs:86:55
+   |
+86 | pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
+   |                                                       ^^^^ help: if this is intentional, prefix it with an underscore: `_verb`
+
+warning: method `doc_word` is never used
+  --> lid-rs-macros/src/expand.rs:25:8
+   |
+23 | impl Verb {
+   | --------- method in this implementation
+24 |     /// The doc-line verb.
+25 |     fn doc_word(&self) -> &'static str {
+   |        ^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `cite_fn` is never used
+  --> lid-rs-macros/src/expand.rs:93:4
+   |
+93 | fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
+   |    ^^^^^^^
+
+warning: function `cite_struct` is never used
+   --> lid-rs-macros/src/expand.rs:105:4
+    |
+105 | fn cite_struct(mut s: ItemStruct, paths: &[Path], verb: &Verb) -> TokenStream {
+    |    ^^^^^^^^^^^
+
+warning: function `cite_enum` is never used
+   --> lid-rs-macros/src/expand.rs:113:4
+    |
+113 | fn cite_enum(mut e: ItemEnum, paths: &[Path], verb: &Verb) -> TokenStream {
+    |    ^^^^^^^^^
+
+warning: function `sibling_registrations` is never used
+   --> lid-rs-macros/src/expand.rs:121:4
+    |
+121 | fn sibling_registrations(ident: &syn::Ident, paths: &[Path], verb: &Verb) -> Vec<TokenStream> {
+    |    ^^^^^^^^^^^^^^^^^^^^^
+
+warning: function `render_path` is never used
+   --> lid-rs-macros/src/expand.rs:178:4
+    |
+178 | fn render_path(path: &Path) -> String {
+    |    ^^^^^^^^^^^
+
+warning: function `doc_attrs` is never used
+   --> lid-rs-macros/src/expand.rs:193:4
+    |
+193 | fn doc_attrs(verb: &Verb, paths: &[Path]) -> Vec<Attribute> {
+    |    ^^^^^^^^^
+
+warning: function `item_path_expr` is never used
+   --> lid-rs-macros/src/expand.rs:203:4
+    |
+203 | fn item_path_expr(ident: &syn::Ident) -> TokenStream {
+    |    ^^^^^^^^^^^^^^
+
+warning: `lid-rs-macros` (lib test) generated 11 warnings (run `cargo fix --lib -p lid-rs-macros --tests` to apply 3 suggestions)
+warning: `lid-rs-macros` (lib) generated 11 warnings (11 duplicates)
+       Dirty lid-rs v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs): the dependency `lid-rs-macros` was rebuilt
+   Compiling lid-rs v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs --edition=2024 lid-rs/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f704d46ced34e721 -C extra-filename=-28dee811c81057c8 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs_macros-ece238cbc562aff6.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rlib --extern trybuild=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libtrybuild-8c37eb6e1df75497.rlib`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs --edition=2024 lid-rs/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=a81a2c340eec1845 -C extra-filename=-578ebb2965769b45 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs_macros-ece238cbc562aff6.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rmeta`
+warning: unused imports: `Edge` and `SpecMeta`
+  --> lid-rs/src/canary.rs:10:23
+   |
+10 | use crate::registry::{Edge, SpecMeta};
+   |                       ^^^^  ^^^^^^^^
+   |
+   = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `crate::spec`
+  --> lid-rs/src/canary.rs:11:5
+   |
+11 | use crate::spec;
+   |     ^^^^^^^^^^^
+
+warning: unused import: `crate::canary`
+ --> lid-rs/src/graph.rs:1:5
+  |
+1 | use crate::canary;
+  |     ^^^^^^^^^^^^^
+
+warning: unused imports: `Edge` and `SpecMeta`
+ --> lid-rs/src/graph.rs:2:23
+  |
+2 | use crate::registry::{Edge, SpecMeta};
+  |                       ^^^^  ^^^^^^^^
+
+warning: unused import: `crate::spec`
+ --> lid-rs/src/graph.rs:3:5
+  |
+3 | use crate::spec;
+  |     ^^^^^^^^^^^
+
+warning: unused import: `std::collections::HashSet`
+ --> lid-rs/src/graph.rs:5:5
+  |
+5 | use std::collections::HashSet;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+warning: constant `CANARY_SPEC` is never used
+  --> lid-rs/src/canary.rs:16:7
+   |
+16 | const CANARY_SPEC: &str =
+   |       ^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+       Dirty xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/xtask): the dependency `lid-rs` was rebuilt
+   Compiling xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/xtask)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f425ae6587a18ecd -C extra-filename=-ccbed06627f4c046 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rmeta --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta`
+warning: `lid-rs` (lib) generated 7 warnings (run `cargo fix --lib -p lid-rs` to apply 6 suggestions)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=16f74a64ce124088 -C extra-filename=-3023bfb6c92020e3 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib`
+error[E0425]: cannot find function `present` in module `$crate::canary`
+  --> lid-rs/src/graph.rs:81:33
+   |
+81 |                 $crate::canary::present(),
+   |                                 ^^^^^^^ not found in `$crate::canary`
+   |
+  ::: lid-rs/src/lib.rs:18:5
+   |
+18 |     lid_rs::intent_graph!();
+   |     ----------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `lid_rs::intent_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find function `graph_orphans` in module `$crate::graph`
+  --> lid-rs/src/graph.rs:88:42
+   |
+88 |             let orphans = $crate::graph::graph_orphans(
+   |                                          ^^^^^^^^^^^^^ not found in `$crate::graph`
+   |
+  ::: lid-rs/src/lib.rs:18:5
+   |
+18 |     lid_rs::intent_graph!();
+   |     ----------------------- in this macro invocation
+   |
+   = note: this error originates in the macro `lid_rs::intent_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find function `graph_orphans` in module `$crate::graph`
+   --> lid-rs/src/graph.rs:101:42
+    |
+101 |             let orphans = $crate::graph::graph_orphans(
+    |                                          ^^^^^^^^^^^^^ not found in `$crate::graph`
+    |
+   ::: lid-rs/src/lib.rs:18:5
+    |
+ 18 |     lid_rs::intent_graph!();
+    |     ----------------------- in this macro invocation
+    |
+    = note: this error originates in the macro `lid_rs::intent_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+warning: unused import: `super::*`
+  --> lid-rs/src/canary.rs:59:9
+   |
+59 |     use super::*;
+   |         ^^^^^^^^
+
+warning: unused imports: `IMPLEMENTATIONS`, `SPECS`, `Spec`, and `VALIDATIONS`
+  --> lid-rs/src/spec/mod.rs:34:23
+   |
+34 |     use crate::{Edge, IMPLEMENTATIONS, SPECS, Spec, VALIDATIONS, validates};
+   |                       ^^^^^^^^^^^^^^^  ^^^^^  ^^^^  ^^^^^^^^^^^
+
+error[E0425]: cannot find function `linked_registrations_are_enumerable` in this scope
+  --> lid-rs/src/canary.rs:64:5
+   |
+64 | /     fn linked_registrations_are_enumerable() {
+65 | |         assert!(lid_rs::SPECS.iter().any(|s| s.name == CANARY_SPEC));
+66 | |         assert!(lid_rs::IMPLEMENTATIONS.iter().any(|e| e.spec == CANARY_SPEC));
+67 | |         assert!(lid_rs::VALIDATIONS.iter().any(|e| e.spec == CANARY_SPEC));
+68 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `canary_confirms_registry_presence` in this scope
+  --> lid-rs/src/canary.rs:72:5
+   |
+72 | /     fn canary_confirms_registry_presence() {
+73 | |         assert!(present());
+74 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `canary_detects_a_stripped_registry` in this scope
+  --> lid-rs/src/canary.rs:78:5
+   |
+78 | /     fn canary_detects_a_stripped_registry() {
+79 | |         assert!(!triple_is_present(&[], &lid_rs::IMPLEMENTATIONS, &lid_rs::VALIDATIONS));
+80 | |         assert!(!triple_is_present(&lid_rs::SPECS, &[], &lid_rs::VALIDATIONS));
+81 | |         assert!(!triple_is_present(&lid_rs::SPECS, &lid_rs::IMPLEMENTATIONS, &[]));
+82 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `uncited_specs_fail_the_graph_check` in this scope
+   --> lid-rs/src/graph.rs:154:5
+    |
+154 | /     fn uncited_specs_fail_the_graph_check() {
+155 | |         let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+156 | |         let impls = [edge(CANARY)];
+157 | |         let validations = [edge(CANARY)];
+...   |
+161 | |         assert_eq!(orphans, ["lid_rs::synthetic::Fake (synthetic.rs:1)"]);
+162 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `unvalidated_specs_fail_the_graph_check` in this scope
+   --> lid-rs/src/graph.rs:166:5
+    |
+166 | /     fn unvalidated_specs_fail_the_graph_check() {
+167 | |         let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+168 | |         let impls = [edge(CANARY), edge("lid_rs::synthetic::Fake")];
+169 | |         let validations = [edge(CANARY)];
+...   |
+173 | |         assert_eq!(orphans, ["lid_rs::synthetic::Fake (synthetic.rs:1)"]);
+174 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `graph_checks_require_the_present_canary` in this scope
+   --> lid-rs/src/graph.rs:178:5
+    |
+178 | /     fn graph_checks_require_the_present_canary() {
+179 | |         let specs = [meta("lid_rs::synthetic::Fake")];
+180 | |         let result = graph_orphans("lid_rs", &specs, &[], &[], EdgeKind::Implementations);
+181 | |         assert!(
+...   |
+184 | |         );
+185 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `graph_checks_scope_to_the_current_crate` in this scope
+   --> lid-rs/src/graph.rs:189:5
+    |
+189 | /     fn graph_checks_scope_to_the_current_crate() {
+190 | |         let specs = [meta(CANARY), meta("other_crate::Fake")];
+191 | |         let impls = [edge(CANARY)];
+192 | |         let validations = [edge(CANARY)];
+...   |
+196 | |         assert!(orphans.is_empty(), "foreign-crate specs must be ignored: {orphans:?}");
+197 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `covered_graphs_pass_the_graph_check` in this scope
+   --> lid-rs/src/graph.rs:201:5
+    |
+201 | /     fn covered_graphs_pass_the_graph_check() {
+202 | |         let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+203 | |         let impls = [edge(CANARY), edge("lid_rs::synthetic::Fake")];
+204 | |         let validations = [edge(CANARY)];
+...   |
+208 | |         assert!(orphans.is_empty(), "covered specs must not be reported: {orphans:?}");
+209 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `derived_specs_carry_their_definition_path` in this scope
+  --> lid-rs/src/spec/mod.rs:43:5
+   |
+43 | /     fn derived_specs_carry_their_definition_path() {
+44 | |         assert_eq!(
+45 | |             <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
+46 | |             "lid_rs::spec::registry::CanaryConfirmsRegistryPresence"
+...  |
+51 | |         );
+52 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `derived_specs_register_into_specs` in this scope
+  --> lid-rs/src/spec/mod.rs:56:5
+   |
+56 | /     fn derived_specs_register_into_specs() {
+57 | |         let expected = [
+58 | |             "lid_rs::spec::registry::LinkedRegistrationsAreEnumerable",
+59 | |             "lid_rs::spec::registry::CanaryConfirmsRegistryPresence",
+...  |
+74 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `implements_citations_register_edges` in this scope
+  --> lid-rs/src/spec/mod.rs:78:5
+   |
+78 | /     fn implements_citations_register_edges() {
+79 | |         assert!(has_edge(
+80 | |             &IMPLEMENTATIONS,
+81 | |             <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
+...  |
+88 | |         ));
+89 | |     }
+   | |     ^
+   | |     |
+   | |_____you might have meant to refer to this constant
+   |       not found in this scope
+
+error[E0425]: cannot find function `validates_citations_register_edges` in this scope
+   --> lid-rs/src/spec/mod.rs:93:5
+    |
+ 93 | /     fn validates_citations_register_edges() {
+ 94 | |         assert!(has_edge(
+ 95 | |             &VALIDATIONS,
+ 96 | |             <crate::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
+...   |
+108 | |         ));
+109 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `module_citations_trace_by_containment` in this scope
+   --> lid-rs/src/spec/mod.rs:113:5
+    |
+113 | /     fn module_citations_trace_by_containment() {
+114 | |         assert!(has_edge(
+115 | |             &IMPLEMENTATIONS,
+116 | |             <crate::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
+117 | |             "lid_rs::registry"
+118 | |         ));
+119 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `malformed_citations_fail_to_compile` in this scope
+   --> lid-rs/src/spec/mod.rs:123:5
+    |
+123 | /     fn malformed_citations_fail_to_compile() {
+124 | |         let t = trybuild::TestCases::new();
+125 | |         t.compile_fail("tests/ui/fail/*.rs");
+126 | |         t.pass("tests/ui/pass/*.rs");
+127 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+For more information about this error, try `rustc --explain E0425`.
+warning: `lid-rs` (lib test) generated 7 warnings (5 duplicates)
+error: could not compile `lid-rs` (lib test) due to 17 previous errors; 7 warnings emitted
+
+Caused by:
+  process didn't exit successfully: `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs --edition=2024 lid-rs/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f704d46ced34e721 -C extra-filename=-28dee811c81057c8 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs_macros-ece238cbc562aff6.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rlib --extern trybuild=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libtrybuild-8c37eb6e1df75497.rlib` (exit status: 1)
+warning: build failed, waiting for other jobs to finish...
+error[E0432]: unresolved import `crate::mapping::plan_for_mutant`
+  --> xtask/src/mutants.rs:11:44
+   |
+11 | use crate::mapping::{EdgeRecord, TestPlan, plan_for_mutant};
+   |                                            ^^^^^^^^^^^^^^^ no `plan_for_mutant` in `mapping`
+
+error[E0425]: cannot find function `run_all` in module `selftest`
+  --> xtask/src/lib.rs:16:44
+   |
+16 |         Some("gate-selftest") => selftest::run_all(),
+   |                                            ^^^^^^^ not found in `selftest`
+
+warning: unused import: `crate::spec`
+ --> xtask/src/mapping.rs:6:5
+  |
+6 | use crate::spec;
+  |     ^^^^^^^^^^^
+  |
+  = note: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused import: `PathBuf`
+ --> xtask/src/mutants.rs:6:23
+  |
+6 | use std::path::{Path, PathBuf};
+  |                       ^^^^^^^
+
+warning: unused import: `crate::spec`
+  --> xtask/src/mutants.rs:12:5
+   |
+12 | use crate::spec;
+   |     ^^^^^^^^^^^
+
+warning: unused import: `crate::spec`
+  --> xtask/src/selftest.rs:13:5
+   |
+13 | use crate::spec;
+   |     ^^^^^^^^^^^
+
+error[E0425]: cannot find function `write_diff_file` in this scope
+  --> xtask/src/mutants.rs:49:16
+   |
+49 |     let diff = write_diff_file(&scope)?;
+   |                ^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `collect_registries` in this scope
+  --> xtask/src/mutants.rs:51:20
+   |
+51 |     let registry = collect_registries()?;
+   |                    ^^^^^^^^^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `run_groups` in this scope
+  --> xtask/src/mutants.rs:53:5
+   |
+53 |     run_groups(&groups, diff.as_deref())
+   |     ^^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `list_args` in this scope
+   --> xtask/src/mutants.rs:118:44
+    |
+118 |     let out = capture(cargo_command().args(list_args(diff)))?;
+    |                                            ^^^^^^^^^ not found in this scope
+
+error[E0425]: cannot find function `expect_gate_failure` in this scope
+  --> xtask/src/selftest.rs:88:5
+   |
+88 |     expect_gate_failure(&mut command, fixture.expect)
+   |     ^^^^^^^^^^^^^^^^^^^ not found in this scope
+
+Some errors have detailed explanations: E0425, E0432.
+For more information about an error, try `rustc --explain E0425`.
+warning: `xtask` (lib) generated 4 warnings
+error: could not compile `xtask` (lib) due to 7 previous errors; 4 warnings emitted
+
+Caused by:
+  process didn't exit successfully: `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f425ae6587a18ecd -C extra-filename=-ccbed06627f4c046 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rmeta --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta` (exit status: 1)
+error[E0425]: cannot find function `present` in module `$crate::canary`
+  --> xtask/src/lib.rs:33:5
+   |
+33 |     lid_rs::intent_graph!();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ not found in `$crate::canary`
+   |
+   = note: this error originates in the macro `lid_rs::intent_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find function `graph_orphans` in module `$crate::graph`
+  --> xtask/src/lib.rs:33:5
+   |
+33 |     lid_rs::intent_graph!();
+   |     ^^^^^^^^^^^^^^^^^^^^^^^ not found in `$crate::graph`
+   |
+   = note: this error originates in the macro `lid_rs::intent_graph` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0425]: cannot find function `traced_mutants_run_only_their_validating_tests` in this scope
+   --> xtask/src/mapping.rs:129:5
+    |
+129 | /     fn traced_mutants_run_only_their_validating_tests() {
+130 | |         let (impls, validations) = registry();
+131 | |         let plan = plan_for_mutant("xtask/src/a.rs", "f", &impls, &validations);
+132 | |         assert_eq!(
+...   |
+138 | |         );
+139 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `empty_narrowed_sets_degrade_to_the_full_suite` in this scope
+   --> xtask/src/mapping.rs:143:5
+    |
+143 | /     fn empty_narrowed_sets_degrade_to_the_full_suite() {
+144 | |         let (impls, validations) = registry();
+145 | |         let plan = plan_for_mutant("xtask/src/c.rs", "h", &impls, &validations);
+146 | |         assert_eq!(
+...   |
+150 | |         );
+151 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `untraced_mutants_fall_back_to_module_tests` in this scope
+   --> xtask/src/mapping.rs:155:5
+    |
+155 | /     fn untraced_mutants_fall_back_to_module_tests() {
+156 | |         let (impls, validations) = registry();
+157 | |         let fallback = plan_for_mutant("xtask/src/a.rs", "helper", &impls, &validations);
+158 | |         assert_eq!(
+...   |
+166 | |         assert_eq!(suite, TestPlan::FullSuite);
+167 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `diff_scope_passes_through_to_the_engine` in this scope
+   --> xtask/src/mutants.rs:335:5
+    |
+335 | /     fn diff_scope_passes_through_to_the_engine() {
+336 | |         let with = list_args(Some(Path::new("target/lid-diff.patch")));
+337 | |         let position = with.iter().position(|a| a == "--in-diff");
+338 | |         assert!(position.is_some(), "--in-diff missing: {with:?}");
+...   |
+341 | |         assert!(!without.contains(&"--in-diff".to_string()));
+342 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `diff_scope_writes_a_real_diff_file` in this scope
+   --> xtask/src/mutants.rs:346:5
+    |
+346 | /     fn diff_scope_writes_a_real_diff_file() {
+347 | |         let scope = Scope::Diff { base: "HEAD".to_string() };
+348 | |         let path = write_diff_file(&scope)
+349 | |             .expect("git diff HEAD must succeed in this repository")
+...   |
+353 | |         assert_eq!(write_diff_file(&Scope::Full).expect("full scope never fails"), None);
+354 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `engine_failures_fail_the_gate` in this scope
+   --> xtask/src/mutants.rs:358:5
+    |
+358 | /     fn engine_failures_fail_the_gate() {
+359 | |         let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
+360 | |         groups.insert(TestPlan::FullSuite, vec!["any_mutant".to_string()]);
+361 | |         let missing_diff = Path::new("target/definitely-missing.diff");
+362 | |         let result = run_groups(&groups, Some(missing_diff));
+363 | |         assert!(result.is_err(), "an engine failure must fail the mutants gate");
+364 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `registries_come_from_the_owning_crate_test_binary` in this scope
+   --> xtask/src/mutants.rs:368:5
+    |
+368 | /     fn registries_come_from_the_owning_crate_test_binary() {
+369 | |         let registry = collect_registries().expect("collecting workspace registries must succeed");
+370 | |         let lid_test_edge = registry.validations.iter().any(|e| {
+371 | |             e.item == "lid_rs::canary::tests::canary_confirms_registry_presence"
+...   |
+383 | |         );
+384 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `surviving_mutants_fail_the_gate` in this scope
+   --> xtask/src/selftest.rs:221:5
+    |
+221 | /     fn surviving_mutants_fail_the_gate() {
+222 | |         let _serialized = FIXTURE_DIRS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+223 | |         forget_fixture("vacuous_test");
+224 | |         run_fixture("vacuous_test").expect(
+...   |
+230 | |         assert!(synthesized.exists(), "run_fixture must actually synthesize and run the fixture");
+231 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `every_gate_fixture_fails_its_gate` in this scope
+   --> xtask/src/selftest.rs:235:5
+    |
+235 | /     fn every_gate_fixture_fails_its_gate() {
+236 | |         let _serialized = FIXTURE_DIRS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+237 | |         for fixture in FIXTURES {
+238 | |             forget_fixture(fixture.name);
+...   |
+246 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `a_passing_gate_fails_the_selftest` in this scope
+   --> xtask/src/selftest.rs:254:5
+    |
+254 | /     fn a_passing_gate_fails_the_selftest() {
+255 | |         let mut command = cargo_command();
+256 | |         command.arg("--version");
+257 | |         let result = expect_gate_failure(&mut command, "anything");
+...   |
+261 | |         );
+262 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+error[E0425]: cannot find function `unknown_fixture_names_are_rejected` in this scope
+   --> xtask/src/selftest.rs:266:5
+    |
+266 | /     fn unknown_fixture_names_are_rejected() {
+267 | |         let result = run_fixture("no_such_fixture");
+268 | |         assert!(
+269 | |             result.is_err_and(|e| e.contains("no fixture")),
+270 | |             "asking for an unknown fixture must be an error, not a silent pass"
+271 | |         );
+272 | |     }
+    | |     ^
+    | |     |
+    | |_____you might have meant to refer to this constant
+    |       not found in this scope
+
+warning: `xtask` (lib test) generated 4 warnings (4 duplicates)
+error: could not compile `xtask` (lib test) due to 21 previous errors; 4 warnings emitted
+
+Caused by:
+  process didn't exit successfully: `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=16f74a64ce124088 -C extra-filename=-3023bfb6c92020e3 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib` (exit status: 1)
+
+*** result: Failure(101)

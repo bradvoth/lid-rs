@@ -1,1 +1,2 @@
-xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())
+xtask/src/selftest.rs:119:5: replace manifest -> String with String::new()
+xtask/src/selftest.rs:119:5: replace manifest -> String with "xyzzy".into()

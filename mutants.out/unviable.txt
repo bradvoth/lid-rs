@@ -1,1 +1,5 @@
-xtask/src/mutants.rs:137:5: replace parse_mutants -> Result<Vec<Mutant>, String> with Ok(vec![Default::default()])
+lid-rs-macros/src/expand.rs:34:9: replace Verb::slice -> TokenStream with Default::default()
+lid-rs-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())
+lid-rs-macros/src/expand.rs:87:5: replace citation -> syn::Result<TokenStream> with Ok(Default::default())
+lid-rs-macros/src/expand.rs:164:5: replace parse_spec_paths -> syn::Result<Vec<Path>> with Ok(vec![Default::default()])
+lid-rs-macros/src/expand.rs:223:5: replace edge_registration -> TokenStream with Default::default()

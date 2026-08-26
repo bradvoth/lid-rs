@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use lid::implements;
+use lid_rs::implements;
 
 use crate::mutants::cargo_command;
 use crate::workspace_root;
@@ -37,7 +37,7 @@ pub struct Fixture {
     pub gate: Gate,
     /// Substring the gate's output must contain.
     pub expect: &'static str,
-    /// Whether the synthesized crate depends on `lid`.
+    /// Whether the synthesized crate depends on `lid-rs`.
     pub needs_lid: bool,
 }
 
@@ -113,11 +113,11 @@ fn synthesize(fixture: &Fixture) -> Result<PathBuf, String> {
 }
 
 /// The synthesized crate's manifest: the workspace's lint set inlined, a
-/// `[workspace]` table so the parent workspace is not adopted, and `lid` as a
+/// `[workspace]` table so the parent workspace is not adopted, and `lid-rs` as a
 /// path dependency where the fixture cites specs.
 fn manifest(fixture: &Fixture, root: &Path) -> String {
     let lid_dep = if fixture.needs_lid {
-        format!("lid = {{ path = {:?} }}\n", root.join("lid"))
+        format!("lid-rs = {{ path = {:?} }}\n", root.join("lid-rs"))
     } else {
         String::new()
     };
@@ -198,7 +198,7 @@ fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lid::validates;
+    use lid_rs::validates;
     use std::sync::Mutex;
 
     /// Serializes the tests that create and inspect fixture directories, so

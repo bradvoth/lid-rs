@@ -1,8 +1,8 @@
 # LID-rs — self-hosted workspace
 
-This workspace builds the LID-rs toolchain (`lid`, `lid-macros`, `xtask`, and the
+This workspace builds the LID-rs toolchain (`lid-rs`, `lid-rs-macros`, `xtask`, and the
 operating skill) **using the LID-rs methodology on itself**. `README.md` is the
-methodology's living specification; `docs/intent/hld.md` is this workspace's
+methodology's living specification; `lid-rs/docs/intent/hld.md` is this workspace's
 implementation design. When implementation reveals a flaw in the README, the
 README is revised, not silently diverged from; git history is the revision record.
 
@@ -15,22 +15,22 @@ paths the `linked-intent-dev` skill defaults to:
 
 | Artifact | Location here | Not |
 |---|---|---|
-| HLD | `docs/intent/hld.md` (included via `#![doc = include_str!]` in `lid/src/lib.rs`) | `docs/high-level-design.md` |
-| LLD, per slice | `docs/intent/<slice>/lld.md` (included via `#[doc = include_str!]` on the module) | `docs/llds/` |
+| HLD | `lid-rs/docs/intent/hld.md` (included via `#![doc = include_str!]` in `lid-rs/src/lib.rs`) | `docs/high-level-design.md` |
+| LLD, per slice | `<crate>/docs/intent/<slice>/lld.md` (included via `#[doc = include_str!]` on the module); workspace-only slices (book, skill, publish) at `docs/intent/<slice>/lld.md` | `docs/llds/` |
 | Atomic claims | `#[derive(Spec)]` unit structs in `src/spec/`, doc comment is the claim, **descriptive names not numbered IDs** | `docs/specs/` EARS files |
 | Code → claim link | `#[implements(spec::ClaimName)]` | `// @spec AUTH-001` comments |
 | Test → claim link | `#[validates(spec::ClaimName)]` on `#[cfg(test)]` unit tests in the lib (never under `tests/`) | `@spec` comments |
 
 The skill's *process* discipline applies unchanged: phase stops, cascade
 discipline, coherence pre-flight, context-free docs. Only the artifact formats
-differ. Bootstrap window: until `lid-macros` compiles, claims are plain
+differ. Bootstrap window: until `lid-rs-macros` compiles, claims are plain
 doc-commented unit structs and one hand-expanded spec/impl/validation triple
 (the future canary) stands in for macro output.
 
 ## The eight phases (README §8)
 
 0. Name the slice (a user-visible operation, not a component)
-1. Write the LLD (human-owned; agent drafts) — `docs/intent/<slice>/lld.md`
+1. Write the LLD (human-owned; agent drafts) — `<crate>/docs/intent/<slice>/lld.md`
 2. Derive claims (agent proposes, human approves) — `src/spec/`
 3. Layer-0 skeleton: signatures + `#[implements]` + `todo!()`; `cargo check` passes
 4. Descend one layer, breadth-first; check and review at each layer
@@ -58,6 +58,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
+cargo package -p lid-rs -p lid-rs-macros --allow-dirty   # tarballs build standalone
 cargo xtask mutants                  # diff scope; --full / --diff-base override
 mdbook build book                    # the site is assembled by inclusion; breaks on drift
 ```

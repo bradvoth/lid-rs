@@ -1,0 +1,5 @@
+error: lid-rs: spec paths are plain paths — a claim type takes no generic arguments
+ --> tests/ui/fail/generic_path.rs:3:22
+  |
+3 | #[lid_rs::implements(Vec<u8>)]
+  |                      ^^^^^^^

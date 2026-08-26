@@ -1,6 +1,6 @@
 //! Atomic claims for the xtask slice. Derived from `docs/intent/xtask/lld.md`.
 
-use lid::Spec;
+use lid_rs::Spec;
 
 /// When a mutant's function carries implementation edges, its mutation run
 /// shall use exactly the tests validating the specs those edges cite; when

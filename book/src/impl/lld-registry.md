@@ -1,1 +1,1 @@
-{{#include ../../../docs/intent/registry/lld.md}}
+{{#include ../../../lid-rs/docs/intent/registry/lld.md}}

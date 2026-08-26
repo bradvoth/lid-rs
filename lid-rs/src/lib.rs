@@ -1,0 +1,78 @@
+#![doc = include_str!("../docs/intent/hld.md")]
+
+// Macro expansions address this crate as `::lid_rs::…`; this makes that path
+// resolve inside `lid-rs` itself. Consequence: downstream renames of the
+// dependency are unsupported (see the registry LLD).
+extern crate self as lid_rs;
+
+pub mod canary;
+#[doc = include_str!("../docs/intent/intent-graph/lld.md")]
+pub mod graph;
+#[doc = include_str!("../docs/intent/registry/lld.md")]
+pub mod registry;
+pub mod spec;
+
+#[cfg(test)]
+mod intent_graph {
+    //! lid's own instance of the graph checks (README §4.2).
+    lid_rs::intent_graph!();
+}
+
+pub use registry::{Edge, IMPLEMENTATIONS, SPECS, SpecMeta, VALIDATIONS};
+
+pub use lid_rs_macros::{Spec, implements, implements_module, spec, validates};
+
+// Hand-authored implementation edges for the citation claims: lid-rs-macros is a
+// proc-macro crate, which links into no target binary and so can neither
+// carry citations nor register anything — its edges live here, at the
+// re-export boundary that is its public surface. This is the standing
+// exception for proc-macro crates, not bootstrap residue.
+#[doc = "Implements [`crate::spec::DerivedSpecsCarryTheirDefinitionPath`], \
+[`crate::spec::DerivedSpecsRegisterIntoSpecs`], \
+[`crate::spec::ImplementsCitationsRegisterEdges`], \
+[`crate::spec::ValidatesCitationsRegisterEdges`], \
+[`crate::spec::ModuleCitationsTraceByContainment`], \
+[`crate::spec::MalformedCitationsFailToCompile`]."]
+const _: () = {
+    /// One hand edge per (claim, macro item) pair.
+    macro_rules! macro_edge {
+        ($spec:path, $item:literal) => {
+            const _: () = {
+                #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+                #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::IMPLEMENTATIONS)]
+                #[linkme(crate = ::lid_rs::__private::linkme)]
+                static EDGE: ::lid_rs::Edge = ::lid_rs::Edge {
+                    spec: <$spec as ::lid_rs::Spec>::NAME,
+                    item: $item,
+                    file: file!(),
+                    line: line!(),
+                };
+            };
+        };
+    }
+    macro_edge!(crate::spec::DerivedSpecsCarryTheirDefinitionPath, "lid_rs_macros::Spec");
+    macro_edge!(crate::spec::DerivedSpecsRegisterIntoSpecs, "lid_rs_macros::Spec");
+    macro_edge!(crate::spec::ImplementsCitationsRegisterEdges, "lid_rs_macros::implements");
+    macro_edge!(crate::spec::ValidatesCitationsRegisterEdges, "lid_rs_macros::validates");
+    macro_edge!(crate::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
+    macro_edge!(crate::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
+};
+
+/// Trait implemented by every claim item, via `derive(Spec)`.
+///
+/// The registration statics emitted by `#[implements]` and `#[validates]`
+/// produce their join key as `<cited::Path as lid_rs::Spec>::NAME`, which is what
+/// turns a citation of a renamed or deleted claim into a compile error (and
+/// surfaces `#[deprecated]` on the spec at every citation site).
+pub trait Spec {
+    /// Canonical name of the claim: definition-site `module_path!()` plus the
+    /// item's identifier. The registry join key — single-sourced here, so
+    /// every citation agrees on it no matter which path or re-export the
+    /// citing site wrote.
+    const NAME: &'static str;
+}
+
+#[doc(hidden)]
+pub mod __private {
+    pub use linkme;
+}

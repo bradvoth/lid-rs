@@ -1,65 +1,65 @@
 [
   {
-    "diff": "--- lid-macros/src/expand.rs\n+++ replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())\n@@ -35,39 +35,17 @@\n             Verb::Implements => quote!(::lid::IMPLEMENTATIONS),\n             Verb::Validates => quote!(::lid::VALIDATIONS),\n         }\n     }\n }\n \n /// Expands `derive(Spec)`.\n pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {\n-    let item: DeriveInput = syn::parse2(input)?;\n-    ensure_unit_struct(&item)?;\n-    let ident = &item.ident;\n-    Ok(quote! {\n-        // The derive's own emissions reference the struct they sit on; when a\n-        // spec is retired with #[deprecated], only *citation* sites should\n-        // warn, never the definition it decorates.\n-        #[automatically_derived]\n-        #[allow(deprecated)]\n-        impl ::lid::Spec for #ident {\n-            const NAME: &'static str = concat!(module_path!(), \"::\", stringify!(#ident));\n-        }\n-        const _: () = {\n-            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]\n-            #[::lid::__private::linkme::distributed_slice(::lid::SPECS)]\n-            #[linkme(crate = ::lid::__private::linkme)]\n-            static META: ::lid::SpecMeta = ::lid::SpecMeta {\n-                name: <#ident as ::lid::Spec>::NAME,\n-                file: file!(),\n-                line: line!(),\n-            };\n-        };\n-    })\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n /// Rejects derive targets that are not plain unit structs.\n fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {\n     let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));\n     if !unit || !item.generics.params.is_empty() {\n         return Err(syn::Error::new_spanned(\n             &item.ident,\n",
-    "file": "lid-macros/src/expand.rs",
+    "diff": "--- xtask/src/selftest.rs\n+++ replace manifest -> String with String::new()\n@@ -111,47 +111,17 @@\n     write(dir.join(\"src/lib.rs\"), &source)?;\n     Ok(dir)\n }\n \n /// The synthesized crate's manifest: the workspace's lint set inlined, a\n /// `[workspace]` table so the parent workspace is not adopted, and `lid-rs` as a\n /// path dependency where the fixture cites specs.\n fn manifest(fixture: &Fixture, root: &Path) -> String {\n-    let lid_dep = if fixture.needs_lid {\n-        format!(\"lid-rs = {{ path = {:?} }}\\n\", root.join(\"lid-rs\"))\n-    } else {\n-        String::new()\n-    };\n-    format!(\n-        r#\"[package]\n-name = \"{name}\"\n-version = \"0.0.0\"\n-edition = \"2024\"\n-\n-[dependencies]\n-{lid_dep}\n-[workspace]\n-\n-[lints.rust]\n-missing_docs = \"deny\"\n-\n-[lints.rustdoc]\n-broken_intra_doc_links = \"deny\"\n-\n-[lints.clippy]\n-cognitive_complexity = \"warn\"\n-fn_params_excessive_bools = \"warn\"\n-too_many_lines = \"warn\"\n-wildcard_enum_match_arm = \"deny\"\n-missing_docs_in_private_items = \"warn\"\n-\"#,\n-        name = fixture.name,\n-        lid_dep = lid_dep,\n-    )\n+    String::new() /* ~ changed by cargo-mutants ~ */\n }\n \n /// The gate command for a fixture kind.\n fn gate_command(gate: Gate) -> Command {\n     let mut command = cargo_command();\n     match gate {\n         Gate::Check => {\n             command.args([\"check\", \"--all-targets\"]);\n",
+    "file": "xtask/src/selftest.rs",
     "function": {
-      "function_name": "derive_spec",
-      "return_type": "-> syn::Result<TokenStream>",
+      "function_name": "manifest",
+      "return_type": "-> String",
       "span": {
         "end": {
           "column": 2,
-          "line": 66
+          "line": 150
         },
         "start": {
           "column": 1,
-          "line": 41
+          "line": 115
         }
       }
     },
     "genre": "FnValue",
-    "name": "lid-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())",
-    "package": "lid-macros",
-    "replacement": "Ok(Default::default())",
+    "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with String::new()",
+    "package": "xtask",
+    "replacement": "String::new()",
     "span": {
       "end": {
-        "column": 7,
-        "line": 65
+        "column": 6,
+        "line": 149
       },
       "start": {
         "column": 5,
-        "line": 43
+        "line": 119
       }
     }
   },
   {
-    "diff": "--- xtask/src/lib.rs\n+++ replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())\n@@ -16,19 +16,16 @@\n         Some(\"gate-selftest\") => selftest::run_all(),\n         Some(other) => Err(format!(\"unknown command `{other}`\\n{USAGE}\")),\n         None => Err(USAGE.to_string()),\n     }\n }\n \n /// The workspace root, one level above xtask's manifest.\n pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {\n-    std::path::Path::new(env!(\"CARGO_MANIFEST_DIR\"))\n-        .parent()\n-        .map(std::path::Path::to_path_buf)\n-        .ok_or_else(|| \"xtask has no parent directory\".to_string())\n+    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */\n }\n \n #[cfg(test)]\n mod intent_graph {\n     //! xtask's own instance of the graph checks (README §4.2).\n     lid::intent_graph!();\n }\n",
-    "file": "xtask/src/lib.rs",
+    "diff": "--- xtask/src/selftest.rs\n+++ replace manifest -> String with \"xyzzy\".into()\n@@ -111,47 +111,17 @@\n     write(dir.join(\"src/lib.rs\"), &source)?;\n     Ok(dir)\n }\n \n /// The synthesized crate's manifest: the workspace's lint set inlined, a\n /// `[workspace]` table so the parent workspace is not adopted, and `lid-rs` as a\n /// path dependency where the fixture cites specs.\n fn manifest(fixture: &Fixture, root: &Path) -> String {\n-    let lid_dep = if fixture.needs_lid {\n-        format!(\"lid-rs = {{ path = {:?} }}\\n\", root.join(\"lid-rs\"))\n-    } else {\n-        String::new()\n-    };\n-    format!(\n-        r#\"[package]\n-name = \"{name}\"\n-version = \"0.0.0\"\n-edition = \"2024\"\n-\n-[dependencies]\n-{lid_dep}\n-[workspace]\n-\n-[lints.rust]\n-missing_docs = \"deny\"\n-\n-[lints.rustdoc]\n-broken_intra_doc_links = \"deny\"\n-\n-[lints.clippy]\n-cognitive_complexity = \"warn\"\n-fn_params_excessive_bools = \"warn\"\n-too_many_lines = \"warn\"\n-wildcard_enum_match_arm = \"deny\"\n-missing_docs_in_private_items = \"warn\"\n-\"#,\n-        name = fixture.name,\n-        lid_dep = lid_dep,\n-    )\n+    \"xyzzy\".into() /* ~ changed by cargo-mutants ~ */\n }\n \n /// The gate command for a fixture kind.\n fn gate_command(gate: Gate) -> Command {\n     let mut command = cargo_command();\n     match gate {\n         Gate::Check => {\n             command.args([\"check\", \"--all-targets\"]);\n",
+    "file": "xtask/src/selftest.rs",
     "function": {
-      "function_name": "workspace_root",
-      "return_type": "-> Result<std::path::PathBuf, String>",
+      "function_name": "manifest",
+      "return_type": "-> String",
       "span": {
         "end": {
           "column": 2,
-          "line": 28
+          "line": 150
         },
         "start": {
           "column": 1,
-          "line": 22
+          "line": 115
         }
       }
     },
     "genre": "FnValue",
-    "name": "xtask/src/lib.rs:24:5: replace workspace_root -> Result<std::path::PathBuf, String> with Ok(Default::default())",
+    "name": "xtask/src/selftest.rs:119:5: replace manifest -> String with \"xyzzy\".into()",
     "package": "xtask",
-    "replacement": "Ok(Default::default())",
+    "replacement": "\"xyzzy\".into()",
     "span": {
       "end": {
-        "column": 68,
-        "line": 27
+        "column": 6,
+        "line": 149
       },
       "start": {
         "column": 5,
-        "line": 24
+        "line": 119
       }
     }
   }

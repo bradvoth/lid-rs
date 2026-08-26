@@ -1,0 +1,43 @@
+--- lid-rs-macros/src/expand.rs
++++ replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())
+@@ -35,39 +35,17 @@
+             Verb::Implements => quote!(::lid_rs::IMPLEMENTATIONS),
+             Verb::Validates => quote!(::lid_rs::VALIDATIONS),
+         }
+     }
+ }
+ 
+ /// Expands `derive(Spec)`.
+ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
+-    let item: DeriveInput = syn::parse2(input)?;
+-    ensure_unit_struct(&item)?;
+-    let ident = &item.ident;
+-    Ok(quote! {
+-        // The derive's own emissions reference the struct they sit on; when a
+-        // spec is retired with #[deprecated], only *citation* sites should
+-        // warn, never the definition it decorates.
+-        #[automatically_derived]
+-        #[allow(deprecated)]
+-        impl ::lid_rs::Spec for #ident {
+-            const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
+-        }
+-        const _: () = {
+-            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
+-            #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::SPECS)]
+-            #[linkme(crate = ::lid_rs::__private::linkme)]
+-            static META: ::lid_rs::SpecMeta = ::lid_rs::SpecMeta {
+-                name: <#ident as ::lid_rs::Spec>::NAME,
+-                file: file!(),
+-                line: line!(),
+-            };
+-        };
+-    })
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Rejects derive targets that are not plain unit structs.
+ fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {
+     let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));
+     if !unit || !item.generics.params.is_empty() {
+         return Err(syn::Error::new_spanned(
+             &item.ident,

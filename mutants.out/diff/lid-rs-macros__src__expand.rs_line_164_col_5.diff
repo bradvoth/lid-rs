@@ -1,0 +1,33 @@
+--- lid-rs-macros/src/expand.rs
++++ replace parse_spec_paths -> syn::Result<Vec<Path>> with Ok(vec![])
+@@ -156,29 +156,17 @@
+         .map_err(|e| syn::Error::new(e.span(), "lid-rs: expected a single foreign-ID string literal"))?;
+     let mut item: DeriveInput = syn::parse2(item)?;
+     item.attrs.push(parse_quote!(#[doc(alias = #id)]));
+     Ok(item.into_token_stream())
+ }
+ 
+ /// Parses a citation argument list: one or more plain, non-generic paths.
+ fn parse_spec_paths(args: TokenStream) -> syn::Result<Vec<Path>> {
+-    let span = proc_macro2::Span::call_site();
+-    let paths: Punctuated<Path, Token![,]> =
+-        Punctuated::parse_terminated.parse2(args).map_err(|e| {
+-            syn::Error::new(e.span(), "lid-rs: expected a comma-separated list of spec paths")
+-        })?;
+-    if paths.is_empty() {
+-        return Err(syn::Error::new(
+-            span,
+-            "lid-rs: cite at least one spec, or remove the attribute",
+-        ));
+-    }
+-    paths.iter().try_for_each(ensure_plain_path)?;
+-    Ok(paths.into_iter().collect())
++    Ok(vec![]) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Rejects path segments carrying generic arguments.
+ fn ensure_plain_path(path: &Path) -> syn::Result<()> {
+     if path.segments.iter().any(|s| !s.arguments.is_none()) {
+         return Err(syn::Error::new_spanned(
+             path,
+             "lid-rs: spec paths are plain paths — a claim type takes no generic arguments",

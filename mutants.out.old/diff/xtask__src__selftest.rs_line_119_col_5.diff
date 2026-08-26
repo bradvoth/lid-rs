@@ -1,0 +1,51 @@
+--- xtask/src/selftest.rs
++++ replace manifest -> String with String::new()
+@@ -111,47 +111,17 @@
+     write(dir.join("src/lib.rs"), &source)?;
+     Ok(dir)
+ }
+ 
+ /// The synthesized crate's manifest: the workspace's lint set inlined, a
+ /// `[workspace]` table so the parent workspace is not adopted, and `lid-rs` as a
+ /// path dependency where the fixture cites specs.
+ fn manifest(fixture: &Fixture, root: &Path) -> String {
+-    let lid_dep = if fixture.needs_lid {
+-        format!("lid-rs = {{ path = {:?} }}\n", root.join("lid-rs"))
+-    } else {
+-        String::new()
+-    };
+-    format!(
+-        r#"[package]
+-name = "{name}"
+-version = "0.0.0"
+-edition = "2024"
+-
+-[dependencies]
+-{lid_dep}
+-[workspace]
+-
+-[lints.rust]
+-missing_docs = "deny"
+-
+-[lints.rustdoc]
+-broken_intra_doc_links = "deny"
+-
+-[lints.clippy]
+-cognitive_complexity = "warn"
+-fn_params_excessive_bools = "warn"
+-too_many_lines = "warn"
+-wildcard_enum_match_arm = "deny"
+-missing_docs_in_private_items = "warn"
+-"#,
+-        name = fixture.name,
+-        lid_dep = lid_dep,
+-    )
++    String::new() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// The gate command for a fixture kind.
+ fn gate_command(gate: Gate) -> Command {
+     let mut command = cargo_command();
+     match gate {
+         Gate::Check => {
+             command.args(["check", "--all-targets"]);

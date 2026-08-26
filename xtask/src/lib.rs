@@ -1,4 +1,4 @@
-#![doc = include_str!("../../docs/intent/xtask/lld.md")]
+#![doc = include_str!("../docs/intent/xtask/lld.md")]
 
 pub mod mapping;
 pub mod mutants;
@@ -30,5 +30,5 @@ pub(crate) fn workspace_root() -> Result<std::path::PathBuf, String> {
 #[cfg(test)]
 mod intent_graph {
     //! xtask's own instance of the graph checks (README §4.2).
-    lid::intent_graph!();
+    lid_rs::intent_graph!();
 }

@@ -1,6 +1,6 @@
 ---
 name: lid-rs
-description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
+description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid-rs` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
 ---
 <!-- ANCHOR: skill -->
 
@@ -57,7 +57,7 @@ EARS-shaped doc comment *is* the claim ("When X, the system shall Y"),
 re-exported from `src/spec/mod.rs`:
 
 ```rust
-use lid::Spec;
+use lid_rs::Spec;
 
 /// When a user submits valid credentials, the authentication service shall
 /// return a session scoped to that user.
@@ -66,7 +66,7 @@ pub struct ValidCredentialsYieldScopedSession;
 ```
 
 Names are descriptive sentences, never numbers ([§3.2](https://bradvoth.github.io/lid-rs/spec/mapping.html)) — except genuine
-foreign keys, which get `#[lid::spec("SOC2-CC6.1-003")]` as a doc alias.
+foreign keys, which get `#[lid_rs::spec("SOC2-CC6.1-003")]` as a doc alias.
 Reject claims that are two claims; reject claims that restate the LLD without
 asserting anything. **STOP for review.**
 
@@ -110,6 +110,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
+cargo package -p <crate> --allow-dirty   # published crates: tarball builds standalone
 cargo xtask mutants        # diff scope; --full / --diff-base <ref> override
 ```
 
@@ -126,7 +127,7 @@ propagating into another slice's LLD territory.
 
 ## Mechanics reference
 
-- **New project**: `lid` + workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)),
+- **New project**: `lid-rs` + workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)),
   `[profile.test] opt-level = 0`, `docs/intent/hld.md` included from
   `lib.rs`, and the graph checks:
 
@@ -134,7 +135,7 @@ propagating into another slice's LLD territory.
   #[cfg(test)]
   mod intent_graph {
       //! This crate's instance of the graph checks (README §4.2).
-      lid::intent_graph!();
+      lid_rs::intent_graph!();
   }
   ```
 
@@ -142,7 +143,7 @@ propagating into another slice's LLD territory.
   scopes to the invoking crate's specs automatically; don't hand-write the
   checks.
 - **Module-level tracing**: a private-helper cluster implementing one claim
-  gets `lid::implements_module!(crate::spec::TheClaim);` inside the module —
+  gets `lid_rs::implements_module!(crate::spec::TheClaim);` inside the module —
   containment, not per-fn ceremony. Public surfaces get per-item citations.
 - **Methods** take `#[implements]` like free fns (registrations are
   body-injected). Structs and enums take it too (e.g. a

@@ -1,0 +1,403 @@
+
+*** lid-rs-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())
+
+*** mutation diff:
+--- lid-rs-macros/src/expand.rs
++++ replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())
+@@ -35,39 +35,17 @@
+             Verb::Implements => quote!(::lid_rs::IMPLEMENTATIONS),
+             Verb::Validates => quote!(::lid_rs::VALIDATIONS),
+         }
+     }
+ }
+ 
+ /// Expands `derive(Spec)`.
+ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
+-    let item: DeriveInput = syn::parse2(input)?;
+-    ensure_unit_struct(&item)?;
+-    let ident = &item.ident;
+-    Ok(quote! {
+-        // The derive's own emissions reference the struct they sit on; when a
+-        // spec is retired with #[deprecated], only *citation* sites should
+-        // warn, never the definition it decorates.
+-        #[automatically_derived]
+-        #[allow(deprecated)]
+-        impl ::lid_rs::Spec for #ident {
+-            const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
+-        }
+-        const _: () = {
+-            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
+-            #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::SPECS)]
+-            #[linkme(crate = ::lid_rs::__private::linkme)]
+-            static META: ::lid_rs::SpecMeta = ::lid_rs::SpecMeta {
+-                name: <#ident as ::lid_rs::Spec>::NAME,
+-                file: file!(),
+-                line: line!(),
+-            };
+-        };
+-    })
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Rejects derive targets that are not plain unit structs.
+ fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {
+     let unit = matches!(&item.data, Data::Struct(s) if matches!(s.fields, Fields::Unit));
+     if !unit || !item.generics.params.is_empty() {
+         return Err(syn::Error::new_spanned(
+             &item.ident,
+
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --no-run --verbose --workspace
+       Fresh unicode-ident v1.0.24
+       Fresh itoa v1.0.18
+       Fresh memchr v2.8.3
+       Fresh proc-macro2 v1.0.107
+       Fresh winnow v1.0.4
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh target-triple v1.0.1
+       Fresh termcolor v1.4.1
+       Fresh glob v0.3.4
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.151
+       Fresh serde_spanned v1.1.1
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh serde v1.0.229
+       Fresh linkme-impl v0.3.37
+       Dirty lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs-macros): the file `lid-rs-macros/src/expand.rs` has changed (1787755155.623300694s, 386641906ns after last build at 1787755155.236658788s)
+   Compiling lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs-macros)
+       Fresh serde_derive v1.0.229
+       Fresh toml v1.1.4+spec-1.1.0
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs_macros --edition=2024 lid-rs-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type proc-macro --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=74898d38ec80e945 -C extra-filename=-ece238cbc562aff6 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+       Fresh linkme v0.3.37
+   Compiling trybuild v1.0.120
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs_macros --edition=2024 lid-rs-macros/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C prefer-dynamic -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=5b2261e8bdcdfbf8 -C extra-filename=-4e5ca9de44791b17 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern proc_macro2=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libproc_macro2-55815e1867ec6ee3.rlib --extern quote=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libquote-04564932a2509d90.rlib --extern syn=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libsyn-2216c29f0adb985f.rlib --extern proc_macro`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name trybuild --edition=2024 /Users/brad/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/trybuild-1.0.120/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values("diff"))' -C metadata=7b80afff8c5ef5ea -C extra-filename=-8c37eb6e1df75497 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern glob=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libglob-874f5def4bcc88d5.rmeta --extern serde=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde-b06e1bab71b84b35.rmeta --extern serde_derive=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_derive-20b900f8ab7ccb85.dylib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta --extern target_triple=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libtarget_triple-8e166c4f9957d600.rmeta --extern termcolor=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libtermcolor-e8b4e5afc14334d2.rmeta --extern toml=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/libtoml-50a3034dc9388279.rmeta --cap-lints allow`
+warning: unused variable: `input`
+  --> lid-rs-macros/src/expand.rs:42:20
+   |
+42 | pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
+   |                    ^^^^^ help: if this is intentional, prefix it with an underscore: `_input`
+   |
+   = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `ensure_unit_struct` is never used
+  --> lid-rs-macros/src/expand.rs:47:4
+   |
+47 | fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {
+   |    ^^^^^^^^^^^^^^^^^^
+   |
+   = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `lid-rs-macros` (lib test) generated 2 warnings (run `cargo fix --lib -p lid-rs-macros --tests` to apply 1 suggestion)
+warning: `lid-rs-macros` (lib) generated 2 warnings (2 duplicates)
+   Compiling lid-rs v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/lid-rs)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs --edition=2024 lid-rs/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=a81a2c340eec1845 -C extra-filename=-578ebb2965769b45 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs_macros-ece238cbc562aff6.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rmeta`
+error[E0277]: the trait bound `CanaryConfirmsRegistryPresence: Spec` is not satisfied
+  --> lid-rs/src/canary.rs:17:6
+   |
+17 |     <crate::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME;
+   |      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `CanaryConfirmsRegistryPresence`
+  --> lid-rs/src/spec/registry.rs:15:1
+   |
+15 | pub struct CanaryConfirmsRegistryPresence;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `CanaryConfirmsRegistryPresence: Spec` is not satisfied
+  --> lid-rs/src/canary.rs:24:14
+   |
+24 | #[implements(spec::CanaryConfirmsRegistryPresence)]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `CanaryConfirmsRegistryPresence`
+  --> lid-rs/src/spec/registry.rs:15:1
+   |
+15 | pub struct CanaryConfirmsRegistryPresence;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `CanaryDetectsAStrippedRegistry: Spec` is not satisfied
+  --> lid-rs/src/canary.rs:34:14
+   |
+34 | #[implements(spec::CanaryDetectsAStrippedRegistry)]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `CanaryDetectsAStrippedRegistry`
+  --> lid-rs/src/spec/registry.rs:20:1
+   |
+20 | pub struct CanaryDetectsAStrippedRegistry;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `CanaryConfirmsRegistryPresence: Spec` is not satisfied
+  --> lid-rs/src/canary.rs:50:16
+   |
+50 |         spec: <crate::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME,
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `CanaryConfirmsRegistryPresence`
+  --> lid-rs/src/spec/registry.rs:15:1
+   |
+15 | pub struct CanaryConfirmsRegistryPresence;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `GraphChecksRequireThePresentCanary: Spec` is not satisfied
+  --> lid-rs/src/graph.rs:27:14
+   |
+27 | #[implements(spec::GraphChecksRequireThePresentCanary)]
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `GraphChecksRequireThePresentCanary`
+  --> lid-rs/src/spec/graph.rs:19:1
+   |
+19 | pub struct GraphChecksRequireThePresentCanary;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `CoveredGraphsPassTheGraphCheck: Spec` is not satisfied
+  --> lid-rs/src/graph.rs:51:5
+   |
+51 |     spec::CoveredGraphsPassTheGraphCheck,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `CoveredGraphsPassTheGraphCheck`
+  --> lid-rs/src/spec/graph.rs:29:1
+   |
+29 | pub struct CoveredGraphsPassTheGraphCheck;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `GraphChecksScopeToTheCurrentCrate: Spec` is not satisfied
+  --> lid-rs/src/graph.rs:50:5
+   |
+50 |     spec::GraphChecksScopeToTheCurrentCrate,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `GraphChecksScopeToTheCurrentCrate`
+  --> lid-rs/src/spec/graph.rs:24:1
+   |
+24 | pub struct GraphChecksScopeToTheCurrentCrate;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `UnvalidatedSpecsFailTheGraphCheck: Spec` is not satisfied
+  --> lid-rs/src/graph.rs:49:5
+   |
+49 |     spec::UnvalidatedSpecsFailTheGraphCheck,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `UnvalidatedSpecsFailTheGraphCheck`
+  --> lid-rs/src/spec/graph.rs:14:1
+   |
+14 | pub struct UnvalidatedSpecsFailTheGraphCheck;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `UncitedSpecsFailTheGraphCheck: Spec` is not satisfied
+  --> lid-rs/src/graph.rs:48:5
+   |
+48 |     spec::UncitedSpecsFailTheGraphCheck,
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `UncitedSpecsFailTheGraphCheck`
+  --> lid-rs/src/spec/graph.rs:9:1
+   |
+ 9 | pub struct UncitedSpecsFailTheGraphCheck;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `LinkedRegistrationsAreEnumerable: Spec` is not satisfied
+  --> lid-rs/src/registry.rs:45:28
+   |
+45 | lid_rs::implements_module!(crate::spec::LinkedRegistrationsAreEnumerable);
+   |                            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unsatisfied trait bound
+   |
+help: the trait `Spec` is not implemented for `LinkedRegistrationsAreEnumerable`
+  --> lid-rs/src/spec/registry.rs:9:1
+   |
+ 9 | pub struct LinkedRegistrationsAreEnumerable;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+
+error[E0277]: the trait bound `DerivedSpecsCarryTheirDefinitionPath: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+53 |     macro_edge!(crate::spec::DerivedSpecsCarryTheirDefinitionPath, "lid_rs_macros::Spec");
+   |     ------------------------------------------------------------------------------------- in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `DerivedSpecsCarryTheirDefinitionPath`
+  --> lid-rs/src/spec/citation.rs:14:1
+   |
+14 | pub struct DerivedSpecsCarryTheirDefinitionPath;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `DerivedSpecsRegisterIntoSpecs: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+54 |     macro_edge!(crate::spec::DerivedSpecsRegisterIntoSpecs, "lid_rs_macros::Spec");
+   |     ------------------------------------------------------------------------------ in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `DerivedSpecsRegisterIntoSpecs`
+  --> lid-rs/src/spec/citation.rs:19:1
+   |
+19 | pub struct DerivedSpecsRegisterIntoSpecs;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `ImplementsCitationsRegisterEdges: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+55 |     macro_edge!(crate::spec::ImplementsCitationsRegisterEdges, "lid_rs_macros::implements");
+   |     --------------------------------------------------------------------------------------- in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `ImplementsCitationsRegisterEdges`
+  --> lid-rs/src/spec/citation.rs:25:1
+   |
+25 | pub struct ImplementsCitationsRegisterEdges;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `ValidatesCitationsRegisterEdges: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+56 |     macro_edge!(crate::spec::ValidatesCitationsRegisterEdges, "lid_rs_macros::validates");
+   |     ------------------------------------------------------------------------------------- in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `ValidatesCitationsRegisterEdges`
+  --> lid-rs/src/spec/citation.rs:31:1
+   |
+31 | pub struct ValidatesCitationsRegisterEdges;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `ModuleCitationsTraceByContainment: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+57 |     macro_edge!(crate::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
+   |     ----------------------------------------------------------------------------------------------- in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `ModuleCitationsTraceByContainment`
+  --> lid-rs/src/spec/citation.rs:36:1
+   |
+36 | pub struct ModuleCitationsTraceByContainment;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+error[E0277]: the trait bound `MalformedCitationsFailToCompile: Spec` is not satisfied
+  --> lid-rs/src/lib.rs:45:28
+   |
+45 |                     spec: <$spec as ::lid_rs::Spec>::NAME,
+   |                            ^^^^^ unsatisfied trait bound
+...
+58 |     macro_edge!(crate::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
+   |     ---------------------------------------------------------------------------------- in this macro invocation
+   |
+help: the trait `Spec` is not implemented for `MalformedCitationsFailToCompile`
+  --> lid-rs/src/spec/citation.rs:42:1
+   |
+42 | pub struct MalformedCitationsFailToCompile;
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+help: this trait has no implementations, consider adding one
+  --> lid-rs/src/lib.rs:67:1
+   |
+67 | pub trait Spec {
+   | ^^^^^^^^^^^^^^
+   = note: this error originates in the macro `macro_edge` (in Nightly builds, run with -Z macro-backtrace for more info)
+
+For more information about this error, try `rustc --explain E0277`.
+error: could not compile `lid-rs` (lib) due to 16 previous errors
+
+Caused by:
+  process didn't exit successfully: `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name lid_rs --edition=2024 lid-rs/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=a81a2c340eec1845 -C extra-filename=-578ebb2965769b45 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps --extern lid_rs_macros=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblid_rs_macros-ece238cbc562aff6.dylib --extern linkme=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-5pmirU.tmp/target/debug/deps/liblinkme-bfa2ed6f49607869.rmeta` (exit status: 1)
+warning: build failed, waiting for other jobs to finish...
+
+*** result: Failure(101)

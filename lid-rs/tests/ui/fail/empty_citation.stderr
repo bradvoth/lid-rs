@@ -1,0 +1,7 @@
+error: lid-rs: cite at least one spec, or remove the attribute
+ --> tests/ui/fail/empty_citation.rs:3:1
+  |
+3 | #[lid_rs::implements()]
+  | ^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the attribute macro `lid_rs::implements` (in Nightly builds, run with -Z macro-backtrace for more info)

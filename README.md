@@ -159,7 +159,7 @@ silently fails to populate turns every check over it into a vacuous pass. See
 //! Each item is one EARS claim. Nothing here has runtime behaviour; these types
 //! exist so that citations are resolved by the compiler rather than by grep.
 
-use lid::Spec;
+use lid_rs::Spec;
 
 /// When a user submits valid credentials, the authentication service shall
 /// return a session scoped to that user.
@@ -215,7 +215,7 @@ requirement — the dash-case ID is a genuine foreign key:
 pub struct AuthAttemptsAreAudited;
 ```
 
-`#[spec("...")]` (spelled `#[lid::spec("…")]` where the bare name would
+`#[spec("...")]` (spelled `#[lid_rs::spec("…")]` where the bare name would
 collide with your `spec` module) emits `#[doc(alias)]` so the foreign ID stays
 greppable and rustdoc-searchable. Inert unless there's an external system to key against; don't
 reach for it by default.
@@ -253,10 +253,10 @@ The attribute expands to two things:
 //    scopes the static, so it needs no name-mangling and cannot collide.
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
-    #[::lid::__private::linkme::distributed_slice(::lid::IMPLEMENTATIONS)]
-    #[linkme(crate = ::lid::__private::linkme)]
-    static EDGE: ::lid::Edge = ::lid::Edge {
-        spec: <crate::spec::ValidCredentialsYieldScopedSession as ::lid::Spec>::NAME,
+    #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::IMPLEMENTATIONS)]
+    #[linkme(crate = ::lid_rs::__private::linkme)]
+    static EDGE: ::lid_rs::Edge = ::lid_rs::Edge {
+        spec: <crate::spec::ValidCredentialsYieldScopedSession as ::lid_rs::Spec>::NAME,
         item: concat!(module_path!(), "::authenticate"),
         file: file!(),
         line: line!(),
@@ -331,7 +331,7 @@ dispatch is fine; three nested `if`s in a leaf is not.
 ### 4.2 Tier 1 — registry intersection
 
 Enumeration happens at link time ([§5](https://bradvoth.github.io/lid-rs/spec/registry.html)). These are ordinary unit tests,
-and `lid` ships them: invoke `lid::intent_graph!()` in a `#[cfg(test)]` module
+and `lid-rs` ships them: invoke `lid_rs::intent_graph!()` in a `#[cfg(test)]` module
 of the library, and the checks below are emitted — crate-scoped, canary-first,
 plus an inert registry-dump test the mutation xtask reads ([§4.3](https://bradvoth.github.io/lid-rs/spec/gates.html)).
 Hand-writing them invites drift in the one place drift-detection lives.
@@ -342,14 +342,14 @@ Hand-writing them invites drift in the one place drift-detection lives.
 | 11 | **Unvalidated spec** | A claim no test cites. Nothing would notice if it broke. |
 
 ```rust
-// what lid::intent_graph!() expands to at its invocation site in lib.rs
-use lid::{SPECS, IMPLEMENTATIONS, VALIDATIONS};
+// what lid_rs::intent_graph!() expands to at its invocation site in lib.rs
+use lid_rs::{SPECS, IMPLEMENTATIONS, VALIDATIONS};
 
 #[test]
 fn registry_is_populated() {
     // Constraint 3's corollary: prove the enumeration exists before
     // asserting anything over it. See §5.3.
-    assert!(lid::canary::present(), "registry empty — see §5.3");
+    assert!(lid_rs::canary::present(), "registry empty — see §5.3");
 }
 
 #[test]
@@ -371,7 +371,7 @@ design decision, not a gap — see [§6](https://bradvoth.github.io/lid-rs/spec/
 
 > **Scoping note** *(uses the linking model of [§5](https://bradvoth.github.io/lid-rs/spec/registry.html) and "traced" from [§6](https://bradvoth.github.io/lid-rs/spec/traced.html);
 > return here after those if it reads dense).* The registry is binary-global:
-> a consumer's test binary links `lid` (and any other traced crate, meaning
+> a consumer's test binary links `lid-rs` (and any other traced crate, meaning
 > any crate carrying citations), so `SPECS` contains upstream
 > claims whose `#[validates]` edges — being `#[cfg(test)]` in their home
 > crates — are absent from this binary. The checks therefore scope to specs
@@ -432,12 +432,18 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" \
   cargo doc --no-deps                            # 2
 cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11 + behaviour
+cargo package -p <crate> --allow-dirty           # published crates: the tarball
+                                                 #     builds standalone
 cargo xtask mutants                              # 12 (scope from metadata;
                                                  #     --full / --diff-base override)
 ```
 
 Cheapest and most specific first. Mutation runs last because it's the only step
-that rebuilds.
+that rebuilds. `cargo package` applies to crates that publish: it builds the
+tarball without the workspace around it, which is what catches an `include_str!`
+reaching outside a package root ([§11](https://bradvoth.github.io/lid-rs/spec/layout.html)).
+This list is the floor; a workspace appends build-integrity steps of its own
+after it, and every copy of the list a project keeps must match.
 <!-- ANCHOR_END: gates -->
 
 ---
@@ -452,7 +458,7 @@ them at link time.
 
 ### 5.1 How it works
 
-`linkme` uses linker sections. `lid` declares the slices:
+`linkme` uses linker sections. `lid-rs` declares the slices:
 
 ```rust
 #[distributed_slice]
@@ -469,9 +475,9 @@ symbols; dereferencing the slice yields everything between them. It's a
 contiguous array baked into the binary — no initialization, no runtime cost, no
 ordering guarantee.
 
-**`linkme` is an implementation detail.** Users depend on `lid`; `lid` depends on
+**`linkme` is an implementation detail.** Users depend on `lid-rs`; `lid-rs` depends on
 `linkme`. Expansions can't emit `::linkme::...`, since that path only resolves if
-the user happens to have linkme as a direct dependency, so `lid` re-exports it:
+the user happens to have linkme as a direct dependency, so `lid-rs` re-exports it:
 
 ```rust
 #[doc(hidden)]
@@ -482,7 +488,7 @@ pub mod __private {
 
 The re-export alone is not sufficient: linkme's *own* element expansion also
 emits `linkme::…` paths. Every generated registration therefore carries
-`#[linkme(crate = ::lid::__private::linkme)]`, linkme's wrapper-crate
+`#[linkme(crate = ::lid_rs::__private::linkme)]`, linkme's wrapper-crate
 override, which redirects those paths through the re-export.
 
 Generated statics are scoped inside `const _` blocks and carry
@@ -514,8 +520,8 @@ unusual target strips the section, the registry is empty and
 enforcement — the exact failure mode this system exists to prevent, reintroduced
 by its own mechanism.
 
-`lid` ships a known spec/implementation/validation triple internally.
-`lid::canary::present()` returns false if any of them is missing from the
+`lid-rs` ships a known spec/implementation/validation triple internally.
+`lid_rs::canary::present()` returns false if any of them is missing from the
 registries. Every registry-based check asserts it first. A stripped section
 becomes a named failure instead of an inferred pass.
 
@@ -600,7 +606,7 @@ ceremony:
 
 ```rust
 // src/auth/password.rs
-lid::implements_module!(spec::PasswordsAreVerifiedInConstantTime);
+lid_rs::implements_module!(spec::PasswordsAreVerifiedInConstantTime);
 ```
 
 (A function-like macro rather than an inner attribute, because custom inner
@@ -635,7 +641,7 @@ too_many_lines              = "warn"
 wildcard_enum_match_arm     = "deny"
 missing_docs_in_private_items = "warn"
 
-[workspace.metadata.lid]
+[workspace.metadata.lid_rs]
 mutation_scope = "diff"          # diff | full
 ```
 
@@ -655,7 +661,7 @@ too-many-lines-threshold       = 40
 max-fn-params-bools            = 0
 ```
 
-**`[workspace.metadata.lid]`** — LID-rs's own knobs, read by the xtask.
+**`[workspace.metadata.lid_rs]`** — LID-rs's own knobs, read by the xtask.
 
 `cognitive-complexity-threshold = 4` is a starting point, not scripture. If
 you're raising it, check whether the code is irreducible or whether writing
@@ -989,7 +995,7 @@ the leaves.
 ## 11. Repo layout
 
 ```
-Cargo.toml                     workspace lints + [workspace.metadata.lid]
+Cargo.toml                     workspace lints + [workspace.metadata.lid_rs]
 clippy.toml                    thresholds
 docs/
   intent/
@@ -1011,8 +1017,8 @@ src/
     app.rs                     thin — doctests don't run in bin targets
 tests/
   ...                          integration tests; no #[validates] here (§5.2)
-lid/                           support crate: Spec, Edge, slices, canary
-lid-macros/                    derive(Spec), implements, validates, spec
+lid-rs/                        support crate: Spec, Edge, slices, canary
+lid-rs-macros/                 derive(Spec), implements, validates, spec
 xtask/                         registry-driven mutation scoping
 .github/workflows/gate.yml
 ```
@@ -1021,6 +1027,12 @@ Specs live in `src/`, not `docs/`, because they must be items the compiler
 resolves. LLDs live in `docs/` because they're prose meant to be diffed and
 argued over in a PR — but they render inside `cargo doc`, so a reader never goes
 looking for them.
+
+In a workspace, an intent document lives inside the package root of the crate
+that includes it (`<crate>/docs/intent/…`). `cargo package` ships only files
+under the package root, so an `include_str!` reaching up into a workspace-level
+`docs/` builds locally and fails from the tarball. Documents no crate includes
+stay at the workspace level.
 
 **Brownfield adoption.** Layer the tiers in order. Tier 0 first — the lints apply
 to existing code immediately and will surface every leaf that's secretly a
@@ -1053,14 +1065,14 @@ codebase gates correctly on the part that's traced.
 ## 13. Bootstrap checklist
 
 1. `cargo new --lib` plus a thin `bin`.
-2. `lid` support crate: `Spec` trait, `Edge`, `SpecMeta`, three
+2. `lid-rs` support crate: `Spec` trait, `Edge`, `SpecMeta`, three
    `#[distributed_slice]` declarations, `canary`, `__private` re-export.
-3. `lid-macros`: `derive(Spec)`, `implements`, `validates`,
+3. `lid-rs-macros`: `derive(Spec)`, `implements`, `validates`,
    `implements_module!`, `spec`.
 4. `Cargo.toml` workspace lints + `clippy.toml` thresholds ([§7](https://bradvoth.github.io/lid-rs/spec/configuration.html)).
 5. `docs/intent/hld.md`, included via `#![doc = include_str!(...)]`.
 6. `src/spec/mod.rs` with `//!` docs explaining what the module is for.
-7. A `#[cfg(test)] mod intent_graph { lid::intent_graph!(); }` in `lib.rs` —
+7. A `#[cfg(test)] mod intent_graph { lid_rs::intent_graph!(); }` in `lib.rs` —
    canary first, then checks 10, 11.
 8. `[profile.test] opt-level = 0`; install `cargo-mutants`; `xtask` for
    registry-driven test filtering.

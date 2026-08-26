@@ -1,0 +1,210 @@
+use crate::canary;
+use crate::registry::{Edge, SpecMeta};
+use crate::spec;
+use lid_rs::implements;
+use std::collections::HashSet;
+
+/// Which edge set a graph check runs against.
+#[derive(Clone, Copy, Debug)]
+pub enum EdgeKind {
+    /// Check specs against implementation citations (check 10).
+    Implementations,
+    /// Check specs against validation citations (check 11).
+    Validations,
+}
+
+/// The canary triple is absent: the linker sections were stripped or never
+/// populated, so the registries cannot be trusted and no orphan claim is
+/// made at all (README §5.3).
+#[derive(Debug)]
+pub struct CanaryStripped;
+
+/// Finds current-crate specs lacking an edge in the chosen set, refusing to
+/// run at all over an untrustworthy registry.
+///
+/// Parameterized over the slices so every failure branch is testable with
+/// synthetic inputs; `intent_graph!` applies it to the real registries.
+#[implements(spec::GraphChecksRequireThePresentCanary)]
+pub fn graph_orphans(
+    crate_name: &str,
+    specs: &[SpecMeta],
+    impls: &[Edge],
+    validations: &[Edge],
+    kind: EdgeKind,
+) -> Result<Vec<String>, CanaryStripped> {
+    if !canary::triple_is_present(specs, impls, validations) {
+        return Err(CanaryStripped);
+    }
+    let edges = match kind {
+        EdgeKind::Implementations => impls,
+        EdgeKind::Validations => validations,
+    };
+    Ok(orphaned_specs(crate_name, specs, edges))
+}
+
+/// Specs whose `NAME` begins with `crate_name::` and that no edge cites,
+/// formatted `name (file:line)`.
+#[implements(
+    spec::UncitedSpecsFailTheGraphCheck,
+    spec::UnvalidatedSpecsFailTheGraphCheck,
+    spec::GraphChecksScopeToTheCurrentCrate,
+    spec::CoveredGraphsPassTheGraphCheck,
+)]
+fn orphaned_specs(crate_name: &str, specs: &[SpecMeta], edges: &[Edge]) -> Vec<String> {
+    let prefix = format!("{crate_name}::");
+    let cited: HashSet<&str> = edges.iter().map(|e| e.spec).collect();
+    specs
+        .iter()
+        .filter(|s| s.name.starts_with(&prefix))
+        .filter(|s| !cited.contains(s.name))
+        .map(|s| format!("{} ({}:{})", s.name, s.file, s.line))
+        .collect()
+}
+
+/// Expands to the three intent-graph tests (README §4.2): canary presence,
+/// every-spec-implemented, every-spec-validated — scoped to the invoking
+/// crate. Invoke inside a `#[cfg(test)]` module of the library:
+///
+/// ```
+/// #[cfg(test)]
+/// mod intent_graph {
+///     lid_rs::intent_graph!();
+/// }
+/// # fn main() {}
+/// ```
+#[macro_export]
+macro_rules! intent_graph {
+    () => {
+        #[test]
+        fn registry_is_populated() {
+            assert!(
+                $crate::canary::present(),
+                "canary triple missing - registry sections were stripped or never populated (README §5.3)"
+            );
+        }
+
+        #[test]
+        fn every_spec_has_an_implementer() {
+            let orphans = $crate::graph::graph_orphans(
+                env!("CARGO_CRATE_NAME"),
+                &$crate::SPECS,
+                &$crate::IMPLEMENTATIONS,
+                &$crate::VALIDATIONS,
+                $crate::graph::EdgeKind::Implementations,
+            )
+            .expect("canary triple missing - registry cannot be trusted (README §5.3)");
+            assert!(orphans.is_empty(), "specs with no implementation:\n{orphans:#?}");
+        }
+
+        #[test]
+        fn every_spec_has_a_validation() {
+            let orphans = $crate::graph::graph_orphans(
+                env!("CARGO_CRATE_NAME"),
+                &$crate::SPECS,
+                &$crate::IMPLEMENTATIONS,
+                &$crate::VALIDATIONS,
+                $crate::graph::EdgeKind::Validations,
+            )
+            .expect("canary triple missing - registry cannot be trusted (README §5.3)");
+            assert!(orphans.is_empty(), "specs with no validation:\n{orphans:#?}");
+        }
+
+        /// Registry dump for tooling. Validation edges exist only in this
+        /// crate's own test binary (README §5.2), so `cargo xtask mutants`
+        /// obtains them by running this test with `LID_DUMP=1` and parsing
+        /// the emitted lines. Inert in normal test runs.
+        #[test]
+        fn registry_dump_for_tooling() {
+            if std::env::var_os("LID_DUMP").is_none() {
+                return;
+            }
+            for s in $crate::SPECS.iter() {
+                println!("LID-DUMP\tSPEC\t{}\t{}\t{}", s.name, s.file, s.line);
+            }
+            for e in $crate::IMPLEMENTATIONS.iter() {
+                println!("LID-DUMP\tIMPL\t{}\t{}\t{}", e.spec, e.item, e.file);
+            }
+            for e in $crate::VALIDATIONS.iter() {
+                println!("LID-DUMP\tVALID\t{}\t{}\t{}", e.spec, e.item, e.file);
+            }
+        }
+    };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lid_rs::validates;
+
+    /// Synthetic registration at a fixed location.
+    fn meta(name: &'static str) -> SpecMeta {
+        SpecMeta { name, file: "synthetic.rs", line: 1 }
+    }
+
+    /// Synthetic edge citing `spec`.
+    fn edge(spec: &'static str) -> Edge {
+        Edge { spec, item: "synthetic", file: "synthetic.rs", line: 1 }
+    }
+
+    /// The canary join key, so synthetic registries count as trustworthy.
+    const CANARY: &str = <crate::spec::CanaryConfirmsRegistryPresence as crate::Spec>::NAME;
+
+    #[test]
+    #[validates(spec::UncitedSpecsFailTheGraphCheck)]
+    fn uncited_specs_fail_the_graph_check() {
+        let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+        let impls = [edge(CANARY)];
+        let validations = [edge(CANARY)];
+        let orphans =
+            graph_orphans("lid_rs", &specs, &impls, &validations, EdgeKind::Implementations)
+                .expect("canary is present in the synthetic registry");
+        assert_eq!(orphans, ["lid_rs::synthetic::Fake (synthetic.rs:1)"]);
+    }
+
+    #[test]
+    #[validates(spec::UnvalidatedSpecsFailTheGraphCheck)]
+    fn unvalidated_specs_fail_the_graph_check() {
+        let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+        let impls = [edge(CANARY), edge("lid_rs::synthetic::Fake")];
+        let validations = [edge(CANARY)];
+        let orphans =
+            graph_orphans("lid_rs", &specs, &impls, &validations, EdgeKind::Validations)
+                .expect("canary is present in the synthetic registry");
+        assert_eq!(orphans, ["lid_rs::synthetic::Fake (synthetic.rs:1)"]);
+    }
+
+    #[test]
+    #[validates(spec::GraphChecksRequireThePresentCanary)]
+    fn graph_checks_require_the_present_canary() {
+        let specs = [meta("lid_rs::synthetic::Fake")];
+        let result = graph_orphans("lid_rs", &specs, &[], &[], EdgeKind::Implementations);
+        assert!(
+            matches!(result, Err(CanaryStripped)),
+            "a stripped registry must refuse to make orphan claims"
+        );
+    }
+
+    #[test]
+    #[validates(spec::GraphChecksScopeToTheCurrentCrate)]
+    fn graph_checks_scope_to_the_current_crate() {
+        let specs = [meta(CANARY), meta("other_crate::Fake")];
+        let impls = [edge(CANARY)];
+        let validations = [edge(CANARY)];
+        let orphans =
+            graph_orphans("lid_rs", &specs, &impls, &validations, EdgeKind::Implementations)
+                .expect("canary is present in the synthetic registry");
+        assert!(orphans.is_empty(), "foreign-crate specs must be ignored: {orphans:?}");
+    }
+
+    #[test]
+    #[validates(spec::CoveredGraphsPassTheGraphCheck)]
+    fn covered_graphs_pass_the_graph_check() {
+        let specs = [meta(CANARY), meta("lid_rs::synthetic::Fake")];
+        let impls = [edge(CANARY), edge("lid_rs::synthetic::Fake")];
+        let validations = [edge(CANARY)];
+        let orphans =
+            graph_orphans("lid_rs", &specs, &impls, &validations, EdgeKind::Implementations)
+                .expect("canary is present in the synthetic registry");
+        assert!(orphans.is_empty(), "covered specs must not be reported: {orphans:?}");
+    }
+}

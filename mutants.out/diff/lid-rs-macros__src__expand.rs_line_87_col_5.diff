@@ -1,0 +1,34 @@
+--- lid-rs-macros/src/expand.rs
++++ replace citation -> syn::Result<TokenStream> with Ok(Default::default())
+@@ -79,30 +79,17 @@
+ 
+ /// Expands `#[implements]` / `#[validates]`: dispatches on the item kind.
+ ///
+ /// Dispatch is by parse-attempt rather than by matching `syn::Item`: that
+ /// enum is foreign and `#[non_exhaustive]`, so it cannot be matched without
+ /// the wildcard arm check 6 denies — and rejecting unknown item kinds is the
+ /// wanted behaviour anyway.
+ pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
+-    let paths = parse_spec_paths(args)?;
+-    if let Ok(f) = syn::parse2::<ItemFn>(item.clone()) {
+-        return Ok(cite_fn(f, &paths, &verb));
+-    }
+-    if let Ok(s) = syn::parse2::<ItemStruct>(item.clone()) {
+-        return Ok(cite_struct(s, &paths, &verb));
+-    }
+-    if let Ok(e) = syn::parse2::<ItemEnum>(item.clone()) {
+-        return Ok(cite_enum(e, &paths, &verb));
+-    }
+-    Err(syn::Error::new_spanned(
+-        item,
+-        "lid-rs: citations apply to fns, structs, and enums",
+-    ))
++    Ok(Default::default()) /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// Cites a fn by injecting one registration per spec at the top of its body
+ /// and appending the doc lines — uniform for free fns and methods, since
+ /// `impl` blocks admit no free consts but every fn body admits items.
+ fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
+     let item_expr = item_path_expr(&f.sig.ident);
+     for path in paths {

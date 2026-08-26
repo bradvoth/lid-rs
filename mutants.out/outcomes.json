@@ -3,44 +3,152 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "xtask/src/mutants.rs:137:5: replace parse_mutants -> Result<Vec<Mutant>, String> with Ok(vec![])",
-          "package": "xtask",
-          "file": "xtask/src/mutants.rs",
+          "name": "lid-rs-macros/src/expand.rs:34:9: replace Verb::slice -> TokenStream with Default::default()",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
           "function": {
-            "function_name": "parse_mutants",
-            "return_type": "-> Result<Vec<Mutant>, String>",
+            "function_name": "Verb::slice",
+            "return_type": "-> TokenStream",
             "span": {
               "start": {
-                "line": 134,
+                "line": 32,
+                "column": 5
+              },
+              "end": {
+                "line": 38,
+                "column": 6
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 34,
+              "column": 9
+            },
+            "end": {
+              "line": 37,
+              "column": 10
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_34_col_9.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_34_col_9.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 2.5459715000000003,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:43:5: replace derive_spec -> syn::Result<TokenStream> with Ok(Default::default())",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "derive_spec",
+            "return_type": "-> syn::Result<TokenStream>",
+            "span": {
+              "start": {
+                "line": 41,
                 "column": 1
               },
               "end": {
-                "line": 144,
+                "line": 66,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 137,
+              "line": 43,
               "column": 5
             },
             "end": {
-              "line": 143,
-              "column": 42
+              "line": 65,
+              "column": 7
             }
           },
-          "replacement": "Ok(vec![])",
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_43_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_43_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.757817958,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:70:5: replace ensure_unit_struct -> syn::Result<()> with Ok(())",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "ensure_unit_struct",
+            "return_type": "-> syn::Result<()>",
+            "span": {
+              "start": {
+                "line": 68,
+                "column": 1
+              },
+              "end": {
+                "line": 78,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 70,
+              "column": 5
+            },
+            "end": {
+              "line": 77,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
           "genre": "FnValue"
         }
       },
       "summary": "CaughtMutant",
-      "log_path": "log/xtask__src__mutants.rs_line_137_col_5.log",
-      "diff_path": "diff/xtask__src__mutants.rs_line_137_col_5.diff",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_70_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_70_col_5.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 3.7302115000000002,
+          "duration": 0.799469375,
           "process_status": "Success",
           "argv": [
             "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
@@ -52,7 +160,7 @@
         },
         {
           "phase": "Test",
-          "duration": 2.4362264590000002,
+          "duration": 5.524962291,
           "process_status": {
             "Failure": 101
           },
@@ -60,16 +168,7 @@
             "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
             "test",
             "--verbose",
-            "--workspace",
-            "--lib",
-            "--",
-            "--exact",
-            "mutants::tests::diff_scope_passes_through_to_the_engine",
-            "mutants::tests::diff_scope_writes_a_real_diff_file",
-            "mutants::tests::engine_failures_fail_the_gate",
-            "mutants::tests::registries_come_from_the_owning_crate_test_binary",
-            "selftest::tests::surviving_mutants_fail_the_gate",
-            "selftest::tests::unknown_fixture_names_are_rejected"
+            "--workspace"
           ]
         }
       ]
@@ -77,31 +176,215 @@
     {
       "scenario": {
         "Mutant": {
-          "name": "xtask/src/mutants.rs:137:5: replace parse_mutants -> Result<Vec<Mutant>, String> with Ok(vec![Default::default()])",
-          "package": "xtask",
-          "file": "xtask/src/mutants.rs",
+          "name": "lid-rs-macros/src/expand.rs:87:5: replace citation -> syn::Result<TokenStream> with Ok(Default::default())",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
           "function": {
-            "function_name": "parse_mutants",
-            "return_type": "-> Result<Vec<Mutant>, String>",
+            "function_name": "citation",
+            "return_type": "-> syn::Result<TokenStream>",
             "span": {
               "start": {
-                "line": 134,
+                "line": 80,
                 "column": 1
               },
               "end": {
-                "line": 144,
+                "line": 101,
                 "column": 2
               }
             }
           },
           "span": {
             "start": {
-              "line": 137,
+              "line": 87,
               "column": 5
             },
             "end": {
-              "line": 143,
-              "column": 42
+              "line": 100,
+              "column": 7
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_87_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_87_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.606436125,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:155:5: replace foreign_key -> syn::Result<TokenStream> with Ok(Default::default())",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "foreign_key",
+            "return_type": "-> syn::Result<TokenStream>",
+            "span": {
+              "start": {
+                "line": 152,
+                "column": 1
+              },
+              "end": {
+                "line": 160,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 155,
+              "column": 5
+            },
+            "end": {
+              "line": 159,
+              "column": 33
+            }
+          },
+          "replacement": "Ok(Default::default())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_155_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_155_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.713418459,
+          "process_status": "Success",
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 2.825732584,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:164:5: replace parse_spec_paths -> syn::Result<Vec<Path>> with Ok(vec![])",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "parse_spec_paths",
+            "return_type": "-> syn::Result<Vec<Path>>",
+            "span": {
+              "start": {
+                "line": 162,
+                "column": 1
+              },
+              "end": {
+                "line": 177,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 164,
+              "column": 5
+            },
+            "end": {
+              "line": 176,
+              "column": 36
+            }
+          },
+          "replacement": "Ok(vec![])",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_164_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_164_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.75863675,
+          "process_status": "Success",
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.576316375,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:164:5: replace parse_spec_paths -> syn::Result<Vec<Path>> with Ok(vec![Default::default()])",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "parse_spec_paths",
+            "return_type": "-> syn::Result<Vec<Path>>",
+            "span": {
+              "start": {
+                "line": 162,
+                "column": 1
+              },
+              "end": {
+                "line": 177,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 164,
+              "column": 5
+            },
+            "end": {
+              "line": 176,
+              "column": 36
             }
           },
           "replacement": "Ok(vec![Default::default()])",
@@ -109,12 +392,131 @@
         }
       },
       "summary": "Unviable",
-      "log_path": "log/xtask__src__mutants.rs_line_137_col_5_001.log",
-      "diff_path": "diff/xtask__src__mutants.rs_line_137_col_5_001.diff",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_164_col_5_001.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_164_col_5_001.diff",
       "phase_results": [
         {
           "phase": "Build",
-          "duration": 0.164966833,
+          "duration": 0.10895725,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:181:5: replace ensure_plain_path -> syn::Result<()> with Ok(())",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "ensure_plain_path",
+            "return_type": "-> syn::Result<()>",
+            "span": {
+              "start": {
+                "line": 179,
+                "column": 1
+              },
+              "end": {
+                "line": 188,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 181,
+              "column": 5
+            },
+            "end": {
+              "line": 187,
+              "column": 11
+            }
+          },
+          "replacement": "Ok(())",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "CaughtMutant",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_181_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_181_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.708825292,
+          "process_status": "Success",
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--no-run",
+            "--verbose",
+            "--workspace"
+          ]
+        },
+        {
+          "phase": "Test",
+          "duration": 3.091693625,
+          "process_status": {
+            "Failure": 101
+          },
+          "argv": [
+            "/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo",
+            "test",
+            "--verbose",
+            "--workspace"
+          ]
+        }
+      ]
+    },
+    {
+      "scenario": {
+        "Mutant": {
+          "name": "lid-rs-macros/src/expand.rs:223:5: replace edge_registration -> TokenStream with Default::default()",
+          "package": "lid-rs-macros",
+          "file": "lid-rs-macros/src/expand.rs",
+          "function": {
+            "function_name": "edge_registration",
+            "return_type": "-> TokenStream",
+            "span": {
+              "start": {
+                "line": 221,
+                "column": 1
+              },
+              "end": {
+                "line": 237,
+                "column": 2
+              }
+            }
+          },
+          "span": {
+            "start": {
+              "line": 223,
+              "column": 5
+            },
+            "end": {
+              "line": 236,
+              "column": 6
+            }
+          },
+          "replacement": "Default::default()",
+          "genre": "FnValue"
+        }
+      },
+      "summary": "Unviable",
+      "log_path": "log/lid-rs-macros__src__expand.rs_line_223_col_5.log",
+      "diff_path": "diff/lid-rs-macros__src__expand.rs_line_223_col_5.diff",
+      "phase_results": [
+        {
+          "phase": "Build",
+          "duration": 0.49535125,
           "process_status": {
             "Failure": 101
           },
@@ -129,13 +531,13 @@
       ]
     }
   ],
-  "total_mutants": 2,
+  "total_mutants": 9,
   "missed": 0,
-  "caught": 1,
+  "caught": 4,
   "timeout": 0,
-  "unviable": 1,
+  "unviable": 5,
   "success": 0,
-  "start_time": "2026-08-25T17:16:05.100333Z",
-  "end_time": "2026-08-25T17:16:11.514921Z",
+  "start_time": "2026-08-26T14:39:13.057645Z",
+  "end_time": "2026-08-26T14:39:35.750751Z",
   "cargo_mutants_version": "27.1.0"
 }

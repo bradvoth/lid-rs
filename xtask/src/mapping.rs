@@ -1,7 +1,7 @@
 //! Pure mutant-to-test-set mapping over dumped registry edges
 //! (`docs/intent/xtask/lld.md § Mutant → test-set mapping`).
 
-use lid::implements;
+use lid_rs::implements;
 
 use crate::spec;
 
@@ -100,7 +100,7 @@ fn tests_validating(specs: &[&str], validations: &[EdgeRecord]) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lid::validates;
+    use lid_rs::validates;
 
     /// Synthetic edge builder.
     fn edge(spec: &str, item: &str, file: &str) -> EdgeRecord {

@@ -3,7 +3,7 @@
 
 /// Claims for this fixture.
 pub mod spec {
-    use lid::Spec;
+    use lid_rs::Spec;
 
     /// When invoked, the old behaviour shall apply. (Retired.)
     #[deprecated = "superseded by NewClaim; re-review this citation"]
@@ -11,7 +11,7 @@ pub mod spec {
     pub struct RetiredClaim;
 }
 
-use lid::implements;
+use lid_rs::implements;
 
 /// Still cites the retired claim.
 #[implements(spec::RetiredClaim)]

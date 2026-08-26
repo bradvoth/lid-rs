@@ -8,7 +8,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
-lid = { path = "../lid" }
+lid-rs = { path = "../lid-rs" }
 serde_json.workspace = true
 
 [lints]

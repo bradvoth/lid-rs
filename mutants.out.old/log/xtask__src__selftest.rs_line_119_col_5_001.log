@@ -1,0 +1,203 @@
+
+*** xtask/src/selftest.rs:119:5: replace manifest -> String with "xyzzy".into()
+
+*** mutation diff:
+--- xtask/src/selftest.rs
++++ replace manifest -> String with "xyzzy".into()
+@@ -111,47 +111,17 @@
+     write(dir.join("src/lib.rs"), &source)?;
+     Ok(dir)
+ }
+ 
+ /// The synthesized crate's manifest: the workspace's lint set inlined, a
+ /// `[workspace]` table so the parent workspace is not adopted, and `lid-rs` as a
+ /// path dependency where the fixture cites specs.
+ fn manifest(fixture: &Fixture, root: &Path) -> String {
+-    let lid_dep = if fixture.needs_lid {
+-        format!("lid-rs = {{ path = {:?} }}\n", root.join("lid-rs"))
+-    } else {
+-        String::new()
+-    };
+-    format!(
+-        r#"[package]
+-name = "{name}"
+-version = "0.0.0"
+-edition = "2024"
+-
+-[dependencies]
+-{lid_dep}
+-[workspace]
+-
+-[lints.rust]
+-missing_docs = "deny"
+-
+-[lints.rustdoc]
+-broken_intra_doc_links = "deny"
+-
+-[lints.clippy]
+-cognitive_complexity = "warn"
+-fn_params_excessive_bools = "warn"
+-too_many_lines = "warn"
+-wildcard_enum_match_arm = "deny"
+-missing_docs_in_private_items = "warn"
+-"#,
+-        name = fixture.name,
+-        lid_dep = lid_dep,
+-    )
++    "xyzzy".into() /* ~ changed by cargo-mutants ~ */
+ }
+ 
+ /// The gate command for a fixture kind.
+ fn gate_command(gate: Gate) -> Command {
+     let mut command = cargo_command();
+     match gate {
+         Gate::Check => {
+             command.args(["check", "--all-targets"]);
+
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --no-run --verbose --workspace
+       Fresh unicode-ident v1.0.24
+       Fresh memchr v2.8.3
+       Fresh itoa v1.0.18
+       Fresh proc-macro2 v1.0.107
+       Fresh winnow v1.0.4
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh glob v0.3.4
+       Fresh termcolor v1.4.1
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_json v1.0.151
+       Fresh serde_spanned v1.1.1
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh target-triple v1.0.1
+       Fresh serde v1.0.229
+       Fresh linkme-impl v0.3.37
+       Fresh serde_derive v1.0.229
+       Fresh toml v1.1.4+spec-1.1.0
+       Fresh linkme v0.3.37
+       Fresh trybuild v1.0.120
+       Fresh lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/lid-rs-macros)
+       Dirty xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/xtask): the file `xtask/src/selftest.rs` has changed (1787755152.286411739s, 2s after last build at 1787755150.465321628s)
+   Compiling xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/xtask)
+       Fresh lid-rs v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/lid-rs)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=16f74a64ce124088 -C extra-filename=-3023bfb6c92020e3 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib`
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/lib.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --crate-type lib --emit=dep-info,metadata,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=f425ae6587a18ecd -C extra-filename=-ccbed06627f4c046 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rmeta --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rmeta`
+warning: unused variable: `fixture`
+   --> xtask/src/selftest.rs:118:13
+    |
+118 | fn manifest(fixture: &Fixture, root: &Path) -> String {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fixture`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `root`
+   --> xtask/src/selftest.rs:118:32
+    |
+118 | fn manifest(fixture: &Fixture, root: &Path) -> String {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_root`
+
+warning: `xtask` (lib) generated 2 warnings (run `cargo fix --lib -p xtask` to apply 2 suggestions)
+     Running `/Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/rustc --crate-name xtask --edition=2024 xtask/src/main.rs --error-format=json --json=diagnostic-rendered-ansi,artifacts,future-incompat --emit=dep-info,link -C embed-bitcode=no -C debuginfo=2 -C split-debuginfo=unpacked '--deny=clippy::wildcard_enum_match_arm' '--warn=clippy::too_many_lines' '--warn=clippy::missing_docs_in_private_items' --deny=missing_docs '--warn=clippy::fn_params_excessive_bools' '--warn=clippy::cognitive_complexity' '--deny=rustdoc::broken_intra_doc_links' --test --check-cfg 'cfg(docsrs,test)' --check-cfg 'cfg(feature, values())' -C metadata=4aeab101559d3416 -C extra-filename=-d235d701d245ea95 --out-dir /private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps -C incremental=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/incremental -L dependency=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps --extern lid_rs=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/liblid_rs-578ebb2965769b45.rlib --extern serde_json=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/libserde_json-a76f3ad13fee6024.rlib --extern xtask=/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/libxtask-ccbed06627f4c046.rlib`
+warning: `xtask` (lib test) generated 2 warnings (2 duplicates)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.20s
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/lid_rs-28dee811c81057c8`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/lid_rs_macros-4e5ca9de44791b17`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/xtask-3023bfb6c92020e3`
+  Executable `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/xtask-d235d701d245ea95`
+
+*** result: Success
+
+*** /Users/brad/.rustup/toolchains/1.97.1-aarch64-apple-darwin/bin/cargo test --verbose --workspace --lib -- --exact mutants::tests::engine_failures_fail_the_gate selftest::tests::a_passing_gate_fails_the_selftest selftest::tests::every_gate_fixture_fails_its_gate selftest::tests::surviving_mutants_fail_the_gate selftest::tests::unknown_fixture_names_are_rejected
+       Fresh unicode-ident v1.0.24
+       Fresh itoa v1.0.18
+       Fresh memchr v2.8.3
+       Fresh proc-macro2 v1.0.107
+       Fresh winnow v1.0.4
+       Fresh toml_writer v1.1.2+spec-1.1.0
+       Fresh quote v1.0.47
+       Fresh serde_core v1.0.229
+       Fresh zmij v1.0.23
+       Fresh toml_parser v1.1.3+spec-1.1.0
+       Fresh termcolor v1.4.1
+       Fresh glob v0.3.4
+       Fresh syn v3.0.4
+       Fresh syn v2.0.119
+       Fresh serde_spanned v1.1.1
+       Fresh toml_datetime v1.1.1+spec-1.1.0
+       Fresh serde_json v1.0.151
+       Fresh serde v1.0.229
+       Fresh target-triple v1.0.1
+       Fresh linkme-impl v0.3.37
+       Fresh toml v1.1.4+spec-1.1.0
+       Fresh serde_derive v1.0.229
+       Fresh lid-rs-macros v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/lid-rs-macros)
+       Fresh linkme v0.3.37
+       Fresh trybuild v1.0.120
+       Fresh lid-rs v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/lid-rs)
+       Fresh xtask v0.1.0 (/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/xtask)
+warning: unused variable: `fixture`
+   --> xtask/src/selftest.rs:118:13
+    |
+118 | fn manifest(fixture: &Fixture, root: &Path) -> String {
+    |             ^^^^^^^ help: if this is intentional, prefix it with an underscore: `_fixture`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `root`
+   --> xtask/src/selftest.rs:118:32
+    |
+118 | fn manifest(fixture: &Fixture, root: &Path) -> String {
+    |                                ^^^^ help: if this is intentional, prefix it with an underscore: `_root`
+
+warning: `xtask` (lib test) generated 2 warnings (run `cargo fix --lib -p xtask --tests` to apply 2 suggestions)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.01s
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/lid_rs-28dee811c81057c8 --exact 'mutants::tests::engine_failures_fail_the_gate' 'selftest::tests::a_passing_gate_fails_the_selftest' 'selftest::tests::every_gate_fixture_fails_its_gate' 'selftest::tests::surviving_mutants_fail_the_gate' 'selftest::tests::unknown_fixture_names_are_rejected'`
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 18 filtered out; finished in 0.00s
+
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/lid_rs_macros-4e5ca9de44791b17 --exact 'mutants::tests::engine_failures_fail_the_gate' 'selftest::tests::a_passing_gate_fails_the_selftest' 'selftest::tests::every_gate_fixture_fails_its_gate' 'selftest::tests::surviving_mutants_fail_the_gate' 'selftest::tests::unknown_fixture_names_are_rejected'`
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running `/private/var/folders/82/r8klt12x7pq297ctrkkx3s200000gn/T/cargo-mutants-lid-rs-pJDUQ8.tmp/target/debug/deps/xtask-3023bfb6c92020e3 --exact 'mutants::tests::engine_failures_fail_the_gate' 'selftest::tests::a_passing_gate_fails_the_selftest' 'selftest::tests::every_gate_fixture_fails_its_gate' 'selftest::tests::surviving_mutants_fail_the_gate' 'selftest::tests::unknown_fixture_names_are_rejected'`
+
+running 5 tests
+test selftest::tests::unknown_fixture_names_are_rejected ... ok
+test selftest::tests::a_passing_gate_fails_the_selftest ... ok
+test selftest::tests::surviving_mutants_fail_the_gate ... FAILED
+ERROR Failed to open diff file: No such file or directory (os error 2)
+ERROR Failed to read diff file: No such file or directory (os error 2)
+test mutants::tests::engine_failures_fail_the_gate ... ok
+test selftest::tests::every_gate_fixture_fails_its_gate ... FAILED
+
+failures:
+
+---- selftest::tests::surviving_mutants_fail_the_gate stdout ----
+
+thread 'selftest::tests::surviving_mutants_fail_the_gate' (8652683) panicked at xtask/src/selftest.rs:194:37:
+the vacuous-test fixture must leave a surviving mutant, and the gate must report it as failure: "gate failed, but without the expected diagnostic `MISSED`; output:\nERROR cargo locate-project failed: error: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n exit=ExitStatus(unix_wait_status(25856))\nError: cargo locate-project failed\n"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- selftest::tests::every_gate_fixture_fails_its_gate stdout ----
+
+thread 'selftest::tests::every_gate_fixture_fails_its_gate' (8652682) panicked at xtask/src/selftest.rs:210:19:
+every fixture must fail its designated gate with its designated diagnostic: "gate self-test failures:\nbroken_doc_link: gate failed, but without the expected diagnostic `unresolved link`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nmissing_docs: gate failed, but without the expected diagnostic `missing documentation`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nskeleton_incoherence: gate failed, but without the expected diagnostic `mismatched types`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nbroken_example: gate failed, but without the expected diagnostic `FAILED`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nswallowed_case: gate failed, but without the expected diagnostic `wildcard matches known variants`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nundeclared_decision: gate failed, but without the expected diagnostic `cognitive complexity`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nflag_argument: gate failed, but without the expected diagnostic `bool`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\ninlined_concept: gate failed, but without the expected diagnostic `too many lines`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nretired_spec: gate failed, but without the expected diagnostic `deprecated`; output:\nerror: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n\nvacuous_test: gate failed, but without the expected diagnostic `MISSED`; output:\nERROR cargo locate-project failed: error: key with no value, expected `=`\n --> Cargo.toml:1:6\n  |\n1 | xyzzy\n  |      ^\n exit=ExitStatus(unix_wait_status(25856))\nError: cargo locate-project failed\n"
+
+
+failures:
+    selftest::tests::every_gate_fixture_fails_its_gate
+    selftest::tests::surviving_mutants_fail_the_gate
+
+test result: FAILED. 3 passed; 2 failed; 0 ignored; 0 measured; 14 filtered out; finished in 0.21s
+
+error: test failed, to rerun pass `-p xtask --lib`
+
+*** result: Failure(101)

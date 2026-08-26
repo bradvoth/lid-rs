@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use lid::implements;
+use lid_rs::implements;
 
 use crate::mapping::{EdgeRecord, TestPlan, plan_for_mutant};
 use crate::spec;
@@ -31,7 +31,7 @@ pub struct Registry {
     pub validations: Vec<EdgeRecord>,
 }
 
-/// How much of the tree to mutate, from `[workspace.metadata.lid]` or flags.
+/// How much of the tree to mutate, from `[workspace.metadata.lid_rs]` or flags.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Scope {
     /// Only code touched by the diff against a base ref.
@@ -77,12 +77,12 @@ fn apply_flag<'a>(flag: &str, tail: &'a [String]) -> Result<(Scope, &'a [String]
     }
 }
 
-/// The workspace's configured scope from `[workspace.metadata.lid]`, read via
+/// The workspace's configured scope from `[workspace.metadata.lid_rs]`, read via
 /// `cargo metadata` so no TOML parser is needed. Diff scope defaults its base
 /// to `main`; CI overrides with `--diff-base`.
 fn configured_scope() -> Result<Scope, String> {
     let configured = metadata()?
-        .pointer("/metadata/lid/mutation_scope")
+        .pointer("/metadata/lid_rs/mutation_scope")
         .and_then(serde_json::Value::as_str)
         .unwrap_or("diff")
         .to_string();
@@ -328,7 +328,7 @@ fn capture(command: &mut Command) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use lid::validates;
+    use lid_rs::validates;
 
     #[test]
     #[validates(spec::DiffScopePassesThroughToTheEngine)]
@@ -368,7 +368,7 @@ mod tests {
     fn registries_come_from_the_owning_crate_test_binary() {
         let registry = collect_registries().expect("collecting workspace registries must succeed");
         let lid_test_edge = registry.validations.iter().any(|e| {
-            e.item == "lid::canary::tests::canary_confirms_registry_presence"
+            e.item == "lid_rs::canary::tests::canary_confirms_registry_presence"
         });
         assert!(
             lid_test_edge,

@@ -1,5 +1,0 @@
-error[E0425]: cannot find type `DoesNotExist` in module `spec`
- --> tests/ui/fail/unresolvable_path.rs:3:25
-  |
-3 | #[lid::implements(spec::DoesNotExist)]
-  |                         ^^^^^^^^^^^^ not found in `spec`
