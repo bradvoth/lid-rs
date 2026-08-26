@@ -3,6 +3,7 @@ resolver = "3"
 members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "xtask"]
 
 [workspace.package]
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
@@ -11,7 +12,7 @@ repository = "https://github.com/bradvoth/lid-rs"
 homepage = "https://bradvoth.github.io/lid-rs/"
 
 [workspace.dependencies]
-lid-rs-macros = { path = "lid-rs-macros", version = "0.1.0" }
+lid-rs-macros = { path = "lid-rs-macros", version = "0.1.1" }
 linkme = "0.3"
 proc-macro2 = "1"
 quote = "1"

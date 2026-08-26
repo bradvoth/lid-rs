@@ -76,6 +76,23 @@ pub struct UntracedMutantsFallBackToModuleTests;
 #[derive(Spec)]
 pub struct SurvivingMutantsFailTheGate;
 
+/// When the engine's run for a group reports outcomes, only the mutants the
+/// group selected shall be judged from it; any other mutant the engine
+/// included shall be ignored there and judged in its own group.
+#[derive(Spec)]
+pub struct AMutantsVerdictComesFromItsOwnGroupsRun;
+
+/// When the engine's outcomes carry no verdict, or an unrecognised one, for a
+/// mutant the group selected, the mutants command shall fail naming the
+/// mutant, never treat it as caught.
+#[derive(Spec)]
+pub struct AnEngineRunWithoutAVerdictIsAFailure;
+
+/// When a group has survivors, the remaining groups shall still run, and the
+/// failure shall name every survivor with the tests it survived.
+#[derive(Spec)]
+pub struct EveryGroupRunsBeforeSurvivorsAreReported;
+
 // ---- init and new (docs/intent/init/lld.md) ---------------------------------
 
 /// When `init` runs in a directory that holds no package manifest, it shall

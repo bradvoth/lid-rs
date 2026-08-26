@@ -1,6 +1,6 @@
 [package]
 name = "lid-rs-macros"
-version = "0.1.0"
+version.workspace = true
 description = "Citation macros for lid-rs: derive(Spec), implements, validates, implements_module, spec."
 edition.workspace = true
 rust-version.workspace = true

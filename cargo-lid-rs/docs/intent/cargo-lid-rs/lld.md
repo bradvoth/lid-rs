@@ -59,6 +59,25 @@ which over-approximates safely.
   engine's own pre-mutation suite run: the gate already ran the full suite
   earlier ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order).
 
+## Verdicts
+
+The engine's exit status and its `-F` selection are not trusted to describe
+what a group's run proved. Each group runs into a fresh output directory
+(`<target>/lid-mutants/<n>`, removed before the run so no earlier verdict can
+be read as this run's), and the tool judges the group's mutants — only those
+— from the `outcomes.json` the engine writes there: `CaughtMutant` and
+`Unviable` are fine, `MissedMutant` and `Timeout` are survivors, any other
+summary is an error, and a mutant the engine reports *no* verdict for is a
+failure, never a pass. Mutants the engine included that the group did not
+ask for are ignored in that run; they are judged in their own group. Every
+group runs before survivors are reported, so one run names them all, each
+with the tests it survived.
+
+This exists because a consumer found the engine over-including: cargo-mutants'
+struct-literal field-deletion mutants are pushed without the `allows_mutant`
+check that applies `-F`, so every group's run carried them and the first
+group's tests — unrelated to them — "missed" them.
+
 ## Registry collection
 
 Each crate's `#[validates]` edges exist only in that crate's own `--lib` test
@@ -98,6 +117,10 @@ re-implemented here.
 | Registry access | Per-crate dump via the `intent_graph!()`-emitted test, parsed from tab-separated lines | Linking the traced crate into the tool; parsing source | Disproven by the first real run in `xtask`: `#[cfg(test)]` validation edges never link into another binary, so every traced plan came back empty. Line format over JSON: no serializer in `lid-rs`, no escaping surface. Parsing source violates constraint 2. |
 | Empty narrowed test set | Degrades to the full suite | Running the (empty) filtered set; erroring out | Running zero tests lets every mutant survive, which is itself a vacuous pass (constraint 3). Erroring would block brownfield crates where check 11 doesn't yet gate. |
 | Mutant identity | `(file, ends-with ::fn_name)` join | Qualified names from cargo-mutants (not provided); span-based matching | The JSON provides file + unqualified name; file equality plus suffix match is exact for everything but same-file same-name fns, which merge into one safe over-approximated test set. |
+| Verdict source | The group's own mutants, read from the engine's `outcomes.json` for that run | The engine's exit status; trusting `-F` to bound the run | Found in a consumer (`dmdr`): cargo-mutants 27.1.0's struct-field genre bypasses `-F` (upstream `visit.rs`), so stowaways rode along in every group and the exit status reported *their* survival against the wrong tests. Judging by name from the engine's own record is exact whatever the engine included. |
+| Output directory | Fresh `<target>/lid-mutants/<n>` per group via `--output` | The engine's default `mutants.out` in the project root | A stale `outcomes.json` from an earlier run would be indistinguishable from this run's; per-group directories keep every group's evidence for inspection and leave the project root alone. |
+| No verdict for a selected mutant | Failure naming the mutant | Treat as caught; treat as survivor | An engine that crashed or never built the mutant has proved nothing; silently passing is the vacuous pass constraint 3 forbids, and calling it a survivor misattributes a tooling failure to the tests. |
+| Failure timing | All groups run, then every survivor is reported | Stop at the first group with a survivor | One run names every real survivor; stopping early hides the rest behind the first and costs a run per discovery. |
 | Baseline handling | `--baseline skip` | Default baseline run per group | The gate runs the full suite before mutation ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order); re-running it per group multiplies wall-clock for no information. |
 | Test scope per mutant | `--test-workspace true` | Engine default (test only the mutated package) | Found by a surviving mutant: a broken `derive` in the proc-macro crate is killed only by `lid-rs`'s tests, and the package-scoped default never runs them. Cross-crate kill paths are the norm. |
 

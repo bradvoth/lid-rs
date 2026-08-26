@@ -195,38 +195,149 @@ fn group_by_plan(mutants: &[Mutant], registry: &Registry) -> BTreeMap<TestPlan, 
     groups
 }
 
-/// Runs one engine invocation per group, failing if any mutant survives.
+/// A mutant that outlived the tests chosen for it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Survivor {
+    /// The engine's mutant name.
+    pub name: String,
+    /// The engine's summary for it (`MissedMutant` or `Timeout`).
+    pub verdict: String,
+    /// The tests it survived.
+    pub plan: TestPlan,
+}
+
+/// Runs every group, then fails if any mutant survived.
 #[implements(spec::SurvivingMutantsFailTheGate)]
 fn run_groups(
     project: &Project,
     groups: &BTreeMap<TestPlan, Vec<String>>,
     diff: Option<&Path>,
 ) -> Result<(), String> {
-    for (plan, names) in groups {
-        let status = project
-            .cargo()?
-            .args(group_args(names, plan, diff))
-            .status()
-            .map_err(|e| format!("running cargo mutants: {e}"))?;
-        if !status.success() {
-            return Err(format!(
-                "mutation gate failed: a mutant in {names:?} survived its validating tests \
-                 (plan {plan:?}) — the citation is decorative (README §4.3)"
-            ));
-        }
+    let output_root = project.target_directory()?.join("lid-mutants");
+    let survivors = run_groups_with(groups, |index, plan, names| {
+        run_group(project, plan, names, diff, &output_root.join(index.to_string()))
+    })?;
+    if survivors.is_empty() {
+        Ok(())
+    } else {
+        Err(survivor_report(&survivors))
     }
-    Ok(())
+}
+
+/// Runs every group through `run` with its distinct index, accumulating
+/// survivors, so one run reports them all; only an engine failure (an `Err`
+/// from `run`) stops early.
+#[implements(spec::EveryGroupRunsBeforeSurvivorsAreReported, spec::AMutantsVerdictComesFromItsOwnGroupsRun)]
+fn run_groups_with(
+    groups: &BTreeMap<TestPlan, Vec<String>>,
+    mut run: impl FnMut(usize, &TestPlan, &[String]) -> Result<Vec<Survivor>, String>,
+) -> Result<Vec<Survivor>, String> {
+    let mut survivors = Vec::new();
+    for (index, (plan, names)) in groups.iter().enumerate() {
+        survivors.extend(run(index, plan, names)?);
+    }
+    Ok(survivors)
+}
+
+/// One engine invocation for a group into a fresh `output` directory, judged
+/// from the outcomes the engine writes there. The exit status is not
+/// consulted: it conflates the group's mutants with any the engine added.
+fn run_group(
+    project: &Project,
+    plan: &TestPlan,
+    names: &[String],
+    diff: Option<&Path>,
+    output: &Path,
+) -> Result<Vec<Survivor>, String> {
+    let _ = std::fs::remove_dir_all(output);
+    std::fs::create_dir_all(output).map_err(|e| format!("creating {}: {e}", output.display()))?;
+    project
+        .cargo()?
+        .args(group_args(names, plan, diff, output))
+        .status()
+        .map_err(|e| format!("running cargo mutants: {e}"))?;
+    let path = output.join("mutants.out/outcomes.json");
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("the engine left no outcomes at {} for {names:?}: {e}", path.display()))?;
+    group_verdicts(names, &verdicts(&json)?, plan)
+}
+
+/// The engine's `outcomes.json` as mutant name → summary.
+fn verdicts(json: &str) -> Result<BTreeMap<String, String>, String> {
+    let doc: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("parsing the engine's outcomes: {e}"))?;
+    let outcomes = doc
+        .pointer("/outcomes")
+        .and_then(serde_json::Value::as_array)
+        .ok_or("the engine's outcomes carry no outcomes array")?;
+    Ok(outcomes.iter().filter_map(verdict_of).collect())
+}
+
+/// One outcome entry as `(mutant name, summary)`; baseline entries have no
+/// mutant and yield nothing.
+fn verdict_of(outcome: &serde_json::Value) -> Option<(String, String)> {
+    let name = outcome.pointer("/scenario/Mutant/name")?.as_str()?;
+    let summary = outcome.pointer("/summary")?.as_str()?;
+    Some((name.to_string(), summary.to_string()))
+}
+
+/// The group's own survivors, judged from the engine's verdicts; mutants the
+/// engine included but the group did not select are not judged here.
+#[implements(spec::AMutantsVerdictComesFromItsOwnGroupsRun)]
+fn group_verdicts(
+    names: &[String],
+    verdicts: &BTreeMap<String, String>,
+    plan: &TestPlan,
+) -> Result<Vec<Survivor>, String> {
+    names
+        .iter()
+        .filter_map(|name| survivor_of(name, verdicts.get(name).map(String::as_str), plan).transpose())
+        .collect()
+}
+
+/// One mutant's fate from its verdict: caught or unviable is fine, missed or
+/// timed out survives, anything else — including no verdict at all — fails.
+#[implements(spec::AnEngineRunWithoutAVerdictIsAFailure, spec::SurvivingMutantsFailTheGate)]
+fn survivor_of(name: &str, verdict: Option<&str>, plan: &TestPlan) -> Result<Option<Survivor>, String> {
+    match verdict {
+        None => Err(format!(
+            "the engine reported no verdict for `{name}`; a mutant without a verdict is not a caught mutant"
+        )),
+        Some("CaughtMutant" | "Unviable") => Ok(None),
+        Some(fate @ ("MissedMutant" | "Timeout")) => Ok(Some(Survivor {
+            name: name.to_string(),
+            verdict: fate.to_string(),
+            plan: plan.clone(),
+        })),
+        Some(other) => Err(format!("unrecognised engine verdict `{other}` for `{name}`")),
+    }
+}
+
+/// The gate's failure message, one line per survivor.
+fn survivor_report(survivors: &[Survivor]) -> String {
+    let lines: Vec<String> = survivors
+        .iter()
+        .map(|s| format!("  {} — {} against {:?}", s.name, s.verdict, s.plan))
+        .collect();
+    format!(
+        "mutation gate failed: {} mutant(s) survived their validating tests — the citations are \
+         decorative (README §4.3):\n{}",
+        survivors.len(),
+        lines.join("\n")
+    )
 }
 
 /// The `cargo mutants` argument list for one group — pure, so the pass-through
 /// of diff and test filters is unit-testable.
-fn group_args(names: &[String], plan: &TestPlan, diff: Option<&Path>) -> Vec<String> {
+fn group_args(names: &[String], plan: &TestPlan, diff: Option<&Path>, output: &Path) -> Vec<String> {
     let alternation: Vec<String> = names.iter().map(|n| regex_escape(n)).collect();
     // --test-workspace: a mutant in one crate (e.g. the proc-macro crate) is
     // often killed only by a dependent crate's tests; package-scoped testing
     // would let it survive unexercised.
     let mut args: Vec<String> =
-        ["mutants", "--baseline", "skip", "--test-workspace", "true", "-F"].map(String::from).into();
+        ["mutants", "--baseline", "skip", "--test-workspace", "true", "--output"].map(String::from).into();
+    args.push(output.display().to_string());
+    args.push("-F".to_string());
     args.push(format!("^({})$", alternation.join("|")));
     if let Some(d) = diff {
         args.push("--in-diff".to_string());
@@ -376,7 +487,7 @@ mod tests {
     #[test]
     fn group_args_select_mutants_and_narrow_tests() {
         let plan = TestPlan::Traced(vec!["a::tests::t1".to_string()]);
-        let args = group_args(&["m(1)".to_string()], &plan, None);
+        let args = group_args(&["m(1)".to_string()], &plan, None, Path::new("out"));
         let expected_tail = [
             r"-F".to_string(),
             r"^(m\(1\))$".to_string(),
@@ -392,8 +503,66 @@ mod tests {
 
     #[test]
     fn full_suite_groups_run_unfiltered() {
-        let full = group_args(&["m".to_string()], &TestPlan::FullSuite, None);
+        let full = group_args(&["m".to_string()], &TestPlan::FullSuite, None, Path::new("out"));
         let narrowed = full.iter().any(|a| a.starts_with("--cargo-test-arg"));
         assert!(!narrowed, "{full:?}");
+    }
+
+    /// The engine's outcomes.json shape, as observed from cargo-mutants 27.1.0.
+    fn outcomes_json(entries: &[(&str, &str)]) -> String {
+        let items: Vec<String> = entries
+            .iter()
+            .map(|(name, summary)| format!(r#"{{"scenario":{{"Mutant":{{"name":"{name}","file":"f"}}}},"summary":"{summary}"}}"#))
+            .collect();
+        format!(r#"{{"outcomes":[{}],"total_mutants":{},"cargo_mutants_version":"27.1.0"}}"#, items.join(","), entries.len())
+    }
+
+    fn plan() -> TestPlan {
+        TestPlan::Traced(vec!["a::tests::t".to_string()])
+    }
+
+    #[test]
+    #[validates(spec::AMutantsVerdictComesFromItsOwnGroupsRun)]
+    fn a_mutants_verdict_comes_from_its_own_groups_run() {
+        // The engine included a stowaway the group never selected and missed it.
+        let json = outcomes_json(&[("src/a.rs:1:1: replace f with ()", "CaughtMutant"), ("src/b.rs:9:9: delete field x", "MissedMutant")]);
+        let verdicts = verdicts(&json).expect("outcomes parse");
+        let group = vec!["src/a.rs:1:1: replace f with ()".to_string()];
+        assert_eq!(group_verdicts(&group, &verdicts, &plan()), Ok(vec![]), "the stowaway is not this group's verdict");
+    }
+
+    #[test]
+    #[validates(spec::SurvivingMutantsFailTheGate, spec::AMutantsVerdictComesFromItsOwnGroupsRun)]
+    fn a_missed_group_mutant_is_a_survivor() {
+        let json = outcomes_json(&[("m1", "CaughtMutant"), ("m2", "MissedMutant"), ("m3", "Unviable"), ("m4", "Timeout")]);
+        let verdicts = verdicts(&json).expect("outcomes parse");
+        let group: Vec<String> = ["m1", "m2", "m3", "m4"].iter().map(|m| (*m).to_string()).collect();
+        let survivors = group_verdicts(&group, &verdicts, &plan()).expect("all verdicts present");
+        let names: Vec<(&str, &str)> = survivors.iter().map(|s| (s.name.as_str(), s.verdict.as_str())).collect();
+        assert_eq!(names, vec![("m2", "MissedMutant"), ("m4", "Timeout")]);
+    }
+
+    #[test]
+    #[validates(spec::AnEngineRunWithoutAVerdictIsAFailure)]
+    fn an_engine_run_without_a_verdict_is_a_failure() {
+        let missing = survivor_of("m9", None, &plan()).expect_err("no verdict must not pass");
+        let unknown = survivor_of("m9", Some("Failure"), &plan()).expect_err("an unrecognised verdict must not pass");
+        assert!(missing.contains("m9") && unknown.contains("Failure"), "{missing}\n{unknown}");
+    }
+
+    #[test]
+    #[validates(spec::EveryGroupRunsBeforeSurvivorsAreReported)]
+    fn every_group_runs_before_survivors_are_reported() {
+        let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
+        groups.insert(TestPlan::Traced(vec!["a".to_string()]), vec!["m1".to_string()]);
+        groups.insert(TestPlan::FullSuite, vec!["m2".to_string()]);
+        let mut ran = Vec::new();
+        let survivors = run_groups_with(&groups, |index, plan, names| {
+            ran.push((index, names.to_vec()));
+            Ok(vec![Survivor { name: names[0].clone(), verdict: "MissedMutant".to_string(), plan: plan.clone() }])
+        })
+        .expect("survivors are not engine failures");
+        let indices: Vec<usize> = ran.iter().map(|(i, _)| *i).collect();
+        assert_eq!((indices, survivors.len()), (vec![0, 1], 2), "both groups ran, each with its own index, and both survivors were kept");
     }
 }

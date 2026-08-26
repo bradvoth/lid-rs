@@ -1,6 +1,6 @@
 [package]
 name = "xtask"
-version = "0.1.0"
+version.workspace = true
 description = "LID-rs workspace tasks: registry-scoped mutation testing and the gate self-test."
 publish = false
 edition.workspace = true
