@@ -1,6 +1,6 @@
 # LID-rs — self-hosted workspace
 
-This workspace builds the LID-rs toolchain (`lid-rs`, `lid-rs-macros`, `xtask`, and the
+This workspace builds the LID-rs toolchain (`lid-rs`, `lid-rs-macros`, `cargo-lid-rs`, `xtask`, and the
 operating skill) **using the LID-rs methodology on itself**. `README.md` is the
 methodology's living specification; `lid-rs/docs/intent/hld.md` is this workspace's
 implementation design. When implementation reveals a flaw in the README, the
@@ -58,8 +58,8 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
-cargo package -p lid-rs -p lid-rs-macros --allow-dirty   # tarballs build standalone
-cargo xtask mutants                  # diff scope; --full / --diff-base override
+cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs --allow-dirty   # tarballs build standalone
+cargo run -p cargo-lid-rs -- mutants   # check 12 from source (consumers: `cargo lid-rs mutants`)
 mdbook build book                    # the site is assembled by inclusion; breaks on drift
 ```
 

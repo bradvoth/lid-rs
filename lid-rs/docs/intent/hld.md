@@ -13,8 +13,8 @@ are weakest.
 spec layer out of Rust items so the compiler resolves every edge of the intent
 graph, and gate every structural property so reviewer attention lands on
 semantics alone. This workspace builds the toolchain the specification
-requires: the `lid-rs` and `lid-rs-macros` crates, the registry-driven mutation
-`xtask`, and the operating skill — the standing instruction document an AI
+requires: the `lid-rs` and `lid-rs-macros` crates, the published `cargo-lid-rs`
+subcommand, the gate self-test `xtask`, and the operating skill — the standing instruction document an AI
 coding agent loads to run the methodology's flow.
 
 ## Approach
@@ -74,15 +74,15 @@ Falsifiable, in delivery order:
 3. Every check has a demonstrated failure: for each of the twelve, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
    the gate catches its violation — not merely that green code passes.
-4. `cargo xtask mutants` (diff-scoped) narrows each mutant's test set through
+4. `cargo lid-rs mutants` (diff-scoped) narrows each mutant's test set through
    the registry, and a vacuous test (executes but doesn't assert) is caught by it.
 5. The skill at `.claude/skills/lid-rs/` walks an agent through the eight
    phases such that a slice of this workspace itself was produced under it.
 
 ## Non-Goals
 
-- **No demo/example crate.** Self-hosting plus `xtask`-as-downstream-consumer
-  is the E2E proof; a showcase app is surface area without new evidence.
+- **No demo/example crate.** Self-hosting plus two downstream consumers —
+  `cargo-lid-rs` published, `xtask` in-workspace — is the E2E proof; a showcase app is surface area without new evidence.
 - **No nightly, no rustc internals, no source parsing** (README [§2](https://bradvoth.github.io/lid-rs/spec/constraints.html) constraints,
   inherited wholesale).
 - **No dependency-rename support.** Consumers must depend on the crate as
@@ -117,7 +117,8 @@ graph TD
     subgraph workspace
         MACROS["lid-rs-macros (proc-macro)\nderive(Spec) · implements · validates\nimplements_module! · spec"]
         LID["lid-rs (runtime)\nSpec trait · Edge · SpecMeta\nSPECS / IMPLEMENTATIONS / VALIDATIONS slices\ncanary · __private linkme re-export\nextern crate self as lid_rs"]
-        XTASK["xtask\nregistry-driven mutation scoping\n(cargo-mutants orchestration)"]
+        CARGO["cargo-lid-rs (published)\ncargo lid-rs mutants\nregistry-scoped cargo-mutants orchestration"]
+        XTASK["xtask (unpublished)\ngate self-test fixtures"]
         GRAPH["lid-rs/src/graph.rs + intent_graph!()\ncanary check · uncited spec · unvalidated spec"]
     end
     SKILL[".claude/skills/lid-rs/\noperates the eight phases"]
@@ -125,17 +126,20 @@ graph TD
 
     MACROS -->|"emits ::lid_rs:: paths"| LID
     LID -->|"registers into slices"| GRAPH
-    LID -->|"dependency (downstream-consumer proof)"| XTASK
-    XTASK -->|"reads registry to filter tests"| GRAPH
+    LID -->|"dependency (published downstream consumer)"| CARGO
+    LID -->|"dependency (in-workspace downstream consumer)"| XTASK
+    CARGO -->|"reads registry dumps to filter tests"| GRAPH
     DOCS -->|"included as crate/module docs"| LID
     SKILL -.->|"drives phases 0–8 over"| workspace
 ```
 
 `lid-rs` self-hosts: its own claims live in `lid-rs/src/spec/`, its own code carries
 `#[implements]`, its own unit tests carry `#[validates]`, and its
-`intent_graph!()` instance checks the resulting graph. `xtask` depends on `lid-rs` as an ordinary downstream
-consumer, which is where macro path-resolution and linker-section behaviour get
-exercised outside the self-referential crate.
+`intent_graph!()` instance checks the resulting graph. `cargo-lid-rs` and `xtask` depend on `lid-rs` as
+ordinary downstream consumers, which is where macro path-resolution and
+linker-section behaviour get exercised outside the self-referential crate;
+this workspace runs `cargo-lid-rs` from source (`cargo run -p cargo-lid-rs`),
+so the gate always exercises the working tree's tool.
 
 ### Slice map (delivery order)
 
@@ -148,6 +152,7 @@ exercised outside the self-referential crate.
 | 5 | "An agent operates the methodology" | `.claude/skills/lid-rs/` skill, validated by producing a slice under it |
 | 6 | "The methodology is readable without cloning the repo" | mdBook assembled by inclusion, deployed to GitHub Pages; `docs/intent/book/lld.md` |
 | 7 | "The crates build from their published tarballs" | Rename to the `lid-rs` prefix set; intent docs relocated under their crates; publish metadata; `cargo package` in the gate; `docs/intent/publish/lld.md` |
+| 8 | "A downstream project runs check 12" | `cargo-lid-rs`: check 12 extracted from `xtask` into a published cargo subcommand with metadata-located root and single-package scope fallback; `xtask` keeps the gate self-test; `cargo-lid-rs/docs/intent/cargo-lid-rs/lld.md` |
 
 Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html); Phase 8 is the post-slice change loop) with stops at every phase boundary.
 
@@ -155,7 +160,7 @@ Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spe
 
 | Decision | Alternatives considered | Rationale |
 |---|---|---|
-| Self-hosting is the E2E proof; no demo crate | Workspace demo crate implementing README's worked examples | The demo adds no gate the self-host lacks; `xtask` already exercises the downstream-consumer path where linkme/path bugs live. Revisit if a consumer-facing bug class appears that self-hosting can't reproduce. |
+| Self-hosting is the E2E proof; no demo crate | Workspace demo crate implementing README's worked examples | The demo adds no gate the self-host lacks; `cargo-lid-rs` and `xtask` already exercise the downstream-consumer path where linkme/path bugs live. Revisit if a consumer-facing bug class appears that self-hosting can't reproduce. |
 | `extern crate self as lid_rs` + literal `::lid_rs` expansion paths | `proc-macro-crate` name lookup at expansion time | Zero dependencies and stable vs. compile-time TOML parsing with workspace-layout fragility (tenet 3). Consumers cannot rename the dependency; the crate's own rename from `lid` was a one-time cascade in which the literal paths named every site. |
 | Hand-expand the canary triple before writing macros | Leave `lid-rs` untraced until macros exist, then brownfield-retrofit | Validates the expansion design when changing it is free; gives slice 2 an exact, testable target; the hand-expansion becomes the canary rather than throwaway work. |
 | Claims are Rust items in `src/spec/`, descriptive names | Prose EARS files with numbered IDs (classic LID, as the installed `linked-intent-dev` skill defaults to) | README [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html)–3.2: compiler-resolved citations require items; names make citation sites self-documenting; rename-breaks-citations is the desired re-review behaviour. `#[spec("...")]` aliases cover genuine foreign keys. |

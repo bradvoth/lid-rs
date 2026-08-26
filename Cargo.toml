@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lid-rs", "lid-rs-macros", "xtask"]
+members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "xtask"]
 
 [workspace.package]
 edition = "2024"

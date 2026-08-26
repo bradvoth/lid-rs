@@ -111,7 +111,7 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
 cargo package -p <crate> --allow-dirty   # published crates: tarball builds standalone
-cargo xtask mutants        # diff scope; --full / --diff-base <ref> override
+cargo lid-rs mutants       # diff scope; --full / --diff-base <ref> override
 ```
 
 Commit the slice with the phase history legible in the message.

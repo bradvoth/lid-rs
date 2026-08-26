@@ -19,8 +19,8 @@ jobs:
       # self-test's vacuous_test fixture spawns it (check 12's demonstration).
       - run: cargo install cargo-mutants --locked
       - run: cargo test --lib
-      - run: cargo package -p lid-rs -p lid-rs-macros --allow-dirty
-      - run: cargo xtask mutants --diff-base origin/main
+      - run: cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs --allow-dirty
+      - run: cargo run -p cargo-lid-rs -- mutants --diff-base origin/main
       # The book is assembled by inclusion; a renamed anchor or moved doc
       # breaks its build, and that breakage gates here, not only at deploy.
       - name: Install mdBook

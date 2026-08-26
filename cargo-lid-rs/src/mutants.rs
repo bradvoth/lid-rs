@@ -1,14 +1,14 @@
 //! Check 12 orchestration: enumerate mutants, join them to their validating
 //! tests through the dumped registries, and run `cargo-mutants` per test-set
-//! group (`docs/intent/xtask/lld.md`).
+//! group (`docs/intent/cargo-lid-rs/lld.md`).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 
 use lid_rs::implements;
 
 use crate::mapping::{EdgeRecord, TestPlan, plan_for_mutant};
+use crate::project::{Project, Scope, capture};
 use crate::spec;
 
 /// One mutant from `cargo mutants --list --json`.
@@ -31,31 +31,21 @@ pub struct Registry {
     pub validations: Vec<EdgeRecord>,
 }
 
-/// How much of the tree to mutate, from `[workspace.metadata.lid_rs]` or flags.
-#[derive(Debug, PartialEq, Eq)]
-pub enum Scope {
-    /// Only code touched by the diff against a base ref.
-    Diff {
-        /// The git ref the diff is taken against.
-        base: String,
-    },
-    /// The whole tree.
-    Full,
-}
-
-/// Runs the mutants task: scope, list, collect registries, plan, execute.
+/// Runs the mutants subcommand: locate, scope, list, collect registries,
+/// plan, execute.
 pub fn run(args: &[String]) -> Result<(), String> {
-    let scope = parse_scope(args)?;
-    let diff = write_diff_file(&scope)?;
-    let mutants = list_mutants(diff.as_deref())?;
-    let registry = collect_registries()?;
+    let project = Project::load()?;
+    let scope = parse_scope(args, project.configured_scope())?;
+    let diff = write_diff_file(&scope, &project)?;
+    let mutants = list_mutants(&project, diff.as_deref())?;
+    let registry = collect_registries(&project)?;
     let groups = group_by_plan(&mutants, &registry);
-    run_groups(&groups, diff.as_deref())
+    run_groups(&project, &groups, diff.as_deref())
 }
 
-/// Parses `--full` / `--diff-base <ref>` over the configured default scope.
-fn parse_scope(args: &[String]) -> Result<Scope, String> {
-    let mut scope = configured_scope()?;
+/// Parses `--full` / `--diff-base <ref>` over the configured scope.
+fn parse_scope(args: &[String], configured: Scope) -> Result<Scope, String> {
+    let mut scope = configured;
     let mut rest = args;
     while let Some((flag, tail)) = rest.split_first() {
         (scope, rest) = apply_flag(flag, tail)?;
@@ -64,6 +54,7 @@ fn parse_scope(args: &[String]) -> Result<Scope, String> {
 }
 
 /// Applies one flag, returning the new scope and the unconsumed arguments.
+#[implements(spec::ScopeFlagsOverrideTheConfiguredScope)]
 fn apply_flag<'a>(flag: &str, tail: &'a [String]) -> Result<(Scope, &'a [String]), String> {
     match flag {
         "--full" => Ok((Scope::Full, tail)),
@@ -77,45 +68,22 @@ fn apply_flag<'a>(flag: &str, tail: &'a [String]) -> Result<(Scope, &'a [String]
     }
 }
 
-/// The workspace's configured scope from `[workspace.metadata.lid_rs]`, read via
-/// `cargo metadata` so no TOML parser is needed. Diff scope defaults its base
-/// to `main`; CI overrides with `--diff-base`.
-fn configured_scope() -> Result<Scope, String> {
-    let configured = metadata()?
-        .pointer("/metadata/lid_rs/mutation_scope")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or("diff")
-        .to_string();
-    if configured == "full" {
-        Ok(Scope::Full)
-    } else {
-        Ok(Scope::Diff { base: "main".to_string() })
-    }
-}
-
-/// The parsed `cargo metadata` document.
-fn metadata() -> Result<serde_json::Value, String> {
-    let out = capture(cargo_command().args(["metadata", "--format-version", "1", "--no-deps"]))?;
-    serde_json::from_str(&out).map_err(|e| format!("parsing cargo metadata: {e}"))
-}
-
-/// For diff scope, writes `git diff <base>` to a file under `target/` and
-/// returns its path; `None` for full scope.
+/// For diff scope, writes `git diff <base>` to a file under the build
+/// directory and returns its path; `None` for full scope.
 #[implements(spec::DiffScopePassesThroughToTheEngine)]
-fn write_diff_file(scope: &Scope) -> Result<Option<PathBuf>, String> {
+fn write_diff_file(scope: &Scope, project: &Project) -> Result<Option<PathBuf>, String> {
     let Scope::Diff { base } = scope else {
         return Ok(None);
     };
-    let root = crate::workspace_root()?;
-    let diff = capture(Command::new("git").args(["diff", base]).current_dir(&root))?;
-    let path = root.join("target/lid-mutants.diff");
+    let diff = capture(project.git()?.args(["diff", base]))?;
+    let path = project.target_directory()?.join("lid-mutants.diff");
     std::fs::write(&path, &diff).map_err(|e| format!("writing {}: {e}", path.display()))?;
     Ok(Some(path))
 }
 
 /// Enumerates mutants, restricted by the diff when one is given.
-fn list_mutants(diff: Option<&Path>) -> Result<Vec<Mutant>, String> {
-    let out = capture(cargo_command().args(list_args(diff)))?;
+fn list_mutants(project: &Project, diff: Option<&Path>) -> Result<Vec<Mutant>, String> {
+    let out = capture(project.cargo()?.args(list_args(diff)))?;
     parse_mutants(&out)
 }
 
@@ -159,40 +127,27 @@ fn mutant_of(value: &serde_json::Value) -> Result<Mutant, String> {
     })
 }
 
-/// Collects the registries of every workspace crate by running each crate's
+/// Collects the registries of every library member by running each member's
 /// own `--lib` test binary in dump mode — the only binary whose `#[validates]`
-/// edges exist (README §5.2). Crates without the graph checks dump nothing
+/// edges exist (README §5.2). Members without the graph checks dump nothing
 /// and contribute nothing.
 #[implements(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
-pub fn collect_registries() -> Result<Registry, String> {
+pub fn collect_registries(project: &Project) -> Result<Registry, String> {
     let mut registry = Registry::default();
-    for package in workspace_packages()? {
-        let dumped = dump_registry(&package)?;
+    for package in project.library_members() {
+        let dumped = dump_registry(project, &package)?;
         registry.impls.extend(dumped.impls);
         registry.validations.extend(dumped.validations);
     }
     Ok(registry)
 }
 
-/// Names of the workspace's member packages.
-fn workspace_packages() -> Result<Vec<String>, String> {
-    let doc = metadata()?;
-    let packages = doc
-        .pointer("/packages")
-        .and_then(serde_json::Value::as_array)
-        .ok_or("cargo metadata has no packages array")?;
-    Ok(packages
-        .iter()
-        .filter_map(|p| p.pointer("/name").and_then(serde_json::Value::as_str))
-        .map(str::to_string)
-        .collect())
-}
-
 /// One crate's registry, dumped by its `intent_graph!()` dump test.
 #[implements(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
-pub fn dump_registry(package: &str) -> Result<Registry, String> {
+pub fn dump_registry(project: &Project, package: &str) -> Result<Registry, String> {
     let out = capture(
-        cargo_command()
+        project
+            .cargo()?
             .args([
                 "test", "-p", package, "--lib", "--", "--exact",
                 "intent_graph::registry_dump_for_tooling", "--nocapture",
@@ -243,11 +198,13 @@ fn group_by_plan(mutants: &[Mutant], registry: &Registry) -> BTreeMap<TestPlan, 
 /// Runs one engine invocation per group, failing if any mutant survives.
 #[implements(spec::SurvivingMutantsFailTheGate)]
 fn run_groups(
+    project: &Project,
     groups: &BTreeMap<TestPlan, Vec<String>>,
     diff: Option<&Path>,
 ) -> Result<(), String> {
     for (plan, names) in groups {
-        let status = cargo_command()
+        let status = project
+            .cargo()?
             .args(group_args(names, plan, diff))
             .status()
             .map_err(|e| format!("running cargo mutants: {e}"))?;
@@ -306,25 +263,6 @@ fn regex_escape(name: &str) -> String {
     escaped
 }
 
-/// The cargo binary this xtask was itself invoked through.
-pub(crate) fn cargo_command() -> Command {
-    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
-}
-
-/// Runs a command, returning stdout or a message including stderr.
-fn capture(command: &mut Command) -> Result<String, String> {
-    let output = command
-        .output()
-        .map_err(|e| format!("running {command:?}: {e}"))?;
-    if !output.status.success() {
-        return Err(format!(
-            "{command:?} failed:\n{}",
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    String::from_utf8(output.stdout).map_err(|e| format!("non-utf8 command output: {e}"))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -344,42 +282,70 @@ mod tests {
     #[test]
     #[validates(spec::DiffScopePassesThroughToTheEngine)]
     fn diff_scope_writes_a_real_diff_file() {
+        let project = Project::load().expect("cargo metadata must succeed in this repository");
         let scope = Scope::Diff { base: "HEAD".to_string() };
-        let path = write_diff_file(&scope)
+        let path = write_diff_file(&scope, &project)
             .expect("git diff HEAD must succeed in this repository")
             .expect("diff scope must yield a diff file");
         assert!(path.ends_with("lid-mutants.diff"), "{path:?}");
         assert!(path.exists(), "diff file must exist at {path:?}");
-        assert_eq!(write_diff_file(&Scope::Full).expect("full scope never fails"), None);
+        assert_eq!(write_diff_file(&Scope::Full, &project).expect("full scope never fails"), None);
+    }
+
+    #[test]
+    #[validates(spec::ScopeFlagsOverrideTheConfiguredScope)]
+    fn scope_flags_override_the_configured_scope() {
+        let against = |base: &str| Scope::Diff { base: base.to_string() };
+        let cases: [(&[&str], Scope, Option<Scope>); 5] = [
+            (&[], against("main"), Some(against("main"))),
+            (&["--full"], against("main"), Some(Scope::Full)),
+            (&["--diff-base", "origin/main"], Scope::Full, Some(against("origin/main"))),
+            (&["--diff-base"], against("main"), None),
+            (&["--bogus"], against("main"), None),
+        ];
+        for (flags, configured, expected) in cases {
+            let flags: Vec<String> = flags.iter().map(|f| (*f).to_string()).collect();
+            assert_eq!(parse_scope(&flags, configured).ok(), expected, "flags {flags:?}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::ScopeFlagsOverrideTheConfiguredScope)]
+    fn unknown_flags_are_rejected_by_name() {
+        let result = parse_scope(&["--bogus".to_string()], Scope::Full);
+        assert!(result.is_err_and(|e| e.contains("--bogus")));
     }
 
     #[test]
     #[validates(spec::SurvivingMutantsFailTheGate)]
     fn engine_failures_fail_the_gate() {
+        let project = Project::load().expect("cargo metadata must succeed in this repository");
         let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
         groups.insert(TestPlan::FullSuite, vec!["any_mutant".to_string()]);
         let missing_diff = Path::new("target/definitely-missing.diff");
-        let result = run_groups(&groups, Some(missing_diff));
+        let result = run_groups(&project, &groups, Some(missing_diff));
         assert!(result.is_err(), "an engine failure must fail the mutants gate");
     }
 
     #[test]
     #[validates(spec::ValidationEdgesComeFromTheOwningCrateTestBinary)]
     fn registries_come_from_the_owning_crate_test_binary() {
-        let registry = collect_registries().expect("collecting workspace registries must succeed");
+        let project = Project::load().expect("cargo metadata must succeed in this repository");
+        let registry =
+            collect_registries(&project).expect("collecting workspace registries must succeed");
         let lid_test_edge = registry.validations.iter().any(|e| {
             e.item == "lid_rs::canary::tests::canary_confirms_registry_presence"
         });
         assert!(
             lid_test_edge,
-            "a cfg(test)-only lid validation edge must be present, proving the dump \
-             came from lid's own test binary: {:#?}",
+            "a cfg(test)-only lid-rs validation edge must be present, proving the dump \
+             came from lid-rs's own test binary: {:#?}",
             registry.validations
         );
         let xtask_test_edge = registry.validations.iter().any(|e| e.item.starts_with("xtask::"));
         assert!(
             xtask_test_edge,
-            "collect_registries must have walked every workspace crate, xtask included"
+            "collect_registries must have walked every library member, xtask included"
         );
     }
 

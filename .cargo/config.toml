@@ -1,2 +1,5 @@
 [alias]
 xtask = "run -p xtask --"
+# No `lid-rs` alias for cargo-lid-rs: an alias shadowing an installed external
+# subcommand is deprecated (rust-lang/cargo#10049). The gate runs the tool from
+# source as `cargo run -p cargo-lid-rs -- mutants`.

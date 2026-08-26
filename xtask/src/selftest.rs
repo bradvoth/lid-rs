@@ -8,7 +8,6 @@ use std::process::Command;
 
 use lid_rs::implements;
 
-use crate::mutants::cargo_command;
 use crate::workspace_root;
 use crate::spec;
 
@@ -71,7 +70,7 @@ pub fn run_all() -> Result<(), String> {
 
 /// Runs a single fixture by name (used by the check-12 validation, which
 /// pins the vacuous-test demonstration on its own).
-#[implements(spec::SurvivingMutantsFailTheGate)]
+#[implements(spec::EveryGateFixtureFailsItsGate)]
 pub fn run_fixture(name: &str) -> Result<(), String> {
     let fixture = FIXTURES
         .iter()
@@ -195,6 +194,11 @@ fn expect_gate_failure(command: &mut Command, expect: &str) -> Result<(), String
     Ok(())
 }
 
+/// The cargo binary this xtask was itself invoked through.
+fn cargo_command() -> Command {
+    Command::new(std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string()))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -217,7 +221,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::SurvivingMutantsFailTheGate)]
+    #[validates(spec::EveryGateFixtureFailsItsGate)]
     fn surviving_mutants_fail_the_gate() {
         let _serialized = FIXTURE_DIRS.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         forget_fixture("vacuous_test");
@@ -245,10 +249,6 @@ mod tests {
         }
     }
 
-    // Validates both claims: the lookup is part of run_fixture's role in the
-    // check-12 demonstration, so this test must sit in the narrowed test set
-    // of mutants in run_fixture — a lesson taught by a surviving mutant whose
-    // killing test cited only the other claim.
     #[test]
     #[validates(spec::EveryGateFixtureFailsItsGate)]
     fn a_passing_gate_fails_the_selftest() {
@@ -262,7 +262,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::SurvivingMutantsFailTheGate, spec::EveryGateFixtureFailsItsGate)]
+    #[validates(spec::EveryGateFixtureFailsItsGate)]
     fn unknown_fixture_names_are_rejected() {
         let result = run_fixture("no_such_fixture");
         assert!(

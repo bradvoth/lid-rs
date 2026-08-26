@@ -434,7 +434,7 @@ cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11 + behaviour
 cargo package -p <crate> --allow-dirty           # published crates: the tarball
                                                  #     builds standalone
-cargo xtask mutants                              # 12 (scope from metadata;
+cargo lid-rs mutants                             # 12 (scope from metadata;
                                                  #     --full / --diff-base override)
 ```
 
@@ -1019,7 +1019,7 @@ tests/
   ...                          integration tests; no #[validates] here (§5.2)
 lid-rs/                        support crate: Spec, Edge, slices, canary
 lid-rs-macros/                 derive(Spec), implements, validates, spec
-xtask/                         registry-driven mutation scoping
+cargo-lid-rs/                  check 12: `cargo lid-rs mutants`, published
 .github/workflows/gate.yml
 ```
 
@@ -1074,8 +1074,8 @@ codebase gates correctly on the part that's traced.
 6. `src/spec/mod.rs` with `//!` docs explaining what the module is for.
 7. A `#[cfg(test)] mod intent_graph { lid_rs::intent_graph!(); }` in `lib.rs` —
    canary first, then checks 10, 11.
-8. `[profile.test] opt-level = 0`; install `cargo-mutants`; `xtask` for
-   registry-driven test filtering.
+8. `[profile.test] opt-level = 0`; install `cargo-mutants` and `cargo-lid-rs`
+   for registry-driven test filtering.
 9. CI running [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) in order, all of it gating.
 10. `AGENTS.md` / `CLAUDE.md` stating the eight phases and the dispatch-vs-work
     rule, so the agent proposes skeletons rather than implementations.

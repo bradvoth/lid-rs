@@ -1,0 +1,19 @@
+[package]
+name = "cargo-lid-rs"
+version = "0.1.0"
+description = "Check 12 for LID-rs projects: registry-scoped mutation testing as a cargo subcommand."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["lid", "cargo-subcommand", "mutation-testing", "traceability", "testing"]
+categories = ["development-tools::cargo-plugins", "development-tools::testing"]
+
+[dependencies]
+lid-rs = { path = "../lid-rs", version = "0.1.0" }
+serde_json.workspace = true
+
+[lints]
+workspace = true
