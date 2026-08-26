@@ -1,2 +1,0 @@
-xtask/src/selftest.rs:119:5: replace manifest -> String with String::new()
-xtask/src/selftest.rs:119:5: replace manifest -> String with "xyzzy".into()
