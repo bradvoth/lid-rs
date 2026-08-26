@@ -1,0 +1,20 @@
+# The LID-rs gate (README §4.5), cheapest and most specific first. Every step
+# gates. `--diff-base origin/main` scopes mutation to the change under review
+# and needs the full history that `fetch-depth: 0` fetches.
+name: gate
+on: [push, pull_request]
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: rustup show
+      - run: cargo check --all-targets
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
+      - run: cargo test --doc
+      - run: cargo test --lib
+      - run: cargo install cargo-mutants cargo-lid-rs --locked
+      - run: cargo lid-rs mutants --diff-base origin/main

@@ -1,5 +1,7 @@
 #![doc = include_str!("../docs/intent/cargo-lid-rs/lld.md")]
 
+#[doc = include_str!("../docs/intent/init/lld.md")]
+pub mod init;
 pub mod mapping;
 pub mod mutants;
 pub mod project;
@@ -8,7 +10,7 @@ pub mod spec;
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs mutants [--full] [--diff-base <ref>]";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>]>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
@@ -34,6 +36,8 @@ fn without_cargo_subcommand_name(args: &[String]) -> &[String] {
 fn dispatch(args: &[String]) -> Result<(), String> {
     match args.first().map(String::as_str) {
         Some("mutants") => mutants::run(&args[1..]),
+        Some("init") => init::run(&args[1..]),
+        Some("new") => init::run_new(&args[1..]),
         Some(other) => Err(format!("unknown subcommand `{other}`\n{USAGE}")),
         None => Err(USAGE.to_string()),
     }

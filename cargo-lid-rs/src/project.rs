@@ -36,6 +36,25 @@ impl Project {
         Self::from_json(&out)
     }
 
+    /// Loads the project a manifest belongs to.
+    pub fn load_at(manifest: &std::path::Path) -> Result<Self, String> {
+        let mut command = cargo_command();
+        command
+            .args(["metadata", "--format-version", "1", "--no-deps", "--manifest-path"])
+            .arg(manifest);
+        Self::from_json(&capture(&mut command)?)
+    }
+
+    /// The name of the package whose manifest is at `manifest`, if any
+    /// (a virtual workspace root has none).
+    #[implements(spec::InitTargetsThePackageInTheCurrentDirectory)]
+    pub fn package_at(&self, manifest: &std::path::Path) -> Option<String> {
+        self.package_with_manifest(manifest.to_str()?)?
+            .pointer("/name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string)
+    }
+
     /// Parses a metadata document.
     pub fn from_json(json: &str) -> Result<Self, String> {
         let doc = serde_json::from_str(json).map_err(|e| format!("parsing cargo metadata: {e}"))?;
@@ -114,10 +133,14 @@ impl Project {
     /// is at the workspace root, if there is one.
     fn root_package_setting(&self, key: &str) -> Option<String> {
         let root_manifest = self.root().ok()?.join("Cargo.toml");
-        let root_manifest = root_manifest.to_str()?;
-        self.packages()
-            .find(|package| package.pointer("/manifest_path").and_then(serde_json::Value::as_str) == Some(root_manifest))
+        self.package_with_manifest(root_manifest.to_str()?)
             .and_then(|package| setting_in(package, key))
+    }
+
+    /// The package whose `manifest_path` is exactly `manifest`.
+    fn package_with_manifest(&self, manifest: &str) -> Option<&serde_json::Value> {
+        self.packages()
+            .find(|package| package.pointer("/manifest_path").and_then(serde_json::Value::as_str) == Some(manifest))
     }
 
     /// The member packages, in metadata order.
@@ -249,6 +272,16 @@ mod tests {
             let project = Project::from_json(&doc(workspace, package, &[&["lib"]])).expect("parses");
             assert_eq!(project.configured_scope(), expected, "{why}");
         }
+    }
+
+    #[test]
+    #[validates(spec::InitTargetsThePackageInTheCurrentDirectory)]
+    fn the_package_at_a_manifest_is_found_by_exact_path() {
+        let project = Project::from_json(&doc("null", "null", &[&["lib"], &["bin"]])).expect("parses");
+        assert_eq!(
+            (project.package_at(Path::new("/w/Cargo.toml")), project.package_at(Path::new("/w/p1/Cargo.toml")), project.package_at(Path::new("/w/none/Cargo.toml"))),
+            (Some("p0".to_string()), Some("p1".to_string()), None)
+        );
     }
 
     #[test]

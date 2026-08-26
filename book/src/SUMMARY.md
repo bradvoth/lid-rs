@@ -26,6 +26,7 @@
 - [LLD: citation macros](impl/lld-macros.md)
 - [LLD: intent-graph checks](impl/lld-intent-graph.md)
 - [LLD: cargo-lid-rs](impl/lld-cargo-lid-rs.md)
+- [LLD: init and new](impl/lld-init.md)
 - [LLD: the gate self-test](impl/lld-xtask.md)
 - [LLD: the operating skill](impl/lld-skill.md)
 - [LLD: the book](impl/lld-book.md)

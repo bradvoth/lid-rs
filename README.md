@@ -1034,7 +1034,8 @@ under the package root, so an `include_str!` reaching up into a workspace-level
 `docs/` builds locally and fails from the tarball. Documents no crate includes
 stay at the workspace level.
 
-**Brownfield adoption.** Layer the tiers in order. Tier 0 first — the lints apply
+**Brownfield adoption.** Layer the tiers in order (`cargo lid-rs init` in the
+package performs Tier 0 and the wiring in one step). Tier 0 first — the lints apply
 to existing code immediately and will surface every leaf that's secretly a
 dispatch node. Then write LLDs for the slices you're actively changing, and let
 `#[implements]` spread through the code you touch rather than in a big-bang pass.
@@ -1063,6 +1064,10 @@ codebase gates correctly on the part that's traced.
 
 <!-- ANCHOR: bootstrap -->
 ## 13. Bootstrap checklist
+
+`cargo lid-rs new <name>` performs this list for a new package, and
+`cargo lid-rs init` performs it for an existing one; the list remains the
+definition of what they do.
 
 1. `cargo new --lib` plus a thin `bin`.
 2. `lid-rs` support crate: `Spec` trait, `Edge`, `SpecMeta`, three
