@@ -47,40 +47,79 @@ pub struct Tally {
 
 /// Where an agent's tally lives: `<target>/lid-rs/agents/<agent_id>.json`.
 fn path(project: &Project, agent_id: &str) -> Result<PathBuf, String> {
-    todo!()
+    Ok(project.target_directory()?.join("lid-rs/agents").join(format!("{agent_id}.json")))
 }
 
 /// The tally as stored.
 fn to_json(tally: &Tally) -> String {
-    todo!()
+    serde_json::json!({
+        "edits": tally.edits, "observations": tally.observations, "commands": tally.commands,
+        "post_edit_checks": tally.post_edit_checks, "stop_checks": tally.stop_checks,
+        "policy_refusals": tally.policy_refusals, "stop_refusals": tally.stop_refusals,
+    })
+    .to_string()
 }
 
 /// A stored tally.
 fn from_json(json: &str) -> Result<Tally, String> {
-    todo!()
+    let doc: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("parsing a tally: {e}"))?;
+    let count = |key: &str| doc.pointer(&format!("/{key}")).and_then(serde_json::Value::as_u64).unwrap_or(0) as u32;
+    Ok(Tally {
+        edits: count("edits"),
+        observations: count("observations"),
+        commands: count("commands"),
+        post_edit_checks: count("post_edit_checks"),
+        stop_checks: count("stop_checks"),
+        policy_refusals: count("policy_refusals"),
+        stop_refusals: count("stop_refusals"),
+    })
 }
 
 /// The agent's tally so far; empty for an agent with none.
 pub fn load(project: &Project, agent_id: &str) -> Result<Tally, String> {
-    todo!()
+    std::fs::read_to_string(path(project, agent_id)?).ok().map_or(Ok(Tally::default()), |json| from_json(&json))
 }
 
 /// Counts one event under the agent's id.
 #[implements(spec::EveryToolCallIsTallied)]
 pub fn record(project: &Project, agent_id: &str, event: Event) -> Result<(), String> {
-    todo!()
+    let updated = apply(load(project, agent_id)?, event);
+    let file = path(project, agent_id)?;
+    let parent = file.parent().ok_or_else(|| format!("{} has no parent", file.display()))?;
+    std::fs::create_dir_all(parent).map_err(|e| format!("creating {}: {e}", parent.display()))?;
+    std::fs::write(&file, to_json(&updated)).map_err(|e| format!("writing {}: {e}", file.display()))
 }
 
 /// One event applied to a tally.
 #[implements(spec::EveryToolCallIsTallied)]
 pub fn apply(tally: Tally, event: Event) -> Tally {
-    todo!()
+    let mut next = tally;
+    match event {
+        Event::Tool(ToolKind::Edit) => next.edits += 1,
+        Event::Tool(ToolKind::Observation) => next.observations += 1,
+        Event::Tool(ToolKind::Command) => next.commands += 1,
+        Event::PostEditCheck => next.post_edit_checks += 1,
+        Event::StopCheck => next.stop_checks += 1,
+        Event::PolicyRefusal => next.policy_refusals += 1,
+        Event::StopRefusal => next.stop_refusals += 1,
+    }
+    next
 }
 
 /// The `Lid-Rs-*` trailers for a phase commit.
 #[implements(spec::TheTallyIsWrittenAsTrailers)]
 pub fn trailers(tally: &Tally, phase: Phase) -> String {
-    todo!()
+    format!(
+        "Lid-Rs-Phase: {}\nLid-Rs-Tools: {} edits, {} observations, {} commands\nLid-Rs-Checks: {} post-edit, {} stop\nLid-Rs-Refusals: {} policy, {} stop\n",
+        super::policy::number_of(phase),
+        tally.edits,
+        tally.observations,
+        tally.commands,
+        tally.post_edit_checks,
+        tally.stop_checks,
+        tally.policy_refusals,
+        tally.stop_refusals
+    )
 }
 
 #[cfg(test)]
@@ -92,8 +131,7 @@ mod tests {
     #[test]
     #[validates(spec::EveryToolCallIsTallied)]
     fn every_event_counts_once() {
-        let mut tally = Tally::default();
-        for event in [
+        let events = [
             Event::Tool(ToolKind::Edit),
             Event::Tool(ToolKind::Edit),
             Event::Tool(ToolKind::Observation),
@@ -102,13 +140,15 @@ mod tests {
             Event::StopCheck,
             Event::PolicyRefusal,
             Event::StopRefusal,
-        ] {
-            tally = apply(tally, event);
-        }
-        assert_eq!(
-            tally,
-            Tally { edits: 2, observations: 1, commands: 1, post_edit_checks: 1, stop_checks: 1, policy_refusals: 1, stop_refusals: 1 }
-        );
+        ];
+        let tally = events.into_iter().fold(Tally::default(), apply);
+        let expected = Tally { edits: 2, observations: 1, commands: 1, post_edit_checks: 1, stop_checks: 1, policy_refusals: 1, stop_refusals: 1 };
+        assert_eq!(tally, expected);
+    }
+
+    #[test]
+    #[validates(spec::EveryToolCallIsTallied)]
+    fn the_tally_is_stored_under_the_agents_id() {
         let (_dir, project) = fixture::copy("tally-store");
         let agent = format!("store-{}", std::process::id());
         assert_eq!(load(&project, &agent).expect("empty"), Tally::default());

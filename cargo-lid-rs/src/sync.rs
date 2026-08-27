@@ -371,7 +371,8 @@ mod tests {
         let project = project_at(&root);
         write(&project).expect("writes every artifact");
         assert!(root.join(".claude/workflows/lid-rs.js").is_file());
-        assert!(root.join(".claude/agents/lid-rs-phase.md").is_file());
+        assert!(root.join(".claude/agents/lid-rs-phase-2.md").is_file());
+        assert!(root.join(".claude/agents/lid-rs-review.md").is_file());
     }
 
     #[test]

@@ -11,10 +11,6 @@ jobs:
         with:
           fetch-depth: 0
       - run: rustup show
-      # A fresh clone has run no `cargo lid-rs sync`, so it registers the
-      # synced hooks itself, as sync does on a developer's machine; the
-      # gate's `sync --check` then verifies the files and this config alike.
-      - run: git config core.hooksPath .lid-rs/hooks
       - run: cargo check --all-targets
       - run: cargo clippy --all-targets -- -D warnings
       - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps

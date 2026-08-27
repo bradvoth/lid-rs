@@ -1,5 +1,5 @@
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
@@ -9,9 +9,9 @@ pub mod policy;
 pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
-use integrity::{outside_policy_clean, synced_artifacts_match};
-use policy::{ToolKind, Verdict, allowed_paths, execution_class, kind_of, slice_crate};
-use tally::{Event, Tally};
+use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
+use policy::{ExecutionClass, ToolKind, Verdict, allowed, allowed_paths, compile_time_accepted, execution_class, kind_of, refusal_reason, slice_crate};
+use tally::Event;
 
 use crate::mapping::EdgeRecord;
 use crate::mutants::{self, Registry, SpecRecord, dump_registry};
@@ -162,15 +162,30 @@ pub enum HookVerdict {
 /// verdict.
 pub fn hook(args: &[String]) -> Result<(), String> {
     let (kind, phase) = parse_hook_args(args)?;
-    let project = Project::load_graph()?;
-    let input = HookInput::from_json(&read_stdin()?)?;
-    let verdict = match kind {
-        HookKind::PreTool => hook_pre_tool(&project, phase, &input)?,
-        HookKind::PostEdit => hook_post_edit(&project, &input)?,
-        HookKind::Stop => hook_stop(&project, phase, &input)?,
-    };
+    let verdict = run_hook(kind, phase).unwrap_or_else(|error| fail_closed(kind, error));
     print!("{}", render(kind, &verdict));
     Ok(())
+}
+
+/// Locates the project, reads the input, and runs the hook.
+fn run_hook(kind: HookKind, phase: Phase) -> Result<HookVerdict, String> {
+    let project = Project::load_graph()?;
+    let input = HookInput::from_json(&read_stdin()?)?;
+    match kind {
+        HookKind::PreTool => hook_pre_tool(&project, phase, &input),
+        HookKind::PostEdit => hook_post_edit(&project, &input),
+        HookKind::Stop => hook_stop(&project, phase, &input),
+    }
+}
+
+/// A hook that cannot decide refuses: an edit is denied, a stop is kept
+/// running, and the error is what the agent is told.
+fn fail_closed(kind: HookKind, error: String) -> HookVerdict {
+    let reason = format!("the {kind:?} hook could not decide: {error}");
+    match kind {
+        HookKind::PreTool | HookKind::Stop => HookVerdict::Refuse(reason),
+        HookKind::PostEdit => HookVerdict::Context(reason),
+    }
 }
 
 /// The three hooks a phase agent declares.
@@ -186,19 +201,45 @@ pub enum HookKind {
 
 /// `<kind> <n>`: which hook, for which phase.
 fn parse_hook_args(args: &[String]) -> Result<(HookKind, Phase), String> {
-    todo!()
+    match args {
+        [kind, n] => Ok((hook_kind(kind)?, phase_number_arg(n)?)),
+        [] | [_] | [_, _, ..] => Err(HOOK_USAGE.to_string()),
+    }
+}
+
+/// The hook kind named on the command line.
+fn hook_kind(name: &str) -> Result<HookKind, String> {
+    match name {
+        "pre-tool" => Ok(HookKind::PreTool),
+        "post-edit" => Ok(HookKind::PostEdit),
+        "stop" => Ok(HookKind::Stop),
+        other => Err(format!("unknown hook `{other}`\n{HOOK_USAGE}")),
+    }
+}
+
+/// The phase named on the command line.
+fn phase_number_arg(n: &str) -> Result<Phase, String> {
+    n.parse::<u8>().map_err(|_| format!("`{n}` is not a phase number\n{HOOK_USAGE}")).and_then(Phase::try_from)
 }
 
 /// The hook's stdin, whole.
 fn read_stdin() -> Result<String, String> {
-    todo!()
+    std::io::read_to_string(std::io::stdin()).map_err(|e| format!("reading the hook input: {e}"))
 }
 
 impl HookInput {
     /// The fields the hooks use, from Claude Code's hook JSON; fields absent
     /// for an event are empty.
     pub fn from_json(json: &str) -> Result<Self, String> {
-        todo!()
+        let doc: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("parsing the hook input: {e}"))?;
+        let text = |pointer: &str| doc.pointer(pointer).and_then(serde_json::Value::as_str).map(str::to_string);
+        Ok(Self {
+            agent_id: text("/agent_id").ok_or("the hook input carries no agent_id")?,
+            tool_name: text("/tool_name"),
+            tool_path: text("/tool_input/file_path").or_else(|| text("/tool_input/notebook_path")).map(PathBuf::from),
+            last_message: text("/last_assistant_message").unwrap_or_default(),
+            stop_hook_active: doc.pointer("/stop_hook_active").and_then(serde_json::Value::as_bool).unwrap_or(false),
+        })
     }
 }
 
@@ -206,47 +247,98 @@ impl HookInput {
 /// decision for `PreToolUse`, additional context for `PostToolUse`, a
 /// block decision for `Stop`; nothing when allowed.
 fn render(kind: HookKind, verdict: &HookVerdict) -> String {
-    todo!()
+    match (kind, verdict) {
+        (HookKind::PreTool | HookKind::PostEdit | HookKind::Stop, HookVerdict::Allow) => String::new(),
+        (HookKind::PreTool, HookVerdict::Refuse(reason)) => deny_json(reason),
+        (HookKind::PostEdit, HookVerdict::Context(context)) => context_json(context),
+        (HookKind::Stop, HookVerdict::Refuse(reason)) => block_json(reason),
+        (HookKind::PreTool | HookKind::Stop, HookVerdict::Context(text)) | (HookKind::PostEdit, HookVerdict::Refuse(text)) => text.clone(),
+    }
 }
 
 /// `PreToolUse`'s deny decision with its reason.
 fn deny_json(reason: &str) -> String {
-    todo!()
+    serde_json::json!({
+        "hookSpecificOutput": { "hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": reason }
+    })
+    .to_string()
 }
 
 /// `PostToolUse`'s additional context.
 fn context_json(context: &str) -> String {
-    todo!()
+    serde_json::json!({ "hookSpecificOutput": { "hookEventName": "PostToolUse", "additionalContext": context } }).to_string()
 }
 
 /// `Stop`'s block decision with its reason.
 fn block_json(reason: &str) -> String {
-    todo!()
+    serde_json::json!({ "decision": "block", "reason": reason }).to_string()
 }
 
 /// `hook pre-tool <n>`: an editing tool's target must be in the phase's
 /// allowed set; every call is tallied.
 #[implements(spec::ReadsAreNeverRefused, spec::EveryToolCallIsTallied)]
 fn hook_pre_tool(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
-    todo!()
+    let kind = kind_of(input.tool_name.as_deref().unwrap_or(""));
+    tally::record(project, &input.agent_id, Event::Tool(kind))?;
+    match kind {
+        ToolKind::Observation => Ok(HookVerdict::Allow),
+        ToolKind::Edit => edit_verdict(project, phase, input),
+        ToolKind::Command => Ok(HookVerdict::Refuse("a phase agent runs no commands; the hooks run every check".to_string())),
+    }
 }
 
 /// The policy verdict for one edit on the current branch's slice.
 fn edit_verdict(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
-    todo!()
+    let slice = resolve_slice(project, None)?.ok_or(NO_SLICE)?;
+    edit_verdict_for(project, phase, &slice, input)
 }
 
 /// The policy verdict for one edit on a named slice: the human's
 /// acceptance of a compile-time slice first, then the path policy.
 #[implements(spec::ARefusedEditQuotesTheDisciplineRow, spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
 fn edit_verdict_for(project: &Project, phase: Phase, slice: &str, input: &HookInput) -> Result<HookVerdict, String> {
-    todo!()
+    let crate_root = slice_crate(project, slice)?;
+    let target = input.tool_path.as_deref().ok_or("an edit without a file path")?;
+    acceptance_gate(project, &crate_root, slice)?
+        .map_or_else(|| path_verdict(project, phase, slice, &crate_root, target, &input.agent_id), |reason| Ok(HookVerdict::Refuse(reason)))
+}
+
+/// The reason a compile-time slice's edits are refused until the human
+/// accepts it, or none.
+#[implements(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+fn acceptance_gate(project: &Project, crate_root: &Path, slice: &str) -> Result<Option<String>, String> {
+    Ok(match execution_class(project, crate_root)? {
+        ExecutionClass::Ordinary => None,
+        ExecutionClass::CompileTime(what) => (!compile_time_accepted(crate_root, slice)).then(|| {
+            format!(
+                "`{slice}` is a compile-time slice (its crate has a {what} target): editing it executes your code after \
+                 every edit. Edits are refused until the human accepts that by committing \
+                 docs/intent/{slice}/compile-time-accepted with the LLD. End with a ```stop block naming this."
+            )
+        }),
+    })
+}
+
+/// The path policy's verdict for one edit, refusals tallied.
+fn path_verdict(project: &Project, phase: Phase, slice: &str, crate_root: &Path, target: &Path, agent: &str) -> Result<HookVerdict, String> {
+    match allowed(phase, crate_root, slice, target) {
+        Verdict::Allowed => Ok(HookVerdict::Allow),
+        Verdict::Refused(why) => refuse_edit(project, phase, slice, target, &why, agent),
+    }
+}
+
+/// A refused edit: tallied, and explained with the discipline row.
+fn refuse_edit(project: &Project, phase: Phase, slice: &str, target: &Path, why: &str, agent: &str) -> Result<HookVerdict, String> {
+    tally::record(project, agent, Event::PolicyRefusal)?;
+    let reason = refusal_reason(project, phase, target, &allowed_paths(phase, slice));
+    Ok(HookVerdict::Refuse(format!("{why}. {reason}")))
 }
 
 /// `hook post-edit <n>`: clippy, its output as context.
 #[implements(spec::EveryEditIsFollowedByClippy)]
 fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, String> {
-    todo!()
+    tally::record(project, &input.agent_id, Event::PostEditCheck)?;
+    Ok(HookVerdict::Context(clippy_output(project)?))
 }
 
 /// `hook stop <n>`: the final message's ending decides — a `stop` block
@@ -254,7 +346,37 @@ fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, S
 /// integrity intact, commits the phase's paths.
 #[implements(spec::AStopBlockEndsThePhaseWithoutACommit, spec::ACommitBlockRunsThePhasesCheck)]
 fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
-    todo!()
+    match ending_of(&input.last_message) {
+        Err(format) => refuse_stop(project, input, format),
+        Ok(Ending::Stop(_)) => Ok(HookVerdict::Allow),
+        Ok(Ending::Commit(message)) => commit_phase(project, phase, input, &message),
+    }
+}
+
+/// A refused stop: tallied, with its reason.
+fn refuse_stop(project: &Project, input: &HookInput, reason: String) -> Result<HookVerdict, String> {
+    tally::record(project, &input.agent_id, Event::StopRefusal)?;
+    Ok(HookVerdict::Refuse(reason))
+}
+
+/// What a phase commit stages: the phase's allowed paths, relative to the
+/// workspace root git runs at.
+struct CommitPlan {
+    /// The slice, from the branch.
+    slice: String,
+    /// The allowed set, workspace-relative.
+    allowed: Vec<PathBuf>,
+}
+
+impl CommitPlan {
+    /// The plan for the current branch's slice.
+    fn new(project: &Project, phase: Phase) -> Result<Self, String> {
+        let slice = resolve_slice(project, None)?.ok_or(NO_SLICE)?;
+        let crate_root = slice_crate(project, &slice)?;
+        let prefix = crate_root.strip_prefix(project.root()?).map_err(|_| "the slice's crate is outside the workspace")?.to_path_buf();
+        let allowed = allowed_paths(phase, &slice).into_iter().map(|p| prefix.join(p)).collect();
+        Ok(Self { slice, allowed })
+    }
 }
 
 /// The commit path of the stop hook: integrity, the check, integrity again,
@@ -265,12 +387,93 @@ fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookV
     spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves,
 )]
 fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &str) -> Result<HookVerdict, String> {
-    todo!()
+    let plan = CommitPlan::new(project, phase)?;
+    match gate_commit(project, phase, input, message, &plan) {
+        Ok(changed) => commit_now(project, phase, input, message, &changed).map(|_| HookVerdict::Allow),
+        Err(reason) => refuse_stop(project, input, reason),
+    }
+}
+
+/// Everything that must hold before a phase commits, in order; the first
+/// failure is the refusal. Yields what the commit stages.
+fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
+    subject_matches(phase, message)?;
+    synced_artifacts_match(project)?;
+    checked(project, phase, &plan.slice, &input.agent_id)?;
+    synced_artifacts_match(project)?;
+    outside_policy_clean(project, &plan.allowed)?;
+    let changed = changed_within(project, &plan.allowed)?;
+    (!changed.is_empty()).then_some(changed).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())
+}
+
+/// The phase's check, tallied, in a fresh process of this binary so its
+/// output is captured whole (the gate's engines write to stdout, which is
+/// this hook's channel to Claude Code); a failure becomes the refusal.
+#[implements(spec::ACommitBlockRunsThePhasesCheck)]
+fn checked(project: &Project, phase: Phase, slice: &str, agent: &str) -> Result<(), String> {
+    tally::record(project, agent, Event::StopCheck)?;
+    let n = policy::number_of(phase).to_string();
+    let output = self_command()?
+        .args(["phase-check", &n, "--slice", slice])
+        .current_dir(project.root()?)
+        .output()
+        .map_err(|e| format!("running phase-check {n}: {e}"))?;
+    let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
+    output.status.success().then_some(()).ok_or_else(|| refusal_for(project, phase, text.trim()))
+}
+
+/// This binary, to run a subcommand in a fresh process. Under `cargo test`
+/// the running executable is the test binary, so the checkout's binary is
+/// run through cargo instead.
+fn self_command() -> Result<std::process::Command, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("locating this binary: {e}"))?;
+    if exe.file_name().is_some_and(|name| name == "cargo-lid-rs") {
+        Ok(std::process::Command::new(&exe))
+    } else {
+        Ok(checkout_command())
+    }
+}
+
+/// `cargo run -p cargo-lid-rs --` in the checkout this binary was built from.
+fn checkout_command() -> std::process::Command {
+    let mut command = crate::project::cargo_command();
+    command.args(["run", "-q", "--manifest-path", concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"), "--"]);
+    command
+}
+
+/// The commit itself, with the tally's trailers.
+fn commit_now(project: &Project, phase: Phase, input: &HookInput, message: &str, changed: &[PathBuf]) -> Result<String, String> {
+    let trailers = tally::trailers(&tally::load(project, &input.agent_id)?, phase);
+    let paths: Vec<&Path> = changed.iter().map(PathBuf::as_path).collect();
+    stage_and_commit(project, &paths, message, &trailers)
 }
 
 /// Clippy over the workspace, captured: the output, or "clean".
 fn clippy_output(project: &Project) -> Result<String, String> {
-    todo!()
+    let output = project
+        .cargo()?
+        .args(["clippy", "--all-targets", "--", "-D", "warnings"])
+        .output()
+        .map_err(|e| format!("running cargo clippy: {e}"))?;
+    let text: Vec<&str> = std::str::from_utf8(&output.stderr)
+        .unwrap_or("")
+        .lines()
+        .filter(|line| !is_progress(line))
+        .collect();
+    Ok(clippy_verdict(output.status, &text.join("\n")))
+}
+
+/// What the agent is told: "clean" on success, else the diagnostics.
+fn clippy_verdict(status: std::process::ExitStatus, diagnostics: &str) -> String {
+    if status.success() { "cargo clippy: clean".to_string() } else { diagnostics.to_string() }
+}
+
+/// Cargo's progress lines, which carry no diagnostic.
+fn is_progress(line: &str) -> bool {
+    let trimmed = line.trim_start();
+    ["Checking ", "Compiling ", "Finished ", "Blocking ", "Downloaded ", "Downloading ", "Locking ", "Updating "]
+        .iter()
+        .any(|prefix| trimmed.starts_with(prefix))
 }
 
 /// Runs a phase's check: its plan, executed in order.
@@ -410,16 +613,24 @@ fn phase_number(subject: &str) -> Option<u8> {
     subject.strip_prefix("phase ")?.split_once(':')?.0.trim().parse().ok()
 }
 
-/// Runs one cargo command with its output inherited, so the check's output
-/// is what the caller prints.
+/// Runs one cargo command, its output captured into the failure so the
+/// caller — a person, or a hook whose stdout is spoken for — can show it.
 fn cargo_step(project: &Project, args: &[&str], env: &[(&str, &str)]) -> Result<(), String> {
-    let status = project
+    let output = project
         .cargo()?
         .args(args)
         .envs(env.iter().copied())
-        .status()
+        .output()
         .map_err(|e| format!("running cargo {}: {e}", args.join(" ")))?;
-    status.success().then_some(()).ok_or_else(|| format!("cargo {} exited with {status}", args.join(" ")))
+    output.status.success().then_some(()).ok_or_else(|| {
+        format!(
+            "cargo {} exited with {}:\n{}{}",
+            args.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
 }
 
 /// Every library member's registry, each from its own test binary.
@@ -569,20 +780,17 @@ pub(crate) mod fixture {
         let dir = parent.join("app");
         std::fs::write(dir.join("src/lib.rs"), "").expect("empty lib");
         init_in(&dir, &Options { lid_rs: LidRsSource::Path(lid_rs_checkout()) }).expect("init");
-        // One shared target directory across every copy, so a copy's check
-        // reuses the compiled lid-rs.
-        std::fs::create_dir_all(dir.join(".cargo")).expect(".cargo");
-        std::fs::write(
-            dir.join(".cargo/config.toml"),
-            format!("[build]\ntarget-dir = \"{}\"\n", std::env::temp_dir().join("lid-rs-phase-tests/target").display()),
-        )
-        .expect("config");
+        // Every copy compiles into its own target directory: a shared one
+        // reports a copy's broken source as fresh.
         std::fs::create_dir_all(dir.join("docs/intent/hello")).expect("docs");
         std::fs::write(dir.join("docs/intent/hello/lld.md"), "# hello\n\nThe hello slice.\n").expect("lld");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hello\"\n}\n").expect("module");
         let lib = std::fs::read_to_string(dir.join("src/lib.rs")).expect("lib");
         std::fs::write(dir.join("src/lib.rs"), format!("{lib}\n#[doc = include_str!(\"../docs/intent/hello/lld.md\")]\npub mod hello;\n")).expect("lib");
+        std::fs::write(dir.join(".gitignore"), "/target\nmutants.out/\n").expect("gitignore");
         git(&dir, &["init", "-q", "-b", "main"]);
+        git(&dir, &["config", "user.email", "phase-tests@localhost"]);
+        git(&dir, &["config", "user.name", "phase tests"]);
         git(&dir, &["add", "-A"]);
         git(&dir, &["commit", "-q", "-m", "phase 1: LLD for hello"]);
         git(&dir, &["checkout", "-q", "-b", "lld/hello"]);
@@ -624,13 +832,16 @@ pub(crate) mod fixture {
 
 #[cfg(test)]
 mod tests {
-    use std::path::{Path, PathBuf};
-
     use super::*;
     use lid_rs::validates;
 
     use super::fixture;
     use super::policy::{ToolKind, kind_of};
+
+    /// Whether a verdict is a refusal mentioning `needle`.
+    fn refuses(verdict: &HookVerdict, needle: &str) -> bool {
+        matches!(verdict, HookVerdict::Refuse(reason) if reason.contains(needle))
+    }
 
     fn strings(list: &[&str]) -> Vec<String> {
         list.iter().map(|a| (*a).to_string()).collect()
@@ -728,6 +939,10 @@ mod tests {
         members.sort();
         // xtask is `publish = false`; the three published crates remain.
         assert_eq!(members, strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros"]));
+        // Under full metadata, dependencies are listed too and are not members.
+        let mut with_deps = fixture::workspace().publishing_members();
+        with_deps.sort();
+        assert_eq!(with_deps, members);
     }
 
     #[test]
@@ -929,11 +1144,16 @@ mod tests {
             assert_eq!(hook_pre_tool(&project, Phase::Two, &input).expect("hook"), HookVerdict::Allow, "{tool}");
         }
         let outside = fixture::tool_input(&agent, "Edit", &dir.join("Cargo.toml"));
-        assert!(matches!(hook_pre_tool(&project, Phase::Two, &outside).expect("hook"), HookVerdict::Refuse(_)));
-        assert_eq!(kind_of("Read"), ToolKind::Observation);
-        assert_eq!(kind_of("Edit"), ToolKind::Edit);
-        assert_eq!(kind_of("Write"), ToolKind::Edit);
-        assert_eq!(kind_of("Bash"), ToolKind::Command);
+        assert!(refuses(&hook_pre_tool(&project, Phase::Two, &outside).expect("hook"), "Cargo.toml"));
+    }
+
+    #[test]
+    #[validates(spec::ReadsAreNeverRefused)]
+    fn tools_are_classified_by_name() {
+        let cases = [("Read", ToolKind::Observation), ("LSP", ToolKind::Observation), ("Edit", ToolKind::Edit), ("Write", ToolKind::Edit), ("Bash", ToolKind::Command)];
+        for (tool, kind) in cases {
+            assert_eq!(kind_of(tool), kind, "{tool}");
+        }
     }
 
     #[test]
@@ -978,13 +1198,17 @@ mod tests {
         let (dir, project) = fixture::copy("commit-check");
         std::fs::write(dir.join("src/hello.rs"), "//! Broken.\n\n/// Greets.\npub fn greet() -> u32 {\n    \"hello\"\n}\n").expect("write");
         let before = fixture::head(&dir);
-        let HookVerdict::Refuse(reason) = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook") else {
-            panic!("a failing check refuses the stop");
-        };
-        assert!(reason.contains("E0308") || reason.contains("mismatched types"), "{reason}");
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(refuses(&verdict, "E0308"), "a failing check refuses the stop with its output: {verdict:?}");
         assert_eq!(fixture::head(&dir), before, "nothing was committed");
-        let wrong_tag = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 2: claims\n```\n")).expect("hook");
-        assert!(matches!(wrong_tag, HookVerdict::Refuse(r) if r.contains("phase 3:")));
+    }
+
+    #[test]
+    #[validates(spec::ACommitSubjectMustCarryThisPhasesTag)]
+    fn another_phases_tag_refuses_the_stop() {
+        let (_dir, project) = fixture::copy("commit-tag");
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 2: claims\n```\n")).expect("hook");
+        assert!(refuses(&verdict, "phase 3:"), "{verdict:?}");
     }
 
     #[test]
@@ -995,12 +1219,11 @@ mod tests {
         let before = fixture::head(&dir);
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("ok", "Done.\n\n```commit\nphase 3: skeleton for hello\n\nThe body.\n```\n")).expect("hook");
         assert_eq!(verdict, HookVerdict::Allow);
-        let after = fixture::head(&dir);
-        assert_ne!(after, before, "a commit was made");
+        assert_ne!(fixture::head(&dir), before, "a commit was made");
         let show = std::process::Command::new("git").args(["show", "--stat", "--format=%B", "HEAD"]).current_dir(&dir).output().expect("git");
         let show = String::from_utf8_lossy(&show.stdout);
-        assert!(show.contains("phase 3: skeleton for hello") && show.contains("src/hello.rs"), "{show}");
-        assert!(show.contains("Lid-Rs-Phase: 3") && show.contains("Lid-Rs-Tools:"), "{show}");
+        let expected = ["phase 3: skeleton for hello", "src/hello.rs", "Lid-Rs-Phase: 3", "Lid-Rs-Tools:"];
+        assert!(expected.iter().all(|e| show.contains(e)), "{show}");
     }
 
     #[test]
@@ -1008,7 +1231,7 @@ mod tests {
     fn nothing_to_commit_is_a_refusal() {
         let (_dir, project) = fixture::copy("commit-nothing");
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("n", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
-        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("nothing to commit")), "{verdict:?}");
+        assert!(refuses(&verdict, "nothing to commit"), "{verdict:?}");
     }
 
     #[test]
@@ -1019,7 +1242,7 @@ mod tests {
         std::fs::write(dir.join("clippy.toml"), "cognitive-complexity-threshold = 99\n").expect("write");
         let before = fixture::head(&dir);
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("o", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
-        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("clippy.toml")), "{verdict:?}");
+        assert!(refuses(&verdict, "clippy.toml"), "{verdict:?}");
         assert_eq!(fixture::head(&dir), before);
     }
 
@@ -1033,7 +1256,7 @@ mod tests {
         std::fs::write(&skill, format!("{original}\ntampered\n")).expect("write");
         let before = fixture::head(&dir);
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("y", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
-        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("SKILL.md")), "{verdict:?}");
+        assert!(refuses(&verdict, "SKILL.md"), "{verdict:?}");
         assert_eq!(fixture::head(&dir), before);
     }
 
@@ -1046,6 +1269,6 @@ mod tests {
         let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/macros.rs");
         let input = fixture::tool_input("m", "Edit", &target);
         let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
-        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("compile-time-accepted")), "{verdict:?}");
+        assert!(refuses(&verdict, "compile-time-accepted"), "{verdict:?}");
     }
 }

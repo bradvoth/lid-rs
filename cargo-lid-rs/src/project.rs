@@ -114,9 +114,8 @@ impl Project {
     /// from.
     #[implements(spec::MembersWithoutALibraryTargetAreSkipped)]
     pub fn library_members(&self) -> Vec<String> {
-        let members = self.member_ids();
         self.packages()
-            .filter(|package| package.pointer("/id").is_some_and(|id| members.contains(id)))
+            .filter(|package| self.is_member(package))
             .filter(|package| has_library_target(package))
             .filter_map(|package| package.pointer("/name").and_then(serde_json::Value::as_str))
             .map(str::to_string)
@@ -128,19 +127,58 @@ impl Project {
     /// (`docs/intent/phase/lld.md`).
     #[implements(spec::PhaseSevenRunsTheGateInOrder)]
     pub fn publishing_members(&self) -> Vec<String> {
-        let members = self.member_ids();
         self.packages()
-            .filter(|package| package.pointer("/id").is_some_and(|id| members.contains(id)))
+            .filter(|package| self.is_member(package))
             .filter(|package| package.pointer("/publish") != Some(&serde_json::json!([])))
             .filter_map(|package| package.pointer("/name").and_then(serde_json::Value::as_str))
             .map(str::to_string)
             .collect()
     }
 
-    /// The workspace members' package ids: under full metadata, `packages`
-    /// lists every dependency too.
-    fn member_ids(&self) -> Vec<serde_json::Value> {
-        self.doc.pointer("/workspace_members").and_then(serde_json::Value::as_array).cloned().unwrap_or_default()
+    /// The manifest directories of the workspace members — where a slice's
+    /// `docs/intent/<slice>/lld.md` is looked for.
+    #[implements(spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    pub fn member_manifest_dirs(&self) -> Vec<PathBuf> {
+        self.packages()
+            .filter(|package| self.is_member(package))
+            .filter_map(|package| package.pointer("/manifest_path").and_then(serde_json::Value::as_str))
+            .filter_map(|manifest| Path::new(manifest).parent().map(Path::to_path_buf))
+            .collect()
+    }
+
+    /// The target kinds (`lib`, `bin`, `proc-macro`, `custom-build`, …) of
+    /// the package whose manifest directory is `dir`.
+    #[implements(spec::ACompileTimeSliceIsDisclosed)]
+    pub fn target_kinds_at(&self, dir: &Path) -> Vec<String> {
+        self.packages()
+            .filter(|package| self.package_dir_is(package, dir))
+            .flat_map(|package| package.pointer("/targets").and_then(serde_json::Value::as_array).cloned().unwrap_or_default())
+            .flat_map(|target| target.pointer("/kind").and_then(serde_json::Value::as_array).cloned().unwrap_or_default())
+            .filter_map(|kind| kind.as_str().map(str::to_string))
+            .collect()
+    }
+
+    /// Whether a package's manifest directory is `dir`, compared canonically.
+    #[implements(spec::ACompileTimeSliceIsDisclosed)]
+    fn package_dir_is(&self, package: &serde_json::Value, dir: &Path) -> bool {
+        let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+        package
+            .pointer("/manifest_path")
+            .and_then(serde_json::Value::as_str)
+            .and_then(|manifest| Path::new(manifest).parent().map(canonical))
+            .is_some_and(|package_dir| package_dir == canonical(dir))
+    }
+
+    /// Whether a package is a workspace member: under full metadata,
+    /// `packages` lists every dependency too, and `workspace_members` says
+    /// which are the workspace's; a document without that list names only
+    /// members.
+    #[implements(spec::PhaseSevenRunsTheGateInOrder, spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    fn is_member(&self, package: &serde_json::Value) -> bool {
+        self.doc
+            .pointer("/workspace_members")
+            .and_then(serde_json::Value::as_array)
+            .is_none_or(|members| package.pointer("/id").is_some_and(|id| members.contains(id)))
     }
 
     /// A cargo invocation rooted at the project.

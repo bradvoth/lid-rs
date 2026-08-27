@@ -445,9 +445,8 @@ that rebuilds. `cargo package` applies to crates that publish: it builds the
 tarball without the workspace around it, which is what catches an `include_str!`
 reaching outside a package root ([§11](https://bradvoth.github.io/lid-rs/spec/layout.html)).
 `cargo lid-rs sync --check` fails when any synced artifact — the skill
-directory, the phase hooks, the phase agent, the workflow — is not
-byte-identical to what the `lid-rs` the project resolves ships, or when the
-hooks are not registered ([§13](https://bradvoth.github.io/lid-rs/spec/bootstrap.html), keeping current). This list is the floor; a workspace appends
+directory, the phase agents, the workflow — is not byte-identical to what
+the `lid-rs` the project resolves ships ([§13](https://bradvoth.github.io/lid-rs/spec/bootstrap.html), keeping current). This list is the floor; a workspace appends
 build-integrity steps of its own after it, and every copy of the list a
 project keeps must match.
 <!-- ANCHOR_END: gates -->
@@ -737,17 +736,26 @@ concept, not a coincidence of shape — and never by adding a parameter to make 
 behaviours fit one body. Check 8 catches the `bool` version; nothing catches the
 `Option` version, so that one stays a human judgment.
 
-**Phase commits gate themselves.** A slice's work lives on an `lld/<slice>`
-branch with one commit per phase, tagged `phase N:`; a git `commit-msg` hook
-that `cargo lid-rs sync` installs runs phase N's check — the docs at 1, the
-build and lints at 2, the type-check at 3 and 4, the red run at 5 (every
-`#[validates]` test on the slice's claims must fail), the full gate at 7 —
-and a commit whose check fails does not happen. No agent decides whether a
-check runs. A tag naming a phase with no commit of its own (0, 6, 8) is
-refused, not ignored; a commit without a tag is not gated. The same hook
-gates a human at a terminal, an agent in a session, and the `lid-rs`
-workflow that builds a slice unattended from a human-approved LLD, so the
-two modes are interchangeable at every phase boundary.
+**A phase is run by an agent that can only edit, and its commit is the
+check passing.** A slice's work lives on an `lld/<slice>` branch with one
+commit per phase, tagged `phase N:`. Phases 2–7 are each run by a Claude
+Code agent that `cargo lid-rs sync` ships (`.claude/agents/lid-rs-phase-N.md`)
+whose tools are reading and editing — no shell, no git. Its hooks do the
+rest: before every edit a per-phase path policy (Phase 2 writes the
+slice's claims, 3 and 4 the slice's module and `lib.rs`, 5 and 7 the module
+only; never the LLD, the configuration, or another slice); after every
+edit, clippy; and when it ends with a ```` ```commit ```` block, phase N's
+check — the docs at 1, build and lints at 2, the type-check at 3 and 4,
+the red run at 5 (every `#[validates]` test on the slice's claims must
+fail), the full §4.5 gate at 7 — and, if it passes, the commit, staged from
+exactly the policy's paths, with trailers counting the agent's edits,
+observations, commands (always zero), checks, and refusals. A failing check
+keeps the agent running with the output and the skill's rule for that
+check. No agent decides whether a check runs. The interactive skill and
+the `lid-rs` workflow use the same agents, so the two modes are
+interchangeable at every phase boundary. What the hooks bound and what they
+do not — the code the agent writes runs at the Phase 5 and 7 stops with the
+session's privileges — is in §12.
 <!-- ANCHOR_END: flow -->
 
 ---
@@ -1017,10 +1025,10 @@ Cargo.toml                     workspace lints + [workspace.metadata.lid_rs]
 .claude/skills/lid-rs/         the operating skill — tool-owned: written by
                                `cargo lid-rs sync` from the lid-rs dependency,
                                never edited (project guidance goes in AGENTS.md)
-.claude/workflows/lid-rs.js    the unattended build; .claude/agents/lid-rs-phase.md
-                               its per-phase worker — both synced the same way
-.lid-rs/hooks/                 the phase hooks (commit-msg, subagent-start/stop),
-                               synced; git's core.hooksPath points here
+.claude/agents/lid-rs-*.md     the phase agents (one per committing phase) and
+                               the reviewer — edit-only and read-only tool sets,
+                               their hooks in the frontmatter; synced the same way
+.claude/workflows/lid-rs.js    the unattended build — synced the same way
 clippy.toml                    thresholds
 docs/
   intent/
@@ -1088,6 +1096,24 @@ codebase gates correctly on the part that's traced.
 ---
 
 <!-- ANCHOR: bootstrap -->
+**The phase agents bound tool calls, not the code they write.** A phase
+agent (§8) cannot run a command, edit outside its phase's paths, or commit;
+no instruction in its prompt or in a file it reads can make it. But the
+checks its hooks run execute the code it wrote — its tests and anything
+that runs when the test binary loads at the Phase 5 and 7 stops, the
+doctests and mutation runs at 7, and, in a slice whose crate is a
+proc-macro crate or has a build script, every edit's clippy — with the
+session's privileges: network, secrets, writes anywhere. The stop hook
+detects and refuses writes inside the repository that the agent could not
+have made (the synced files, anything outside the policy's paths), and a
+compile-time slice is refused unless the human commits
+`docs/intent/<slice>/compile-time-accepted` with its LLD; nothing detects
+what that code does outside the repository. Run an unattended build only
+where you would let untrusted code run — a container or VM, or a sandbox
+that denies the network and confines writes — with no credentials it does
+not need. Sandboxing each check from the hook is a control the tool may
+own later; until it does, this document does not imply it.
+
 ## 13. Bootstrap checklist
 
 `cargo lid-rs new <name>` performs this list for a new package, and
@@ -1119,13 +1145,12 @@ the `lid-rs` it depends on. Updating is updating the dependency:
 
 ```bash
 cargo update -p lid-rs      # or bump the requirement in Cargo.toml
-cargo lid-rs sync           # rewrites the skill, hooks, agent, and workflow from it
+cargo lid-rs sync           # rewrites the skill, agents, and workflow from it
 ```
 
 The gate's `cargo lid-rs sync --check` fails until every copy matches — after
-a bump you have not synced, after any local edit, and on a fresh clone until
-`sync` has registered the hooks (`core.hooksPath` is per clone). The files
-are tool-owned;
+a bump you have not synced, and after any local edit. The files are
+tool-owned;
 project-specific guidance belongs in `AGENTS.md`, which `init` writes once
 and never touches again. Installing a newer `cargo-lid-rs` does not change
 the skill: the tool reads it from the project's dependency, not from itself.
