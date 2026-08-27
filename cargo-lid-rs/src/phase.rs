@@ -1,7 +1,9 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
+use crate::mapping::EdgeRecord;
+use crate::mutants::{Registry, SpecRecord};
 use crate::project::Project;
 use crate::spec;
 
@@ -149,5 +151,162 @@ fn hook_subagent_start(project: &Project, input: &HookInput) -> Result<(), Strin
 /// `hook subagent-stop`: the recorded `HEAD`, the current one, and whether
 /// this is a retry decide whether the worker may stop.
 fn hook_subagent_stop(project: &Project, input: &HookInput) -> Result<StopDecision, String> {
+    todo!()
+}
+
+/// What a commit subject's tag says.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Tag {
+    /// No `phase N:` prefix: not a phase commit.
+    Untagged,
+    /// A phase with a check.
+    Checked(Phase),
+    /// A `phase N:` prefix naming a phase without a check.
+    Unchecked(u8),
+}
+
+/// One validation's outcome at phase 5.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Outcome {
+    /// The claim the test cites.
+    pub claim: String,
+    /// The test's libtest-relative path.
+    pub test: String,
+    /// Whether the test passed — which, at phase 5, is the failure.
+    pub passed: bool,
+}
+
+/// One package's registry, dumped from its own test binary.
+struct PackageRegistry {
+    /// The package name `cargo test -p` takes.
+    package: String,
+    /// Its specs and edges.
+    registry: Registry,
+}
+
+/// `phase-check`'s arguments: the phase number, then optionally
+/// `--slice <name>`; any other flag is rejected by name.
+#[implements(spec::TheSliceComesFromTheBranchName)]
+fn parse_args(args: &[String]) -> Result<(Phase, Option<String>), String> {
+    todo!()
+}
+
+/// The slice an `lld/<slice>` branch is for, or none for any other name.
+#[implements(spec::TheSliceComesFromTheBranchName)]
+pub fn slice_of_branch(branch: &str) -> Option<String> {
+    todo!()
+}
+
+/// The repository's current branch name.
+fn current_branch(project: &Project) -> Result<String, String> {
+    todo!()
+}
+
+/// The message's subject: its first line that is not a `#` comment.
+fn subject_of(message: &str) -> &str {
+    todo!()
+}
+
+/// What the subject's `phase N:` prefix, if any, names.
+#[implements(spec::UntaggedCommitsPassTheHook, spec::MistypedTagsAreRefusedNotIgnored)]
+pub fn tag_of(subject: &str) -> Tag {
+    todo!()
+}
+
+/// Runs one cargo command with its output inherited, so the check's output
+/// is what the caller prints; fails naming the step.
+fn cargo_step(project: &Project, step: &Step, args: &[&str], env: &[(&str, &str)]) -> Result<(), String> {
+    todo!()
+}
+
+/// Every library member's registry, each from its own test binary.
+fn package_registries(project: &Project) -> Result<Vec<PackageRegistry>, String> {
+    todo!()
+}
+
+/// The file a slice's claims register from: `src/spec/<slice>.rs`, the
+/// slice name in snake_case.
+#[implements(spec::ASlicesClaimsAreTheSpecsInItsSpecFile)]
+pub fn spec_file_of(slice: &str) -> String {
+    todo!()
+}
+
+/// The names of the specs registered from the slice's spec file.
+#[implements(spec::ASlicesClaimsAreTheSpecsInItsSpecFile)]
+pub fn slice_claims(specs: &[SpecRecord], slice: &str) -> Vec<String> {
+    todo!()
+}
+
+/// The claims, or the failure for a slice that registers none.
+#[implements(spec::ASliceWithNoClaimsFailsTheRedCheck)]
+fn require_claims(claims: Vec<String>, slice: &str) -> Result<Vec<String>, String> {
+    todo!()
+}
+
+/// `(claim, test)` for every validation edge on the claims, the test's item
+/// path made libtest-relative.
+#[implements(spec::EachValidationRunsAloneByExactName)]
+pub fn claim_validations(validations: &[EdgeRecord], claims: &[String]) -> Vec<(String, String)> {
+    todo!()
+}
+
+/// Runs one test alone; true when it passes.
+#[implements(spec::EachValidationRunsAloneByExactName)]
+fn run_test(project: &Project, package: &str, test: &str) -> Result<bool, String> {
+    todo!()
+}
+
+/// The claims no outcome validates.
+#[implements(spec::EveryClaimNeedsAValidationBeforePhaseFivePasses)]
+pub fn unvalidated(claims: &[String], outcomes: &[Outcome]) -> Vec<String> {
+    todo!()
+}
+
+/// The verdict: pass when nothing is unvalidated and nothing is green;
+/// otherwise the failure naming every unvalidated claim and green test.
+#[implements(spec::EveryClaimNeedsAValidationBeforePhaseFivePasses, spec::AGreenValidationFailsTheRedCheck)]
+pub fn red_verdict(unvalidated: &[String], outcomes: &[Outcome]) -> Result<(), String> {
+    todo!()
+}
+
+/// The hook's stdin, whole.
+fn read_stdin() -> Result<String, String> {
+    todo!()
+}
+
+impl HookInput {
+    /// The fields the hooks use, from Claude Code's hook JSON.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        todo!()
+    }
+}
+
+/// Where an agent's `HEAD` record lives: `<target>/lid-rs/agents/<agent_id>`.
+#[implements(spec::AStartingWorkerRecordsHead)]
+fn record_path(project: &Project, agent_id: &str) -> Result<PathBuf, String> {
+    todo!()
+}
+
+/// The repository's current `HEAD`.
+fn head(project: &Project) -> Result<String, String> {
+    todo!()
+}
+
+/// Whether the worker may stop, from its recorded `HEAD`, the current one,
+/// and whether Claude Code is already retrying after a refusal.
+#[implements(
+    spec::AWorkerThatCommittedMayStop,
+    spec::AWorkerThatDidNotCommitIsRefusedOnce,
+    spec::ASecondStopAttemptIsAllowed,
+    spec::AStopWithoutARecordIsAllowed,
+)]
+pub fn stop_decision(recorded: Option<&str>, head: &str, retry: bool) -> StopDecision {
+    todo!()
+}
+
+/// What the stop hook prints: nothing to allow, Claude Code's block
+/// decision JSON to refuse.
+#[implements(spec::AWorkerThatDidNotCommitIsRefusedOnce)]
+pub fn render(decision: &StopDecision) -> String {
     todo!()
 }

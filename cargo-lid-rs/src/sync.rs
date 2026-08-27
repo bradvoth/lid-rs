@@ -163,6 +163,17 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
+/// Marks a mirrored hook script executable.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+fn set_executable(path: &Path) -> Result<(), String> {
+    todo!()
+}
+
+/// A git config value in the repository at `root`, or none when unset.
+pub(crate) fn git_config_get(root: &Path, key: &str) -> Result<Option<String>, String> {
+    todo!()
+}
+
 /// The git config key the synced hooks are registered under.
 pub const HOOKS_PATH_KEY: &str = "core.hooksPath";
 

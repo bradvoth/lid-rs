@@ -22,9 +22,20 @@ pub struct Mutant {
     pub function: String,
 }
 
+/// One registered claim: its name and the file it is defined in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SpecRecord {
+    /// The spec's `NAME`.
+    pub name: String,
+    /// Source file of the `derive(Spec)` site.
+    pub file: String,
+}
+
 /// The dumped registries the planner joins over.
 #[derive(Debug, Default)]
 pub struct Registry {
+    /// Every claim, with its definition file (`phase-check 5` reads these).
+    pub specs: Vec<SpecRecord>,
     /// Implementation edges across the workspace's crates.
     pub impls: Vec<EdgeRecord>,
     /// Validation edges across the workspace's crates.
@@ -136,6 +147,7 @@ pub fn collect_registries(project: &Project) -> Result<Registry, String> {
     let mut registry = Registry::default();
     for package in project.library_members() {
         let dumped = dump_registry(project, &package)?;
+        registry.specs.extend(dumped.specs);
         registry.impls.extend(dumped.impls);
         registry.validations.extend(dumped.validations);
     }
@@ -171,6 +183,7 @@ fn parse_dump(output: &str) -> Registry {
             file: (*file).to_string(),
         };
         match *kind {
+            "SPEC" => registry.specs.push(SpecRecord { name: record.spec, file: record.item }),
             "IMPL" => registry.impls.push(record),
             "VALID" => registry.validations.push(record),
             _ => {}
