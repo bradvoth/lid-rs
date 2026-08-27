@@ -115,7 +115,11 @@ cargo-lid-rs --`, so the hooks here exercise the working tree, as CLAUDE.md
 requires of the gate, without the deprecated alias-over-external-subcommand
 that `.cargo/config.toml` already declines. `sync` also sets `git config core.hooksPath .lid-rs/hooks` in the project's
 repository on every run (the config is per-clone, so a fresh clone needs
-it), and `sync --check` fails when it is not set to that. `init` obtains
+it), and `sync --check` fails when it is not set to that. CI is a fresh
+clone that never runs `sync`, and a clone where nothing commits has no
+"forgot to sync" to detect, so the emitted `gate.yml` registers the hooks
+itself with that one `git config` line before the gate; `--check` stays
+strict rather than learning to guess where it is running. `init` obtains
 both by calling `sync`, as it already does for the skill; a `core.hooksPath`
 already set to another value is a conflict under `init`'s all-or-nothing
 rule, since the project has a hook arrangement of its own to reconcile.
