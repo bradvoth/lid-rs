@@ -114,7 +114,9 @@ impl Project {
     /// from.
     #[implements(spec::MembersWithoutALibraryTargetAreSkipped)]
     pub fn library_members(&self) -> Vec<String> {
+        let members = self.member_ids();
         self.packages()
+            .filter(|package| package.pointer("/id").is_some_and(|id| members.contains(id)))
             .filter(|package| has_library_target(package))
             .filter_map(|package| package.pointer("/name").and_then(serde_json::Value::as_str))
             .map(str::to_string)
@@ -126,13 +128,19 @@ impl Project {
     /// (`docs/intent/phase/lld.md`).
     #[implements(spec::PhaseSevenRunsTheGateInOrder)]
     pub fn publishing_members(&self) -> Vec<String> {
-        let members = self.doc.pointer("/workspace_members").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        let members = self.member_ids();
         self.packages()
             .filter(|package| package.pointer("/id").is_some_and(|id| members.contains(id)))
             .filter(|package| package.pointer("/publish") != Some(&serde_json::json!([])))
             .filter_map(|package| package.pointer("/name").and_then(serde_json::Value::as_str))
             .map(str::to_string)
             .collect()
+    }
+
+    /// The workspace members' package ids: under full metadata, `packages`
+    /// lists every dependency too.
+    fn member_ids(&self) -> Vec<serde_json::Value> {
+        self.doc.pointer("/workspace_members").and_then(serde_json::Value::as_array).cloned().unwrap_or_default()
     }
 
     /// A cargo invocation rooted at the project.
