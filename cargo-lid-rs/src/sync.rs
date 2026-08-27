@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
@@ -93,20 +93,26 @@ fn copy_root(project: &Project) -> Result<PathBuf, String> {
 /// The files currently under `root`, keyed by path relative to `root`; empty
 /// if `root` doesn't exist.
 fn existing_files(root: &Path) -> BTreeMap<PathBuf, String> {
-    todo!()
+    read_relative_files(root).unwrap_or_default()
 }
 
 /// Named differences between `current` and `source`: a path missing from
 /// `current`, a path in `current` not in `source`, or a path whose content
 /// differs.
 fn describe_differences(current: &BTreeMap<PathBuf, String>, source: &BTreeMap<PathBuf, String>) -> Vec<String> {
-    todo!()
+    let paths: BTreeSet<&PathBuf> = current.keys().chain(source.keys()).collect();
+    paths.into_iter().filter_map(|path| describe_one_difference(path, current.get(path), source.get(path))).collect()
 }
 
 /// One relative path's difference, if any, between the project's copy and
 /// the dependency's skill.
 fn describe_one_difference(relative: &Path, current: Option<&String>, source: Option<&String>) -> Option<String> {
-    todo!()
+    match (current, source) {
+        (None, Some(_)) => Some(format!("{} is missing", relative.display())),
+        (Some(_), None) => Some(format!("{} is not part of the skill", relative.display())),
+        (Some(c), Some(s)) if c != s => Some(format!("{} differs", relative.display())),
+        _ => None,
+    }
 }
 
 /// Recursively reads every file under `root`, keyed by its path relative to
@@ -117,10 +123,28 @@ pub(crate) fn read_relative_files(root: &Path) -> Result<BTreeMap<PathBuf, Strin
     Ok(files)
 }
 
-/// Visits `dir` (a subtree of `root`), recursing into subdirectories and
-/// inserting every file's content keyed by its path relative to `root`.
+/// Visits every entry directly under `dir` (a subtree of `root`), dispatching
+/// each to a directory recursion or a file read.
 fn collect_relative_files(root: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, String>) -> Result<(), String> {
-    todo!()
+    let entries = std::fs::read_dir(dir).map_err(|e| format!("reading {}: {e}", dir.display()))?;
+    for entry in entries {
+        let path = entry.map_err(|e| format!("reading {}: {e}", dir.display()))?.path();
+        visit_entry(root, &path, files)?;
+    }
+    Ok(())
+}
+
+/// Recurses into `path` if it's a directory, otherwise records its content.
+fn visit_entry(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, String>) -> Result<(), String> {
+    if path.is_dir() { collect_relative_files(root, path, files) } else { insert_relative_file(root, path, files) }
+}
+
+/// Records `path`'s content keyed by its path relative to `root`.
+fn insert_relative_file(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, String>) -> Result<(), String> {
+    let relative = path.strip_prefix(root).expect("path is under root").to_path_buf();
+    let content = std::fs::read_to_string(path).map_err(|e| format!("reading {}: {e}", path.display()))?;
+    files.insert(relative, content);
+    Ok(())
 }
 
 /// Writes `files`, each at its relative path under `root`, creating
