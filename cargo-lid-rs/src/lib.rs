@@ -4,6 +4,8 @@
 pub mod init;
 pub mod mapping;
 pub mod mutants;
+#[doc = include_str!("../docs/intent/phase/lld.md")]
+pub mod phase;
 pub mod project;
 pub mod spec;
 #[doc = include_str!("../docs/intent/sync/lld.md")]
