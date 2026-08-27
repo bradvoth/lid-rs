@@ -70,7 +70,7 @@ pub use phase::{
     OnlyThePoliciesPathsAreStaged,
     NothingToCommitIsARefusal,
     TheTallyIsWrittenAsTrailers,
-    ACompileTimeSliceIsDisclosed,
+    ACompileTimeSliceIsDisclosed, ACompileTimeSliceNeedsTheHumansAcceptance,
     SyncMirrorsEveryArtifactTheDependencyShips,
 };
 

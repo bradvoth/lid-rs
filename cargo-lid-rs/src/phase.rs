@@ -1,5 +1,17 @@
 
+use std::path::PathBuf;
+
 use lid_rs::implements;
+
+pub mod ending;
+pub mod integrity;
+pub mod policy;
+pub mod tally;
+
+use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
+use integrity::{outside_policy_clean, synced_artifacts_match};
+use policy::{ToolKind, Verdict, allowed_paths, execution_class, kind_of, slice_crate};
+use tally::{Event, Tally};
 
 use crate::mapping::EdgeRecord;
 use crate::mutants::{self, Registry, SpecRecord, dump_registry};
@@ -117,9 +129,127 @@ pub fn run(args: &[String]) -> Result<(), String> {
     check(&project, phase, slice.as_deref())
 }
 
-/// `hook <pre-tool <n> | post-edit <n> | stop <n>>`: the phase agents' hooks.
+/// What a hook reads from the JSON Claude Code passes on stdin — the
+/// boundary type; everything past it takes plain values.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct HookInput {
+    /// The subagent's id, the key its tally is filed under.
+    pub agent_id: String,
+    /// The tool being called (`PreToolUse`, `PostToolUse`).
+    pub tool_name: Option<String>,
+    /// The file the tool targets, when it targets one.
+    pub tool_path: Option<PathBuf>,
+    /// The agent's final message (`Stop`).
+    pub last_message: String,
+    /// True when Claude Code is already continuing because a stop was refused.
+    pub stop_hook_active: bool,
+}
+
+/// A hook's answer, rendered to stdout at the boundary in the form Claude
+/// Code reads for that event.
+#[derive(Debug, PartialEq, Eq)]
+pub enum HookVerdict {
+    /// The call, or the stop, proceeds; nothing is printed.
+    Allow,
+    /// The call is denied, or the agent is kept running, with this reason.
+    Refuse(String),
+    /// The call proceeded; this text is handed back as additional context.
+    Context(String),
+}
+
+/// `hook <pre-tool <n> | post-edit <n> | stop <n>>`: one dispatch over the
+/// hook kind; each reads Claude Code's JSON from stdin and prints its
+/// verdict.
 pub fn hook(args: &[String]) -> Result<(), String> {
-    Err(format!("{HOOK_USAGE} (given {args:?})"))
+    let (kind, phase) = parse_hook_args(args)?;
+    let project = Project::load_graph()?;
+    let input = HookInput::from_json(&read_stdin()?)?;
+    let verdict = match kind {
+        HookKind::PreTool => hook_pre_tool(&project, phase, &input)?,
+        HookKind::PostEdit => hook_post_edit(&project, &input)?,
+        HookKind::Stop => hook_stop(&project, phase, &input)?,
+    };
+    print!("{}", render(kind, &verdict));
+    Ok(())
+}
+
+/// The three hooks a phase agent declares.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookKind {
+    /// Before every tool call: the path policy and the tally.
+    PreTool,
+    /// After every edit: clippy as context.
+    PostEdit,
+    /// When the agent ends: the check, then the commit.
+    Stop,
+}
+
+/// `<kind> <n>`: which hook, for which phase.
+fn parse_hook_args(args: &[String]) -> Result<(HookKind, Phase), String> {
+    todo!()
+}
+
+/// The hook's stdin, whole.
+fn read_stdin() -> Result<String, String> {
+    todo!()
+}
+
+impl HookInput {
+    /// The fields the hooks use, from Claude Code's hook JSON; fields absent
+    /// for an event are empty.
+    pub fn from_json(json: &str) -> Result<Self, String> {
+        todo!()
+    }
+}
+
+/// Renders a verdict the way Claude Code reads it for the event: a deny
+/// decision for `PreToolUse`, additional context for `PostToolUse`, a
+/// block decision for `Stop`; nothing when allowed.
+fn render(kind: HookKind, verdict: &HookVerdict) -> String {
+    todo!()
+}
+
+/// `hook pre-tool <n>`: an editing tool's target must be in the phase's
+/// allowed set; every call is tallied.
+#[implements(spec::ReadsAreNeverRefused, spec::EveryToolCallIsTallied)]
+fn hook_pre_tool(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// The policy verdict for one edit, as the hook renders it.
+#[implements(spec::ARefusedEditQuotesTheDisciplineRow)]
+fn edit_verdict(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// `hook post-edit <n>`: clippy, its output as context.
+#[implements(spec::EveryEditIsFollowedByClippy)]
+fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// `hook stop <n>`: the final message's ending decides — a `stop` block
+/// ends the phase uncommitted; a `commit` block runs the check and, with
+/// integrity intact, commits the phase's paths.
+#[implements(spec::AStopBlockEndsThePhaseWithoutACommit, spec::ACommitBlockRunsThePhasesCheck)]
+fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// The commit path of the stop hook: integrity, the check, integrity again,
+/// then staging and committing; each failure is the refusal it names.
+#[implements(
+    spec::SyncedArtifactsMustMatchAtTheStop,
+    spec::ChangesOutsideThePolicyRefuseTheStop,
+    spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves,
+)]
+fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &str) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// Clippy over the workspace, captured: the output, or "clean".
+fn clippy_output(project: &Project) -> Result<String, String> {
+    todo!()
 }
 
 /// Runs a phase's check: its plan, executed in order.

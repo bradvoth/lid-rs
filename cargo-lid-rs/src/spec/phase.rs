@@ -201,6 +201,12 @@ pub struct TheTallyIsWrittenAsTrailers;
 #[derive(Spec)]
 pub struct ACompileTimeSliceIsDisclosed;
 
+/// When the slice is compile-time and `docs/intent/<slice>/compile-time-accepted`
+/// does not exist in the slice's crate, the policy shall refuse every edit,
+/// naming the file the human commits to accept it.
+#[derive(Spec)]
+pub struct ACompileTimeSliceNeedsTheHumansAcceptance;
+
 // ---- sync: the mirrored artifacts ------------------------------------------------
 
 /// When `sync` runs, it shall mirror each artifact the resolved `lid-rs`
