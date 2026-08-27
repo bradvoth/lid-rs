@@ -83,6 +83,13 @@ pub enum Change {
         /// Where the copy lands: `<workspace_root>/.claude/skills/lid-rs/`.
         path: PathBuf,
     },
+    /// `core.hooksPath` pointed at the synced hooks; a repository whose
+    /// `core.hooksPath` is already set elsewhere is a conflict
+    /// (`docs/intent/phase/lld.md`).
+    AssertHooksPath {
+        /// The workspace root, the repository the config belongs to.
+        root: PathBuf,
+    },
     /// The `lid-rs` dependency, added by `cargo add`.
     AddDependency {
         /// The manifest's directory.
@@ -240,6 +247,7 @@ impl Change {
             Change::CreateFile { path, .. } | Change::SyncSkill { path, .. } => existing_file(path),
             Change::AppendManifestTables { path } => existing_table(path),
             Change::WireLibrary { path } => existing_graph(path),
+            Change::AssertHooksPath { root } => foreign_hooks_path(root),
             Change::EnsureLine { .. } | Change::AddDependency { .. } => None,
         }
     }
@@ -275,6 +283,7 @@ fn apply(change: &Change) -> Result<(), String> {
         Change::WireLibrary { path } => wire_library(path),
         Change::EnsureLine { path, line } => ensure_line(path, line),
         Change::SyncSkill { manifest, .. } => sync::write(&Project::load_graph_at(manifest)?),
+        Change::AssertHooksPath { root } => sync::assert_hooks_path(root),
         Change::AddDependency { dir, source } => add_dependency(dir, source),
     }
 }
@@ -349,6 +358,12 @@ fn dependency_args(source: &LidRsSource) -> Vec<String> {
             ["add", "lid-rs", "--path"].map(String::from).into_iter().chain([dir.display().to_string()]).collect()
         }
     }
+}
+
+/// The conflict for `core.hooksPath`: set, and not to the synced hooks.
+#[implements(spec::AForeignHooksPathIsAnInitConflict)]
+fn foreign_hooks_path(root: &Path) -> Option<String> {
+    todo!()
 }
 
 #[cfg(test)]
