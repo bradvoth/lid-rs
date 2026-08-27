@@ -21,6 +21,9 @@ mutants in scope"), not silence.
 
 Commit the slice with the phase history legible in the message — this
 commit covers Phase 6's implementation together with the passing gate, since
-Phase 6 has no stop of its own: `phase 7: gate and implementation for
-<slice>`. This is typically the branch's last phase commit before opening
-the PR; the PR is then reviewable by walking phases 1 through 7 in order.
+Phase 6 has no stop of its own. This is typically the branch's last phase
+commit before opening the PR; the PR is then reviewable by walking phases 1
+through 7 in order. Its exact form follows the project's normal commit
+convention (e.g. `<version>: <what and why>`) rather than a mechanical
+`phase 7: ...` tag — that tag is what makes phases 1–5's history legible,
+not a requirement on the commit a reviewer or changelog will actually read.
