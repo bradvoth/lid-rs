@@ -6,11 +6,13 @@ pub mod mapping;
 pub mod mutants;
 pub mod project;
 pub mod spec;
+#[doc = include_str!("../docs/intent/sync/lld.md")]
+pub mod sync;
 
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>]>";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check]>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
@@ -38,6 +40,7 @@ fn dispatch(args: &[String]) -> Result<(), String> {
         Some("mutants") => mutants::run(&args[1..]),
         Some("init") => init::run(&args[1..]),
         Some("new") => init::run_new(&args[1..]),
+        Some("sync") => sync::run(&args[1..]),
         Some(other) => Err(format!("unknown subcommand `{other}`\n{USAGE}")),
         None => Err(USAGE.to_string()),
     }

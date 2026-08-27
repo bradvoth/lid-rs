@@ -2,6 +2,9 @@
 name: lid-rs
 description: Operate the LID-rs methodology (compiler-enforced linked-intent development) on a Rust codebase. Consult for ALL Rust code changes in a workspace that depends on the `lid-rs` crate or has docs/intent/ — features, refactors, and bug fixes alike. Walks changes through the phase flow (LLD → claims → skeleton → failing tests → leaves → gate), enforces the dispatch/work rule, and prescribes the correct response when a gate fires.
 ---
+<!-- Managed by `cargo lid-rs sync` from the `lid-rs` crate this project depends on.
+     Do not edit: the gate's `sync --check` fails on any difference. Project-specific
+     guidance belongs in AGENTS.md. -->
 <!-- ANCHOR: skill -->
 
 # Operating LID-rs
@@ -16,13 +19,17 @@ section references below point there.
 
 ## Three rules above everything
 
-1. **Stop at phase boundaries.** After each phase, present the output, take
-   numbered feedback, proceed only on explicit approval (the user may waive
-   stops for a session; note the waiver and keep self-reviewing).
+1. **Stop at phase boundaries.** After each phase, present the output and
+   end with at most three numbered decisions the reviewer must make;
+   "continue" approves those and nothing else. A waiver is per slice —
+   restate it at Phase 0 — and a directive to a fork may not waive Phase 5.
+   Keep self-reviewing under a waiver.
 2. **A firing lint is the system working.** Never suppress a warning, raise a
    clippy threshold, add `#[allow]`, or wildcard a match to get past the gate.
    The only sanctioned `#[allow]`s are the ones inside macro-generated
-   registration blocks, which you never write by hand.
+   registration blocks, which you never write by hand. `#[mutants::skip]` is
+   a suppression too: only on pure I/O sequencing, only with the reason in
+   the LLD's decisions table, only after asking.
 3. **A leaf with a branch in it is a requirement nobody wrote down.** A
    function either makes one flow decision (one `match` or one `if/else`
    chain) or does one unit of work — never both. When a decision starts
@@ -111,8 +118,13 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
 cargo package -p <crate> --allow-dirty   # published crates: tarball builds standalone
+cargo lid-rs sync --check  # the skill matches the lid-rs the project depends on
 cargo lid-rs mutants       # diff scope; --full / --diff-base <ref> override
 ```
+
+A failed gate never has "commit anyway" as an option: fix it, prove the tool
+wrong with a reproducer, or stop. A gate that prints nothing is a result to
+report ("0 mutants in scope"), not silence.
 
 Commit the slice with the phase history legible in the message.
 
@@ -172,8 +184,26 @@ propagating into another slice's LLD territory.
 | check 8 — bool parameter | Two functions in a trench coat | Split into two leaves; share common structure in a wrapper, never via a flag. The `Option`-parameter variant is your judgment — nothing catches it |
 | check 9 — too many lines | An unnamed sub-thought inlined | Extract and name it |
 | check 10/11 — uncited/unvalidated spec | The design says it; nothing does/would-notice it | Implement or validate the claim — or if the claim is wrong, cascade its removal from the LLD down |
-| check 12 — surviving mutant | A test executes the code but asserts nothing about it — or the test that *would* kill it cites a different claim, so the narrowed test set never ran it | Strengthen the test to assert the claim's observable behaviour, or fix the citation: a killing test must cite the claim the mutated function implements, because narrowing follows citations |
+| check 12 — surviving mutant | A test executes the code but asserts nothing about it — or the test that *would* kill it cites a different claim, so the narrowed test set never ran it | Strengthen the test to assert the claim's observable behaviour, or fix the citation: a killing test must cite the claim the mutated function implements, because narrowing follows citations. A survivor in a `match` arm of a cited function has two fixes — write the claim the arm implements, or delete the arm; moving it to an untraced function is suppression. If the intended test kills the mutant by hand, suspect the engine's narrowing before the planner: `cargo mutants --list -F '<the group's regex>'` must list exactly the group; if it lists more, the engine ignored the filter for that mutant kind — report it with that output |
 | canary failure | The registry itself is untrustworthy (stripped sections) | Fix the build/linker configuration first; no other registry result means anything |
+
+## Where discipline slips
+
+The gates catch structure. They cannot catch a phase quietly merged into the
+next, a helper dropped into the nearest file, or a claim borrowed from another
+slice — each legal, each compounding into a module nobody can trace. These
+are the moments it happens; at each, run the check.
+
+| When | Do this |
+|---|---|
+| A new type, function, or decision is about to appear while implementing (Phase 6/7) | Stop: it is a Phase 8 event. Edit the LLD, derive or rename the claim, then write the code. At Phase 7, confirm every backticked identifier in the LLD's shape table resolves in `src/`. |
+| Reusing an earlier slice's claim looks economical (Phase 2/3) | Don't. A slice cites its own claims. A method this slice adds to an earlier slice's type is this slice's code, in this slice's module — otherwise the tests that kill its mutants sit in another slice's plan and the mutants survive. |
+| The natural file for a helper is an older module (Phase 6) | Put it in this slice's module: untraced helpers belong to the slice that adds them. Report each module's untraced-function count at Phase 7; a rising count in an old module is a fallback bucket forming. |
+| A library type — enum, struct, error, event stream — is about to be used inside a leaf (Phase 3, reviewing signatures; Phase 6) | Keep it at the boundary. One function translates it into domain data; interior functions take and return domain types; rendering is a second boundary. Classify strings and magic numbers the design branches on once, into an enum or a named constant. Use an enum for a closed set of decisions (its variants are claims) and a trait for a capability. Count the match sites before saying "one". |
+| About to call a leaf done (Phase 6) | An arm with two statements, or an `if` followed by more statements, is dispatch and work in one function: split it, or write the claim the branch implements. The complexity threshold bounds line counts, not decisions. |
+| Writing a claim (Phase 2) | One *when*, one *shall*; no parenthetical alternatives; both halves name something a test can construct or observe; an implementer for it exists in the shape table. If the slice's central mechanism has no claim, its tests will attach themselves to the wrong ones. |
+| The slice is large and the red run feels like a formality (Phase 4/5; any fork directive) | Run it as its own step and paste the output. A body written in Phase 4 has lost its red run, and the commit must say so. Size is a reason to fork the red run, never to skip it. |
+| A gate result looks like a tool bug (Phase 7) | Write two hypotheses and name the observation that separates them before concluding; evidence consistent with both is not proof. For check 12, run the narrowing test in the table above. |
 
 ## What no gate catches (your residual duties)
 

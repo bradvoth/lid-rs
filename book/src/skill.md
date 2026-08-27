@@ -1,1 +1,1 @@
-{{#include ../../.claude/skills/lid-rs/SKILL.md:skill}}
+{{#include ../../lid-rs/skill/SKILL.md:skill}}

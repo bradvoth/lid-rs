@@ -50,7 +50,7 @@ Run in a directory holding a package manifest (`Cargo.toml` with
 | `.github/workflows/gate.yml` — README §4.5 in order, installing `cargo-mutants` and `cargo-lid-rs` | new file | exists → conflict |
 | `.gitignore` — `mutants.out/` | appended line | line present → skipped, not a conflict |
 | `AGENTS.md` — the eight phases, the dispatch/work rule, the gate, and where the full skill lives; `CLAUDE.md` importing it (`@AGENTS.md`) | new files | either exists → conflict |
-| `.claude/skills/lid-rs/SKILL.md` — the operating skill | new file, from the template copy of this repository's skill | exists → conflict |
+| `.claude/skills/lid-rs/SKILL.md` — the operating skill | `cargo lid-rs sync` from the resolved `lid-rs` dependency (`docs/intent/sync/lld.md`), run after `cargo add` | exists → conflict |
 
 `new <name>` runs `cargo new --lib <name>`, empties the generated `src/lib.rs`
 (cargo's `add` function carries no doc comment and would fail
@@ -66,21 +66,15 @@ The lint levels go in `[lints.*]` on the package, not `[workspace.lints]`:
 single-package project reads. A workspace member is not a target of this
 slice (see Deferred).
 
-## The skill in the template
+## The skill
 
 The operating skill is the standing instruction an agent loads to run the
 methodology; without it an `AGENTS.md` summary is a table of contents for a
-book the agent has not read. The canonical file is
-`.claude/skills/lid-rs/SKILL.md`, where this workspace's own agent loads it —
-and that path is outside `cargo-lid-rs`'s package root, so the tool cannot
-`include_str!` it (the lesson of `docs/intent/publish/lld.md`). The template
-is therefore a copy at `cargo-lid-rs/templates/SKILL.md`, and a unit test
-asserts the copy is byte-identical to the canonical file: a moved or edited
-skill fails `cargo test --lib` until the copy is refreshed. Drift between two
-copies in one repository is gated; drift between a repository and every
-project it ever scaffolded is not, and is accepted — an emitted skill is a
-snapshot at the tool's version, which is what a snapshot of the toolchain's
-dependency is too.
+book the agent has not read. `init` does not carry the skill: it ships inside
+the `lid-rs` crate, and `init` obtains it the way every later update does —
+`sync` from the dependency `cargo add` just resolved
+(`docs/intent/sync/lld.md`). The skill a project gets is therefore the one
+that matches its `lid-rs`, not the one the installed tool happened to embed.
 
 ## Decisions & Alternatives
 
@@ -93,8 +87,7 @@ dependency is too.
 | Atomicity | Compute all targets, check all conflicts, then write all | Write as you go and stop at the first conflict; `--force` to overwrite | A partial `init` leaves a package that is neither plain nor LID-ready and cannot be re-run. Overwriting is never right for a file the user wrote: the conflict message names the file and the user decides. |
 | Bin-only packages | `init` creates `src/lib.rs`; the existing binary is untouched | Refuse; require `--lib`; document `main.rs` on the user's behalf | `cargo new` defaults to a binary. LID's validations live in the library test binary (§5.2), so a package without a library cannot run checks 10–12; creating the library is the smallest change that makes the package eligible, and cargo discovers it without a manifest edit. The binary is the user's code: the lint levels apply to it immediately (§11, brownfield), so the package's first full gate run names its undocumented `main` — the intended adoption experience, not a defect of `init`. |
 | `new`'s `lib.rs` | Emptied, then wired by `init` into the documented skeleton | Keep cargo's `add` function and document it in place; delete the file and let `init` create it | cargo's boilerplate exists to be replaced; documenting a placeholder function is busywork the first slice deletes anyway. Deleting was tried and fails: `cargo metadata` rejects a package with no target, so `init` cannot locate it. `init` on an existing package never replaces `lib.rs`. |
-| Agent instructions | `AGENTS.md` with the phases, the rule, and the gate; `CLAUDE.md` = `@AGENTS.md`; the skill emitted verbatim | `CLAUDE.md` only; a URL to the published skill and nothing local; wait for the plugin | `AGENTS.md` is the cross-tool convention and `CLAUDE.md` imports it, so both Claude Code and other agents read one text. A URL alone leaves an agent that does not fetch operating blind. The plugin (HLD non-goal) remains the long-term home; until it exists, the emitted copy is the only way a new project gets the skill at all. |
-| Skill drift | Template copy gated byte-equal to the canonical skill by a unit test | `include_str!` of the canonical path (fails from the tarball); making the template the canonical location and the `.claude/` file a copy | The test is the gate; which file is canonical is a naming choice, and the one Claude Code loads should be the one humans edit. |
+| Agent instructions | `AGENTS.md` with the phases, the rule, and the gate; `CLAUDE.md` = `@AGENTS.md`; the skill synced from the dependency | `CLAUDE.md` only; a URL to the published skill and nothing local; wait for the plugin; a skill template embedded in the tool (the 0.1 arrangement) | `AGENTS.md` is the cross-tool convention and `CLAUDE.md` imports it, so both Claude Code and other agents read one text. A URL alone leaves an agent that does not fetch operating blind. A template in the tool describes the tool's version, not the project's `lid-rs`; syncing from the dependency ties the skill to the crate whose mechanics it documents and gives projects an update path. |
 | Workspace members | Out of scope; `init` targets the package in the current directory | Detect membership and write `[workspace.lints]` + `[lints] workspace = true` | Two manifests, two conflict rules, and a package that inherits lints from a root `init` did not write. Deferred until a member project asks for it. |
 
 ## Open Questions & Future Decisions
@@ -104,14 +97,11 @@ dependency is too.
 2. A thin `src/bin/` alongside the library for `new` (README §11's layout);
    a library-only package is a valid starting point.
 3. `--vcs` pass-through to `cargo new`.
-4. Skill delivery, to be revisited. Emitting a snapshot couples the skill's
-   version to the tool's, which is right for the parts of the skill that
-   describe what the toolchain enforces and wrong for the parts that are
-   process guidance and could update independently through a plugin. Where
-   that seam lies is not yet clear — the coupling between skill and
-   implementation is fuzzy — and this design should be broken up once it is:
-   likely a plugin for the process half and an emitted, version-pinned
-   fragment for the toolchain half.
+4. Skill delivery via a plugin for the process half. The skill now tracks
+   the `lid-rs` version, which is right for the parts that describe what the
+   toolchain enforces and a constraint on the parts that are process guidance
+   and could update independently. Where that seam lies is not yet clear;
+   break the skill up once it is.
 
 ## References
 

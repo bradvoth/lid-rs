@@ -3,6 +3,7 @@ use std::path::{Path, PathBuf};
 use lid_rs::implements;
 
 use crate::project::{Project, capture, cargo_command};
+use crate::sync;
 use crate::spec;
 
 /// Usage shown for `new` without a name.
@@ -41,6 +42,8 @@ pub struct Package {
     pub dir: PathBuf,
     /// Its name, from `cargo metadata`.
     pub name: String,
+    /// Its workspace root, from `cargo metadata`.
+    pub root: PathBuf,
 }
 
 /// One planned change, computed before anything is written.
@@ -71,6 +74,14 @@ pub enum Change {
         path: PathBuf,
         /// The line.
         line: String,
+    },
+    /// The operating skill, synced from the `lid-rs` the manifest resolves
+    /// (`docs/intent/sync/lld.md`); the path existing is a conflict.
+    SyncSkill {
+        /// The manifest whose resolved `lid-rs` supplies the skill.
+        manifest: PathBuf,
+        /// Where the copy lands: `<workspace_root>/.claude/skills/lid-rs/SKILL.md`.
+        path: PathBuf,
     },
     /// The `lid-rs` dependency, added by `cargo add`.
     AddDependency {
@@ -147,10 +158,11 @@ impl Package {
         let canonical = manifest
             .canonicalize()
             .map_err(|e| format!("resolving {}: {e}", manifest.display()))?;
-        let name = Project::load_at(&canonical)?
+        let project = Project::load_at(&canonical)?;
+        let name = project
             .package_at(&canonical)
             .ok_or_else(|| format!("{} is not a package manifest", manifest.display()))?;
-        Ok(Self { dir: dir.to_path_buf(), name })
+        Ok(Self { dir: dir.to_path_buf(), name, root: project.root()? })
     }
 }
 
@@ -188,15 +200,11 @@ fn plan(package: &Package, options: &Options) -> Result<Vec<Change>, String> {
         Change::EnsureLine { path: package.dir.join(".gitignore"), line: MUTANTS_IGNORE.to_string() },
         file("AGENTS.md", include_str!("../templates/AGENTS.md"))?,
         file("CLAUDE.md", include_str!("../templates/CLAUDE.md"))?,
-        file(".claude/skills/lid-rs/SKILL.md", skill_template())?,
+        Change::SyncSkill {
+            manifest: package.dir.join("Cargo.toml"),
+            path: package.root.join(sync::SKILL_IN_PROJECT),
+        },
     ])
-}
-
-/// The operating skill `init` emits — a copy of this repository's canonical
-/// skill, gated byte-equal to it.
-#[implements(spec::TheEmittedSkillMatchesTheCanonicalSkill)]
-pub fn skill_template() -> &'static str {
-    include_str!("../templates/SKILL.md")
 }
 
 /// Substitutes every placeholder in `template`; a placeholder left over is an
@@ -229,7 +237,7 @@ impl Change {
     #[implements(spec::InitWritesNothingWhenAnyTargetConflicts)]
     fn conflict(&self) -> Option<String> {
         match self {
-            Change::CreateFile { path, .. } => existing_file(path),
+            Change::CreateFile { path, .. } | Change::SyncSkill { path, .. } => existing_file(path),
             Change::AppendManifestTables { path } => existing_table(path),
             Change::WireLibrary { path } => existing_graph(path),
             Change::EnsureLine { .. } | Change::AddDependency { .. } => None,
@@ -266,6 +274,7 @@ fn apply(change: &Change) -> Result<(), String> {
         Change::AppendManifestTables { path } => append_manifest_tables(path),
         Change::WireLibrary { path } => wire_library(path),
         Change::EnsureLine { path, line } => ensure_line(path, line),
+        Change::SyncSkill { manifest, .. } => sync::write(&Project::load_graph_at(manifest)?),
         Change::AddDependency { dir, source } => add_dependency(dir, source),
     }
 }
@@ -602,6 +611,15 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::TheSkillComesFromTheResolvedLidRsDependency)]
+    fn an_initialised_package_carries_its_dependencys_skill() {
+        let dir = fresh_package("new-skill");
+        let synced = std::fs::read_to_string(dir.join(sync::SKILL_IN_PROJECT)).expect("the skill was synced");
+        let canonical = std::fs::read_to_string(lid_rs_checkout().join("skill/SKILL.md")).expect("canonical skill");
+        assert!(synced == canonical, "init syncs the skill of the lid-rs it just added");
+    }
+
+    #[test]
     #[validates(spec::EmittedFilesCarryThePackageFacts)]
     fn an_initialised_package_has_no_placeholders_left() {
         let dir = fresh_package("new-placeholders");
@@ -613,14 +631,4 @@ mod tests {
         assert!(leftovers.is_empty(), "placeholders left in {leftovers:?}");
     }
 
-    #[test]
-    #[validates(spec::TheEmittedSkillMatchesTheCanonicalSkill)]
-    fn the_emitted_skill_matches_the_canonical_skill() {
-        let canonical = Path::new(env!("CARGO_MANIFEST_DIR")).join("../.claude/skills/lid-rs/SKILL.md");
-        let canonical = std::fs::read_to_string(&canonical).expect("the canonical skill exists");
-        assert!(
-            skill_template() == canonical,
-            "cargo-lid-rs/templates/SKILL.md has drifted from .claude/skills/lid-rs/SKILL.md; copy it over"
-        );
-    }
 }

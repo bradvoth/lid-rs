@@ -434,6 +434,8 @@ cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11 + behaviour
 cargo package -p <crate> --allow-dirty           # published crates: the tarball
                                                  #     builds standalone
+cargo lid-rs sync --check                        # the skill matches the lid-rs
+                                                 #     the project depends on
 cargo lid-rs mutants                             # 12 (scope from metadata;
                                                  #     --full / --diff-base override)
 ```
@@ -442,8 +444,11 @@ Cheapest and most specific first. Mutation runs last because it's the only step
 that rebuilds. `cargo package` applies to crates that publish: it builds the
 tarball without the workspace around it, which is what catches an `include_str!`
 reaching outside a package root ([§11](https://bradvoth.github.io/lid-rs/spec/layout.html)).
-This list is the floor; a workspace appends build-integrity steps of its own
-after it, and every copy of the list a project keeps must match.
+`cargo lid-rs sync --check` fails when `.claude/skills/lid-rs/SKILL.md` is
+not byte-identical to the skill shipped by the `lid-rs` the project resolves
+([§13](https://bradvoth.github.io/lid-rs/spec/bootstrap.html), keeping current). This list is the floor; a workspace appends
+build-integrity steps of its own after it, and every copy of the list a
+project keeps must match.
 <!-- ANCHOR_END: gates -->
 
 ---
@@ -996,6 +1001,9 @@ the leaves.
 
 ```
 Cargo.toml                     workspace lints + [workspace.metadata.lid_rs]
+.claude/skills/lid-rs/SKILL.md the operating skill — tool-owned: written by
+                               `cargo lid-rs sync` from the lid-rs dependency,
+                               never edited (project guidance goes in AGENTS.md)
 clippy.toml                    thresholds
 docs/
   intent/
@@ -1087,4 +1095,19 @@ definition of what they do.
 11. First slice end to end before writing a second LLD. The phase boundaries are
     where the tedium hides; find out where it hurts on one slice before
     committing to the shape.
+
+**Keeping current.** The operating skill ships inside the `lid-rs` crate
+(`skill/SKILL.md`), so the skill a project runs under is the one that matches
+the `lid-rs` it depends on. Updating is updating the dependency:
+
+```bash
+cargo update -p lid-rs      # or bump the requirement in Cargo.toml
+cargo lid-rs sync           # rewrites .claude/skills/lid-rs/SKILL.md from it
+```
+
+The gate's `cargo lid-rs sync --check` fails until the copy matches — after a
+bump you have not synced, and after any local edit. The file is tool-owned;
+project-specific guidance belongs in `AGENTS.md`, which `init` writes once
+and never touches again. Installing a newer `cargo-lid-rs` does not change
+the skill: the tool reads it from the project's dependency, not from itself.
 <!-- ANCHOR_END: bootstrap -->

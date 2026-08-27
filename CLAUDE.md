@@ -59,6 +59,7 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
 cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs --allow-dirty   # tarballs build standalone
+cargo run -p cargo-lid-rs -- sync --check   # .claude/skills/lid-rs/SKILL.md == lid-rs/skill/SKILL.md (canonical; edit that one)
 cargo run -p cargo-lid-rs -- mutants   # check 12 from source (consumers: `cargo lid-rs mutants`)
 mdbook build book                    # the site is assembled by inclusion; breaks on drift
 ```

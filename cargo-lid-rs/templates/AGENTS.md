@@ -47,6 +47,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
+cargo lid-rs sync --check   # the skill matches the lid-rs this package depends on
 cargo lid-rs mutants        # diff scope; --full / --diff-base <ref> override
 ```
 
@@ -56,3 +57,5 @@ cargo lid-rs mutants        # diff scope; --full / --diff-base <ref> override
   code pass — the firing lint is the system working.
 - Put `#[validates]` tests under `tests/`.
 - Parse Rust source to reconstruct the intent graph.
+- Edit `.claude/skills/lid-rs/SKILL.md` — it is written by `cargo lid-rs sync`
+  from the `lid-rs` dependency; project-specific guidance goes here instead.

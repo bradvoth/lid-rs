@@ -17,4 +17,5 @@ jobs:
       - run: cargo test --doc
       - run: cargo test --lib
       - run: cargo install cargo-mutants cargo-lid-rs --locked
+      - run: cargo lid-rs sync --check
       - run: cargo lid-rs mutants --diff-base origin/main

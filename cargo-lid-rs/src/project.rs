@@ -2,7 +2,7 @@
 //! can dump a registry, and how mutation scope is configured
 //! (`docs/intent/cargo-lid-rs/lld.md` § Subcommand shell, § Scope).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use lid_rs::implements;
@@ -43,6 +43,30 @@ impl Project {
             .args(["metadata", "--format-version", "1", "--no-deps", "--manifest-path"])
             .arg(manifest);
         Self::from_json(&capture(&mut command)?)
+    }
+
+    /// Loads the project the current directory belongs to, with its resolved
+    /// dependencies — needed to find what `lid-rs` the project uses.
+    pub fn load_graph() -> Result<Self, String> {
+        let out = capture(cargo_command().args(["metadata", "--format-version", "1"]))?;
+        Self::from_json(&out)
+    }
+
+    /// Loads the project a manifest belongs to, with its resolved dependencies.
+    pub fn load_graph_at(manifest: &std::path::Path) -> Result<Self, String> {
+        let mut command = cargo_command();
+        command.args(["metadata", "--format-version", "1", "--manifest-path"]).arg(manifest);
+        Self::from_json(&capture(&mut command)?)
+    }
+
+    /// The directory of the resolved `lid-rs` package, registry or path, if
+    /// the metadata includes dependencies and the project has one.
+    #[implements(spec::TheSkillComesFromTheResolvedLidRsDependency)]
+    pub fn lid_rs_package_dir(&self) -> Option<PathBuf> {
+        self.packages()
+            .find(|package| package.pointer("/name").and_then(serde_json::Value::as_str) == Some("lid-rs"))
+            .and_then(|package| package.pointer("/manifest_path").and_then(serde_json::Value::as_str))
+            .and_then(|manifest| Path::new(manifest).parent().map(Path::to_path_buf))
     }
 
     /// The name of the package whose manifest is at `manifest`, if any
@@ -199,8 +223,6 @@ pub(crate) fn capture(command: &mut Command) -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::Path;
-
     use super::*;
     use lid_rs::validates;
 
