@@ -197,6 +197,7 @@ fn plan(package: &Package, options: &Options) -> Result<Vec<Change>, String> {
         })
     };
     Ok(vec![
+        Change::AssertHooksPath { root: package.root.clone() },
         Change::AddDependency { dir: package.dir.clone(), source: options.lid_rs.clone() },
         Change::AppendManifestTables { path: package.dir.join("Cargo.toml") },
         file("clippy.toml", include_str!("../templates/clippy.toml"))?,
@@ -363,7 +364,17 @@ fn dependency_args(source: &LidRsSource) -> Vec<String> {
 /// The conflict for `core.hooksPath`: set, and not to the synced hooks.
 #[implements(spec::AForeignHooksPathIsAnInitConflict)]
 fn foreign_hooks_path(root: &Path) -> Option<String> {
-    todo!()
+    sync::git_config_get(root, sync::HOOKS_PATH_KEY)
+        .ok()
+        .flatten()
+        .filter(|value| value != sync::HOOKS_IN_PROJECT)
+        .map(|value| {
+            format!(
+                "{} is already set to `{value}`; the synced hooks need it at {} (see docs/intent/phase/lld.md)",
+                sync::HOOKS_PATH_KEY,
+                sync::HOOKS_IN_PROJECT
+            )
+        })
 }
 
 #[cfg(test)]

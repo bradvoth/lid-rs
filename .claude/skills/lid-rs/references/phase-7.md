@@ -19,11 +19,12 @@ wrong with a reproducer, or stop (see `references/gates.md` for what each
 check firing means). A gate that prints nothing is a result to report ("0
 mutants in scope"), not silence.
 
-Commit the slice with the phase history legible in the message — this
-commit covers Phase 6's implementation together with the passing gate, since
-Phase 6 has no stop of its own. This is typically the branch's last phase
-commit before opening the PR; the PR is then reviewable by walking phases 1
-through 7 in order. Its exact form follows the project's normal commit
-convention (e.g. `<version>: <what and why>`) rather than a mechanical
-`phase 7: ...` tag — that tag is what makes phases 1–5's history legible,
-not a requirement on the commit a reviewer or changelog will actually read.
+Commit the slice as `phase 7: <version>: <what and why>` — the tag first,
+then the project's normal convention — with the phase history legible in
+the body. This commit covers Phase 6's implementation together with the
+passing gate, since Phase 6 has no stop of its own, and the tag is what
+makes the `commit-msg` hook run the full gate on it (the list above, as
+`cargo lid-rs phase-check 7`) before it exists: a gate the agent ran by
+hand is a gate the agent could have skipped. It is typically the branch's
+last phase commit before opening the PR; the PR is then reviewable by
+walking phases 1 through 7 in order.

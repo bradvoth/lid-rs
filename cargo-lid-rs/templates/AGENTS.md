@@ -29,7 +29,10 @@ not work without.
 7. Gate (below), commit the slice.
 8. Change = LLD edit, cascaded via rename / `#[deprecated]` / `cargo check`.
 
-Stop at every phase boundary for review.
+Stop at every phase boundary for review. Work on an `lld/<slice>` branch and
+commit each phase as `phase N: …`: the `commit-msg` hook `sync` installs runs
+that phase's check (`cargo lid-rs phase-check N`) and refuses the commit when
+it fails — never `--no-verify`.
 
 ## The dispatch/work rule
 
@@ -47,7 +50,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
-cargo lid-rs sync --check   # the skill matches the lid-rs this package depends on
+cargo lid-rs sync --check   # the synced skill, hooks, agent, and workflow match the lid-rs this package depends on
 cargo lid-rs mutants        # diff scope; --full / --diff-base <ref> override
 ```
 
@@ -57,5 +60,7 @@ cargo lid-rs mutants        # diff scope; --full / --diff-base <ref> override
   code pass — the firing lint is the system working.
 - Put `#[validates]` tests under `tests/`.
 - Parse Rust source to reconstruct the intent graph.
-- Edit `.claude/skills/lid-rs/SKILL.md` — it is written by `cargo lid-rs sync`
-  from the `lid-rs` dependency; project-specific guidance goes here instead.
+- Edit anything under `.claude/skills/lid-rs/`, `.claude/workflows/lid-rs.js`,
+  `.claude/agents/lid-rs-phase.md`, or `.lid-rs/hooks/` — they are written by
+  `cargo lid-rs sync` from the `lid-rs` dependency; project-specific guidance
+  goes here instead.

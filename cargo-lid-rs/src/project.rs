@@ -124,8 +124,15 @@ impl Project {
     /// Names of the members that publish — those whose manifest does not
     /// say `publish = false` — which the gate runs `cargo package` for
     /// (`docs/intent/phase/lld.md`).
+    #[implements(spec::PhaseSevenRunsTheGateInOrder)]
     pub fn publishing_members(&self) -> Vec<String> {
-        todo!()
+        let members = self.doc.pointer("/workspace_members").and_then(serde_json::Value::as_array).cloned().unwrap_or_default();
+        self.packages()
+            .filter(|package| package.pointer("/id").is_some_and(|id| members.contains(id)))
+            .filter(|package| package.pointer("/publish") != Some(&serde_json::json!([])))
+            .filter_map(|package| package.pointer("/name").and_then(serde_json::Value::as_str))
+            .map(str::to_string)
+            .collect()
     }
 
     /// A cargo invocation rooted at the project.

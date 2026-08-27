@@ -67,10 +67,12 @@ gate. The canonical file is edited in `lid-rs/skill/`, nowhere else.
 ## Open Questions & Future Decisions
 
 ### Deferred
-1. Syncing anything besides the skill. `AGENTS.md`, `gate.yml`, and
-   `clippy.toml` are project-owned after `init`; if a future `lid-rs`
-   changes the gate itself, that is a `sync` candidate with its own
-   conflict rule.
+1. Syncing project-owned files. `AGENTS.md`, `gate.yml`, and `clippy.toml`
+   are project-owned after `init`. (The phase hooks, the phase agent, and
+   the workflow are synced since 0.2.2 — `docs/intent/phase/lld.md` — as
+   further rows of the same mirror table, under the same any-difference
+   rule; `sync` also registers the hooks in git config, the first thing it
+   owns outside a file.)
 2. The plugin seam (skill LLD, Deferred 1).
 
 ## References
