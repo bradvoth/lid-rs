@@ -45,18 +45,16 @@ fn mode_of(args: &[String]) -> Result<Mode, String> {
 /// the project, then registers the hooks; a second run changes nothing.
 #[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn write(project: &Project) -> Result<(), String> {
-    artifacts().iter().try_for_each(|artifact| write_artifact(project, artifact))?;
-    assert_hooks_path(&project.root()?)
+    artifacts().iter().try_for_each(|artifact| write_artifact(project, artifact))
 }
 
 /// Writes one artifact's files under its project root.
 fn write_artifact(project: &Project, artifact: &Artifact) -> Result<(), String> {
-    write_files(&artifact_root(project, artifact)?, &artifact_files(project, artifact)?, artifact.permissions)
+    write_files(&artifact_root(project, artifact)?, &artifact_files(project, artifact)?)
 }
 
 /// Fails naming every file the project's copies are missing, have extra, or
-/// differ in, against what the dependency ships, or when the hooks are not
-/// registered; writes nothing.
+/// differ in, against what the dependency ships; writes nothing.
 #[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn check(project: &Project) -> Result<(), String> {
     let differences: Vec<String> = artifacts()
@@ -69,8 +67,7 @@ pub fn check(project: &Project) -> Result<(), String> {
             "the project's copies are missing or differ from what the resolved lid-rs ships; run `cargo lid-rs sync`:\n  {}",
             differences.join("\n  ")
         )
-    })?;
-    check_hooks_path(&project.root()?)
+    })
 }
 
 /// One artifact's named differences, each prefixed with its project path.
@@ -142,22 +139,12 @@ fn insert_relative_file(root: &Path, path: &Path, files: &mut BTreeMap<PathBuf, 
 }
 
 /// Writes `files`, each at its relative path under `root`, creating
-/// directories, marked as `permissions` says.
-fn write_files(root: &Path, files: &BTreeMap<PathBuf, String>, permissions: Permissions) -> Result<(), String> {
+/// directories.
+fn write_files(root: &Path, files: &BTreeMap<PathBuf, String>) -> Result<(), String> {
     for (relative, content) in files {
-        let path = root.join(relative);
-        write_file(&path, content)?;
-        mark(&path, permissions)?;
+        write_file(&root.join(relative), content)?;
     }
     Ok(())
-}
-
-/// Applies an artifact's permissions to one mirrored file.
-fn mark(path: &Path, permissions: Permissions) -> Result<(), String> {
-    match permissions {
-        Permissions::Plain => Ok(()),
-        Permissions::Executable => set_executable(path),
-    }
 }
 
 /// Writes a file, creating its directories.
@@ -165,44 +152,6 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
     let parent = path.parent().ok_or_else(|| format!("{} has no parent", path.display()))?;
     std::fs::create_dir_all(parent).map_err(|e| format!("creating {}: {e}", parent.display()))?;
     std::fs::write(path, content).map_err(|e| format!("writing {}: {e}", path.display()))
-}
-
-/// Marks a mirrored hook script executable.
-#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
-fn set_executable(path: &Path) -> Result<(), String> {
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755))
-            .map_err(|e| format!("marking {} executable: {e}", path.display()))?;
-    }
-    Ok(())
-}
-
-/// A git config value in the repository at `root`, or none when unset (or
-/// when `root` is no repository, which the same `git config` reports).
-pub(crate) fn git_config_get(root: &Path, key: &str) -> Result<Option<String>, String> {
-    let output = std::process::Command::new("git")
-        .args(["config", "--get", key])
-        .current_dir(root)
-        .output()
-        .map_err(|e| format!("running git config in {}: {e}", root.display()))?;
-    Ok(output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string()))
-}
-
-/// The git config key the synced hooks are registered under.
-pub const HOOKS_PATH_KEY: &str = "core.hooksPath";
-
-/// Where the hook scripts land, and what `core.hooksPath` is set to.
-pub const HOOKS_IN_PROJECT: &str = ".lid-rs/hooks";
-
-/// How a mirrored artifact's files are marked.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Permissions {
-    /// Ordinary files.
-    Plain,
-    /// Executable files: the hook scripts.
-    Executable,
 }
 
 /// One artifact the `lid-rs` crate ships and `sync` mirrors: a directory,
@@ -213,19 +162,16 @@ pub struct Artifact {
     pub in_crate: &'static str,
     /// Path relative to the workspace root.
     pub in_project: &'static str,
-    /// How its files are marked once mirrored.
-    pub permissions: Permissions,
 }
 
 /// Everything the resolved `lid-rs` ships for the project, in mirror order:
-/// the skill directory, the workflow, the phase agent, the hook scripts.
+/// the skill directory, the workflows, the phase agents.
 #[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
-pub fn artifacts() -> [Artifact; 4] {
+pub fn artifacts() -> [Artifact; 3] {
     [
-        Artifact { in_crate: SKILL_IN_CRATE, in_project: SKILL_IN_PROJECT, permissions: Permissions::Plain },
-        Artifact { in_crate: "workflow", in_project: ".claude/workflows", permissions: Permissions::Plain },
-        Artifact { in_crate: "agent", in_project: ".claude/agents", permissions: Permissions::Plain },
-        Artifact { in_crate: "hooks", in_project: HOOKS_IN_PROJECT, permissions: Permissions::Executable },
+        Artifact { in_crate: SKILL_IN_CRATE, in_project: SKILL_IN_PROJECT },
+        Artifact { in_crate: "workflow", in_project: ".claude/workflows" },
+        Artifact { in_crate: "agent", in_project: ".claude/agents" },
     ]
 }
 
@@ -260,30 +206,6 @@ fn artifact_root(project: &Project, artifact: &Artifact) -> Result<PathBuf, Stri
     Ok(project.root()?.join(artifact.in_project))
 }
 
-/// Sets `core.hooksPath` to the synced hooks directory in the repository at
-/// `root`.
-#[implements(spec::SyncAssertsTheHooksPath)]
-pub fn assert_hooks_path(root: &Path) -> Result<(), String> {
-    let status = std::process::Command::new("git")
-        .args(["config", HOOKS_PATH_KEY, HOOKS_IN_PROJECT])
-        .current_dir(root)
-        .status()
-        .map_err(|e| format!("running git config in {}: {e}", root.display()))?;
-    status
-        .success()
-        .then_some(())
-        .ok_or_else(|| format!("setting {HOOKS_PATH_KEY} in {} failed ({status}): is it a git repository?", root.display()))
-}
-
-/// Fails unless `core.hooksPath` in the repository at `root` is the synced
-/// hooks directory.
-#[implements(spec::SyncAssertsTheHooksPath)]
-pub fn check_hooks_path(root: &Path) -> Result<(), String> {
-    (git_config_get(root, HOOKS_PATH_KEY)?.as_deref() == Some(HOOKS_IN_PROJECT))
-        .then_some(())
-        .ok_or_else(|| format!("{HOOKS_PATH_KEY} is not set to {HOOKS_IN_PROJECT} in {}; run `cargo lid-rs sync`", root.display()))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -299,9 +221,6 @@ mod tests {
         let dir = std::env::temp_dir().join("lid-rs-sync-tests").join(name);
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).expect("scratch dir");
-        // A project is a repository: `sync` registers the hooks in it.
-        let status = std::process::Command::new("git").args(["init", "-q"]).current_dir(&dir).status().expect("git");
-        assert!(status.success());
         dir
     }
 
@@ -429,28 +348,8 @@ mod tests {
     #[test]
     #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
     fn the_mirror_table_names_every_artifact() {
-        let rows: Vec<(&str, &str, Permissions)> =
-            artifacts().iter().map(|a| (a.in_crate, a.in_project, a.permissions)).collect();
-        assert_eq!(
-            rows,
-            [
-                ("skill", ".claude/skills/lid-rs", Permissions::Plain),
-                ("workflow", ".claude/workflows", Permissions::Plain),
-                ("agent", ".claude/agents", Permissions::Plain),
-                ("hooks", ".lid-rs/hooks", Permissions::Executable),
-            ]
-        );
-    }
-
-    /// Asserts a mirrored hook script is present and executable.
-    fn assert_executable_script(path: &Path) {
-        assert!(path.is_file(), "{} is mirrored", path.display());
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            let mode = std::fs::metadata(path).expect("meta").permissions().mode();
-            assert!(mode & 0o111 != 0, "{} is executable", path.display());
-        }
+        let rows: Vec<(&str, &str)> = artifacts().iter().map(|a| (a.in_crate, a.in_project)).collect();
+        assert_eq!(rows, [("skill", ".claude/skills/lid-rs"), ("workflow", ".claude/workflows"), ("agent", ".claude/agents")]);
     }
 
     #[test]
@@ -467,13 +366,10 @@ mod tests {
 
     #[test]
     #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
-    fn a_write_mirrors_the_workflow_the_agent_and_executable_hooks() {
+    fn a_write_mirrors_the_workflow_and_the_agents() {
         let root = scratch("artifacts-write");
         let project = project_at(&root);
         write(&project).expect("writes every artifact");
-        for name in ["run", "commit-msg", "subagent-start", "subagent-stop"] {
-            assert_executable_script(&root.join(HOOKS_IN_PROJECT).join(name));
-        }
         assert!(root.join(".claude/workflows/lid-rs.js").is_file());
         assert!(root.join(".claude/agents/lid-rs-phase.md").is_file());
     }
@@ -488,17 +384,5 @@ mod tests {
         std::fs::write(root.join(".claude/agents/extra.md"), "x").expect("write");
         let err = check(&project).expect_err("an extra file is a difference");
         assert!(err.contains("extra.md"), "{err}");
-    }
-
-    #[test]
-    #[validates(spec::SyncAssertsTheHooksPath)]
-    fn sync_asserts_the_hooks_path() {
-        let root = scratch("hooks-path");
-        let err = check_hooks_path(&root).expect_err("unset fails the check");
-        assert!(err.contains(HOOKS_PATH_KEY), "{err}");
-        assert_hooks_path(&root).expect("sets");
-        assert_eq!(git_config_get(&root, HOOKS_PATH_KEY).expect("git"), Some(HOOKS_IN_PROJECT.to_string()));
-        check_hooks_path(&root).expect("set to the synced hooks passes");
-        assert_hooks_path(&root).expect("idempotent");
     }
 }

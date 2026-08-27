@@ -1,4 +1,0 @@
-#!/bin/sh
-# Managed by `cargo lid-rs sync`; do not edit. Records HEAD for the starting
-# lid-rs-phase worker (Claude Code's hook JSON arrives on stdin).
-exec "$(dirname "$0")/run" hook subagent-start

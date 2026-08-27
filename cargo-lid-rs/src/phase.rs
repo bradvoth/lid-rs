@@ -1,10 +1,9 @@
-use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
 use crate::mapping::EdgeRecord;
 use crate::mutants::{self, Registry, SpecRecord, dump_registry};
-use crate::project::{Project, capture};
+use crate::project::Project;
 use crate::spec;
 use crate::sync;
 
@@ -15,12 +14,7 @@ const CHECKED_PHASES: &str = "1, 2, 3, 4, 5, 7";
 const PHASE_CHECK_USAGE: &str = "usage: cargo lid-rs phase-check <n> [--slice <name>]";
 
 /// Usage for `hook`.
-const HOOK_USAGE: &str = "usage: cargo lid-rs hook <commit-msg <file> | subagent-start | subagent-stop>";
-
-/// What a worker is told when it tries to end without a phase commit.
-const REFUSAL: &str = "No `phase N:` commit has been made since this phase started (HEAD is unchanged). \
-Either commit the phase now — the commit-msg hook runs its check — or end with the numbered decisions \
-that block it; the next stop is allowed.";
+const HOOK_USAGE: &str = "usage: cargo lid-rs hook <pre-tool <n> | post-edit <n> | stop <n>>";
 
 /// A phase with a commit of its own and a check attached — the closed set.
 /// Phases 0, 6, and 8 have no commit (skill, working state) and no check.
@@ -84,35 +78,6 @@ pub enum Step {
     Red,
 }
 
-/// Which stop attempt this is: Claude Code's `stop_hook_active` is true
-/// when it is already continuing because an earlier stop was refused.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Attempt {
-    /// The worker's first attempt to stop.
-    First,
-    /// A stop after a refusal.
-    Retry,
-}
-
-/// What a hook reads from the JSON Claude Code passes on stdin — the
-/// boundary type; everything past it takes plain values.
-#[derive(Debug, PartialEq, Eq)]
-pub struct HookInput {
-    /// The subagent's id, the key its `HEAD` record is filed under.
-    pub agent_id: String,
-    /// Whether this stop follows a refusal.
-    pub attempt: Attempt,
-}
-
-/// The stop hook's answer, rendered to stdout at the boundary.
-#[derive(Debug, PartialEq, Eq)]
-pub enum StopDecision {
-    /// The worker may stop.
-    Allow,
-    /// The worker is kept running, with this reason as its next instruction.
-    Refuse(String),
-}
-
 /// What a commit subject's tag says.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Tag {
@@ -152,15 +117,9 @@ pub fn run(args: &[String]) -> Result<(), String> {
     check(&project, phase, slice.as_deref())
 }
 
-/// `hook <commit-msg <file> | subagent-start | subagent-stop>`: one dispatch
-/// over the hook kind; the subagent hooks read their input from stdin.
+/// `hook <pre-tool <n> | post-edit <n> | stop <n>>`: the phase agents' hooks.
 pub fn hook(args: &[String]) -> Result<(), String> {
-    match args.first().map(String::as_str) {
-        Some("commit-msg") => commit_msg_from_args(&args[1..]),
-        Some("subagent-start") => subagent_start_from_stdin(),
-        Some("subagent-stop") => subagent_stop_from_stdin(),
-        Some(_) | None => Err(HOOK_USAGE.to_string()),
-    }
+    Err(format!("{HOOK_USAGE} (given {args:?})"))
 }
 
 /// Runs a phase's check: its plan, executed in order.
@@ -240,70 +199,6 @@ pub fn check_red(project: &Project, slice: &str) -> Result<(), String> {
     red_verdict(&unvalidated(&claims, &outcomes), &outcomes)
 }
 
-/// `hook commit-msg <file>`: the message's subject, judged against this
-/// project's phase checks.
-#[implements(spec::TaggedCommitsRunTheirPhaseCheck)]
-fn hook_commit_msg(project: &Project, message_file: &Path) -> Result<(), String> {
-    let message = std::fs::read_to_string(message_file)
-        .map_err(|e| format!("reading the commit message at {}: {e}", message_file.display()))?;
-    let slice = resolve_slice(project, None)?;
-    commit_msg_verdict(subject_of(&message), |phase| check(project, phase, slice.as_deref()))
-}
-
-/// The commit-msg hook's decision for a subject: a tagged subject runs its
-/// phase's check and its failure refuses the commit; an untagged one passes
-/// without a check; a tag naming a phase without a check is refused by name.
-#[implements(
-    spec::TaggedCommitsRunTheirPhaseCheck,
-    spec::UntaggedCommitsPassTheHook,
-    spec::MistypedTagsAreRefusedNotIgnored,
-)]
-pub fn commit_msg_verdict(subject: &str, check: impl FnOnce(Phase) -> Result<(), String>) -> Result<(), String> {
-    match tag_of(subject) {
-        Tag::Untagged => Ok(()),
-        Tag::Checked(phase) => check(phase),
-        Tag::Unchecked(n) => Err(format!(
-            "`phase {n}:` names a phase with no check of its own; the phases with one are {CHECKED_PHASES}, \
-             and a commit that is not a phase commit carries no `phase N:` tag"
-        )),
-    }
-}
-
-/// `hook subagent-start`: records the repository's `HEAD` under the agent's
-/// id.
-#[implements(spec::AStartingWorkerRecordsHead)]
-fn hook_subagent_start(project: &Project, input: &HookInput) -> Result<(), String> {
-    let path = record_path(project, &input.agent_id)?;
-    let parent = path.parent().ok_or_else(|| format!("{} has no parent", path.display()))?;
-    std::fs::create_dir_all(parent).map_err(|e| format!("creating {}: {e}", parent.display()))?;
-    std::fs::write(&path, head(project)?).map_err(|e| format!("writing {}: {e}", path.display()))
-}
-
-/// `hook subagent-stop`: the recorded `HEAD`, the current one, and whether
-/// this is a retry decide whether the worker may stop.
-fn hook_subagent_stop(project: &Project, input: &HookInput) -> Result<StopDecision, String> {
-    let recorded = std::fs::read_to_string(record_path(project, &input.agent_id)?).ok();
-    Ok(stop_decision(recorded.as_deref().map(str::trim), head(project)?.trim(), input.attempt))
-}
-
-/// `hook commit-msg`'s arguments: the message file.
-fn commit_msg_from_args(args: &[String]) -> Result<(), String> {
-    let file = args.first().ok_or(HOOK_USAGE)?;
-    hook_commit_msg(&Project::load_graph()?, Path::new(file))
-}
-
-/// `hook subagent-start`, its input read from stdin.
-fn subagent_start_from_stdin() -> Result<(), String> {
-    hook_subagent_start(&Project::load()?, &HookInput::from_json(&read_stdin()?)?)
-}
-
-/// `hook subagent-stop`, its input read from stdin and its decision printed.
-fn subagent_stop_from_stdin() -> Result<(), String> {
-    let decision = hook_subagent_stop(&Project::load()?, &HookInput::from_json(&read_stdin()?)?)?;
-    print!("{}", render(&decision));
-    Ok(())
-}
-
 /// `phase-check`'s arguments: the phase number, then optionally
 /// `--slice <name>`; any other flag is rejected by name.
 #[implements(spec::TheSliceComesFromTheBranchName)]
@@ -351,14 +246,7 @@ fn current_branch(project: &Project) -> Result<Option<String>, String> {
     Ok(output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string()))
 }
 
-/// The message's subject: its first line that is neither empty nor a `#`
-/// comment.
-fn subject_of(message: &str) -> &str {
-    message.lines().map(str::trim).find(|line| !line.is_empty() && !line.starts_with('#')).unwrap_or("")
-}
-
 /// What the subject's `phase N:` prefix, if any, names.
-#[implements(spec::UntaggedCommitsPassTheHook, spec::MistypedTagsAreRefusedNotIgnored)]
 pub fn tag_of(subject: &str) -> Tag {
     match phase_number(subject) {
         None => Tag::Untagged,
@@ -477,67 +365,10 @@ pub fn red_verdict(unvalidated: &[String], outcomes: &[Outcome]) -> Result<(), S
     problems.is_empty().then_some(()).ok_or_else(|| format!("phase 5 is not red:\n  {}", problems.join("\n  ")))
 }
 
-/// The hook's stdin, whole.
-fn read_stdin() -> Result<String, String> {
-    std::io::read_to_string(std::io::stdin()).map_err(|e| format!("reading the hook input: {e}"))
-}
-
-impl HookInput {
-    /// The fields the hooks use, from Claude Code's hook JSON; the stop flag
-    /// is absent at start, so it defaults to false.
-    #[implements(spec::AStartingWorkerRecordsHead)]
-    pub fn from_json(json: &str) -> Result<Self, String> {
-        let doc: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("parsing the hook input: {e}"))?;
-        let agent_id = doc
-            .pointer("/agent_id")
-            .and_then(serde_json::Value::as_str)
-            .ok_or("the hook input carries no agent_id")?
-            .to_string();
-        let retrying = doc.pointer("/stop_hook_active").and_then(serde_json::Value::as_bool).unwrap_or(false);
-        Ok(Self { agent_id, attempt: if retrying { Attempt::Retry } else { Attempt::First } })
-    }
-}
-
-/// Where an agent's `HEAD` record lives: `<target>/lid-rs/agents/<agent_id>`.
-#[implements(spec::AStartingWorkerRecordsHead)]
-fn record_path(project: &Project, agent_id: &str) -> Result<PathBuf, String> {
-    Ok(project.target_directory()?.join("lid-rs/agents").join(agent_id))
-}
-
-/// The repository's current `HEAD`, the value a worker's record holds.
-#[implements(spec::AStartingWorkerRecordsHead)]
-fn head(project: &Project) -> Result<String, String> {
-    Ok(capture(project.git()?.args(["rev-parse", "HEAD"]))?.trim().to_string())
-}
-
-/// Whether the worker may stop, from its recorded `HEAD`, the current one,
-/// and whether Claude Code is already retrying after a refusal.
-#[implements(
-    spec::AWorkerThatCommittedMayStop,
-    spec::AWorkerThatDidNotCommitIsRefusedOnce,
-    spec::ASecondStopAttemptIsAllowed,
-    spec::AStopWithoutARecordIsAllowed,
-)]
-pub fn stop_decision(recorded: Option<&str>, head: &str, attempt: Attempt) -> StopDecision {
-    match (recorded, attempt) {
-        (None, _) | (Some(_), Attempt::Retry) => StopDecision::Allow,
-        (Some(r), Attempt::First) if r == head => StopDecision::Refuse(REFUSAL.to_string()),
-        (Some(_), Attempt::First) => StopDecision::Allow,
-    }
-}
-
-/// What the stop hook prints: nothing to allow, Claude Code's block
-/// decision JSON to refuse.
-#[implements(spec::AWorkerThatDidNotCommitIsRefusedOnce)]
-pub fn render(decision: &StopDecision) -> String {
-    match decision {
-        StopDecision::Allow => String::new(),
-        StopDecision::Refuse(reason) => serde_json::json!({ "decision": "block", "reason": reason }).to_string(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
+    use std::path::{Path, PathBuf};
+
     use super::*;
     use lid_rs::validates;
 
@@ -826,125 +657,5 @@ mod tests {
         let err = red_verdict(&[], &[red("A", "t::a"), green("B", "t::b")]).expect_err("green fails");
         assert!(err.contains("t::b") && !err.contains("t::a"), "{err}");
         red_verdict(&[], &[red("A", "t::a"), red("B", "t::b")]).expect("all red passes");
-    }
-
-    #[test]
-    #[validates(spec::TaggedCommitsRunTheirPhaseCheck)]
-    fn the_subject_is_the_first_line_that_is_not_a_comment() {
-        assert_eq!(subject_of("# comment\n\nphase 3: skeleton\n\nbody"), "phase 3: skeleton");
-        assert_eq!(tag_of("phase 3: skeleton for x"), Tag::Checked(Phase::Three));
-    }
-
-    #[test]
-    #[validates(spec::TaggedCommitsRunTheirPhaseCheck)]
-    fn tagged_commits_run_their_phase_check() {
-        let mut checked = None;
-        let err = commit_msg_verdict("phase 3: skeleton", |phase| {
-            checked = Some(phase);
-            Err("check 4 fired".to_string())
-        })
-        .expect_err("a failing check refuses the commit");
-        assert_eq!(checked, Some(Phase::Three));
-        assert!(err.contains("check 4 fired"), "{err}");
-        commit_msg_verdict("phase 5: red", |_| Ok(())).expect("a passing check allows the commit");
-    }
-
-    #[test]
-    #[validates(spec::TaggedCommitsRunTheirPhaseCheck)]
-    fn the_hook_reads_the_message_file_and_judges_its_subject() {
-        let dir = scratch_repo("commit-msg");
-        let project = this_project();
-        let file = dir.join("COMMIT_EDITMSG");
-        std::fs::write(&file, "phase 6: leaves\n").expect("write");
-        let err = hook_commit_msg(&project, &file).expect_err("a mistyped tag is refused");
-        assert!(err.contains("1, 2, 3, 4, 5, 7"), "{err}");
-        std::fs::write(&file, "# comment\n\ntidy up\n").expect("write");
-        hook_commit_msg(&project, &file).expect("an untagged commit passes");
-        assert!(hook_commit_msg(&project, &dir.join("missing")).is_err(), "an unreadable message file is an error");
-    }
-
-    #[test]
-    #[validates(spec::UntaggedCommitsPassTheHook)]
-    fn untagged_commits_pass_the_hook() {
-        assert_eq!(tag_of("0.2.2: the slice commit"), Tag::Untagged);
-        assert_eq!(tag_of("phases are great"), Tag::Untagged);
-        commit_msg_verdict("tidy up", |phase| panic!("no check runs for an untagged commit, ran {phase:?}"))
-            .expect("allowed");
-    }
-
-    #[test]
-    #[validates(spec::MistypedTagsAreRefusedNotIgnored)]
-    fn mistyped_tags_are_refused_not_ignored() {
-        assert_eq!(tag_of("phase 6: leaves"), Tag::Unchecked(6));
-        assert_eq!(tag_of("phase 0: name"), Tag::Unchecked(0));
-        let err = commit_msg_verdict("phase 6: leaves", |phase| panic!("no check for {phase:?}")).expect_err("refused");
-        assert!(err.contains("1, 2, 3, 4, 5, 7"), "{err}");
-    }
-
-    #[test]
-    #[validates(spec::AStartingWorkerRecordsHead)]
-    fn the_hook_input_carries_the_agent_id_and_the_attempt() {
-        let input = HookInput::from_json(r#"{"agent_id":"a1b2","stop_hook_active":false,"cwd":"/x"}"#).expect("parses");
-        assert_eq!(input, HookInput { agent_id: "a1b2".to_string(), attempt: Attempt::First });
-        let retry = HookInput::from_json(r#"{"agent_id":"a1b2","stop_hook_active":true}"#).expect("parses");
-        assert_eq!(retry.attempt, Attempt::Retry);
-        assert!(HookInput::from_json(r#"{"cwd":"/x"}"#).is_err(), "no agent_id is an error");
-    }
-
-    #[test]
-    #[validates(spec::AStartingWorkerRecordsHead)]
-    fn a_starting_worker_records_head() {
-        let project = this_project();
-        let agent = format!("phase-tests-{}", std::process::id());
-        let path = record_path(&project, &agent).expect("path");
-        assert!(path.ends_with(Path::new("lid-rs/agents").join(&agent)), "{}", path.display());
-        let _ = std::fs::remove_file(&path);
-        hook_subagent_start(&project, &HookInput { agent_id: agent, attempt: Attempt::First }).expect("records");
-        let recorded = std::fs::read_to_string(&path).expect("the record exists");
-        let expected = capture(std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(project.root().expect("root")))
-            .expect("git");
-        assert_eq!(recorded.trim(), expected.trim(), "the record is the repository's HEAD");
-        assert_eq!(head(&project).expect("git").trim(), expected.trim());
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[test]
-    #[validates(spec::AWorkerThatCommittedMayStop)]
-    fn a_worker_that_committed_may_stop() {
-        assert_eq!(stop_decision(Some("aaa"), "bbb", Attempt::First), StopDecision::Allow);
-    }
-
-    #[test]
-    #[validates(spec::AWorkerThatDidNotCommitIsRefusedOnce)]
-    fn a_worker_that_did_not_commit_is_refused_once() {
-        let StopDecision::Refuse(reason) = stop_decision(Some("aaa"), "aaa", Attempt::First) else {
-            panic!("an unmoved HEAD on the first attempt is refused");
-        };
-        assert!(reason.contains("commit"), "{reason}");
-    }
-
-    #[test]
-    #[validates(spec::AWorkerThatDidNotCommitIsRefusedOnce)]
-    fn a_refusal_renders_as_a_block_decision() {
-        let rendered = render(&StopDecision::Refuse("why".to_string()));
-        let json: serde_json::Value = serde_json::from_str(&rendered).expect("the refusal is Claude Code's JSON");
-        assert_eq!(json["decision"], "block");
-        assert_eq!(json["reason"], "why");
-        assert_eq!(render(&StopDecision::Allow), "", "allowing prints nothing");
-    }
-
-    #[test]
-    #[validates(spec::ASecondStopAttemptIsAllowed)]
-    fn a_second_stop_attempt_is_allowed() {
-        assert_eq!(stop_decision(Some("aaa"), "aaa", Attempt::Retry), StopDecision::Allow);
-    }
-
-    #[test]
-    #[validates(spec::AStopWithoutARecordIsAllowed)]
-    fn a_stop_without_a_record_is_allowed() {
-        assert_eq!(stop_decision(None, "aaa", Attempt::First), StopDecision::Allow);
-        let project = this_project();
-        let input = HookInput { agent_id: format!("phase-tests-none-{}", std::process::id()), attempt: Attempt::First };
-        assert_eq!(hook_subagent_stop(&project, &input).expect("decides"), StopDecision::Allow);
     }
 }
