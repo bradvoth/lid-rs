@@ -1,5 +1,5 @@
-//! Claims for the `phase` slice (`docs/intent/phase/lld.md`): a phase commit
-//! gates itself, and the hooks that let an agent build a slice unattended.
+//! Claims for the `phase` slice (`docs/intent/phase/lld.md`): a phase is
+//! run by an agent that can only edit, and its commit is the check passing.
 
 use lid_rs::Spec;
 
@@ -45,9 +45,9 @@ pub struct ACheckStopsAtTheFirstFailingStep;
 pub struct ASlicesClaimsAreTheSpecsInItsSpecFile;
 
 /// When `--slice` is absent, the slice shall be the current branch's name
-/// with the `lld/` prefix removed; a branch not of that form shall fail the
-/// phase 5 check naming the convention; any other flag shall be rejected by
-/// name.
+/// with the `lld/` prefix removed; a detached `HEAD` or a branch not of that
+/// form names no slice, which fails the phase 5 check naming the
+/// convention; any other flag shall be rejected by name.
 #[derive(Spec)]
 pub struct TheSliceComesFromTheBranchName;
 
@@ -72,70 +72,140 @@ pub struct EachValidationRunsAloneByExactName;
 #[derive(Spec)]
 pub struct AGreenValidationFailsTheRedCheck;
 
-// ---- hook commit-msg ---------------------------------------------------------
+// ---- hook pre-tool: the path policy ------------------------------------------
 
-/// When the commit message's subject line begins `phase N:` for a phase with
-/// a check, the hook shall run that check and, when it fails, refuse the
-/// commit with the check's output.
+/// When the policy locates the slice's crate, it shall be the workspace
+/// package whose manifest directory holds `docs/intent/<slice>/lld.md`,
+/// found on the filesystem, never by parsing Rust.
 #[derive(Spec)]
-pub struct TaggedCommitsRunTheirPhaseCheck;
+pub struct TheSlicesCrateIsTheOneHoldingItsLld;
 
-/// When the subject line carries no `phase N:` tag, the hook shall allow the
-/// commit without running any check.
+/// When a Phase 2 agent edits or writes, the target shall be the slice's
+/// spec file or `src/spec/mod.rs` in the slice's crate, and nothing else.
 #[derive(Spec)]
-pub struct UntaggedCommitsPassTheHook;
+pub struct PhaseTwoMayWriteOnlyTheSlicesSpecFiles;
 
-/// When the subject line's tag names a phase with no check, the hook shall
-/// refuse the commit naming the phases that have one, never treat it as
-/// untagged.
+/// When a Phase 3 or 4 agent edits or writes, the target shall be the
+/// slice's module, a file under its directory, or `src/lib.rs` in the
+/// slice's crate, and nothing else.
 #[derive(Spec)]
-pub struct MistypedTagsAreRefusedNotIgnored;
+pub struct PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot;
 
-// ---- hook subagent-start / subagent-stop --------------------------------------
-
-/// When `subagent-start` runs, it shall read the agent's id from the hook
-/// input and record the repository's current `HEAD` under
-/// `<target>/lid-rs/agents/<agent_id>`.
+/// When a Phase 5 or 7 agent edits or writes, the target shall be the
+/// slice's module or a file under its directory, and nothing else.
 #[derive(Spec)]
-pub struct AStartingWorkerRecordsHead;
+pub struct PhasesFiveAndSevenMayWriteOnlyTheSliceModule;
 
-/// When `subagent-stop` finds `HEAD` differs from the agent's recorded one,
-/// it shall allow the stop.
+/// When a target path contains a parent component or resolves outside the
+/// slice's crate, the policy shall refuse it before any allowed set is
+/// consulted.
 #[derive(Spec)]
-pub struct AWorkerThatCommittedMayStop;
+pub struct PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy;
 
-/// When `subagent-stop` finds `HEAD` unchanged from the agent's record and
-/// `stop_hook_active` is false, it shall refuse the stop — a block decision
-/// whose reason instructs the worker to commit the phase or state the
-/// decisions that block it.
+/// When an edit or write is refused, the reason shall quote the
+/// `discipline.md` row for that moment and name what the phase may do
+/// instead: proceed within its allowed paths, or end with the decision.
 #[derive(Spec)]
-pub struct AWorkerThatDidNotCommitIsRefusedOnce;
+pub struct ARefusedEditQuotesTheDisciplineRow;
 
-/// When `subagent-stop` runs with `stop_hook_active` true, it shall allow the
-/// stop regardless of `HEAD`.
+/// When a phase agent calls a tool that does not edit — Read, Grep, Glob,
+/// LSP — the hook shall allow it whatever the path.
 #[derive(Spec)]
-pub struct ASecondStopAttemptIsAllowed;
+pub struct ReadsAreNeverRefused;
 
-/// When `subagent-stop` finds no record for the agent's id, it shall allow
+/// When any tool call reaches the hook, the agent's tally shall count it by
+/// kind — edit, observation, command — and count every refusal, under the
+/// agent's id.
+#[derive(Spec)]
+pub struct EveryToolCallIsTallied;
+
+// ---- hook post-edit: clippy after every edit ---------------------------------
+
+/// When an Edit or Write completes, the hook shall run clippy on the
+/// workspace with warnings denied and hand its output, or "clean", back as
+/// additional context, refusing nothing.
+#[derive(Spec)]
+pub struct EveryEditIsFollowedByClippy;
+
+// ---- hook stop: the check, then the commit -----------------------------------
+
+/// When the agent's final message carries neither a `commit` block nor a
+/// `stop` block, or carries both, the stop shall be refused with the
+/// format.
+#[derive(Spec)]
+pub struct AFinalMessageCarriesExactlyOneEnding;
+
+/// When the final message carries a `stop` block, the hook shall commit
+/// nothing and allow the stop.
+#[derive(Spec)]
+pub struct AStopBlockEndsThePhaseWithoutACommit;
+
+/// When a `commit` block's subject does not begin with the agent's own
+/// `phase <n>:` tag, the stop shall be refused naming the expected tag.
+#[derive(Spec)]
+pub struct ACommitSubjectMustCarryThisPhasesTag;
+
+/// When the final message carries a `commit` block with this phase's tag,
+/// the hook shall run the phase's check, and a failing check shall refuse
 /// the stop.
 #[derive(Spec)]
-pub struct AStopWithoutARecordIsAllowed;
+pub struct ACommitBlockRunsThePhasesCheck;
 
-// ---- init and sync: installing the hooks and the workflow ---------------------
+/// When a check fails, the refusal's reason shall be, in order, the failing
+/// step's output, the `gates.md` row for the check that fired, and what the
+/// phase's policy permits.
+#[derive(Spec)]
+pub struct ARefusalCarriesTheOutputTheRuleAndThePermittedMoves;
+
+/// When a clippy lint in the failing output is one the gate relies on, it
+/// shall name its check — `cognitive_complexity` 7,
+/// `fn_params_excessive_bools` 8, `too_many_lines` 9,
+/// `wildcard_enum_match_arm` 6, `missing_docs` 3 — and a red-run failure
+/// shall name the Phase 5 rule, a survivor check 12.
+#[derive(Spec)]
+pub struct AFailingOutputNamesItsCheck;
+
+/// When the synced artifacts differ from the dependency's, before or after
+/// the check, the stop shall be refused naming them, and nothing shall be
+/// committed.
+#[derive(Spec)]
+pub struct SyncedArtifactsMustMatchAtTheStop;
+
+/// When, after the check, any path outside the phase's allowed set has
+/// changed, the stop shall be refused naming it, and nothing shall be
+/// committed.
+#[derive(Spec)]
+pub struct ChangesOutsideThePolicyRefuseTheStop;
+
+/// When the check and both integrity checks pass, the hook shall stage
+/// exactly the phase's allowed paths and commit the block's message.
+#[derive(Spec)]
+pub struct OnlyThePoliciesPathsAreStaged;
+
+/// When nothing under the phase's allowed paths has changed, the stop shall
+/// be refused as having nothing to commit.
+#[derive(Spec)]
+pub struct NothingToCommitIsARefusal;
+
+/// When a phase commit is made, its message shall end with the
+/// `Lid-Rs-Phase`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, and `Lid-Rs-Refusals`
+/// trailers rendered from the agent's tally.
+#[derive(Spec)]
+pub struct TheTallyIsWrittenAsTrailers;
+
+// ---- execution class -----------------------------------------------------------
+
+/// When the slice's crate declares a `proc-macro` or `custom-build` target,
+/// its execution class shall be compile-time, naming which; otherwise it
+/// shall be ordinary.
+#[derive(Spec)]
+pub struct ACompileTimeSliceIsDisclosed;
+
+// ---- sync: the mirrored artifacts ------------------------------------------------
 
 /// When `sync` runs, it shall mirror each artifact the resolved `lid-rs`
-/// ships — the `skill/`, `workflow/`, `agent/`, and `hooks/` directories —
-/// to its place in the project, and `--check` shall hold every one to the
-/// skill's any-difference rule.
+/// ships — the `skill/`, `workflow/`, and `agent/` directories — to its
+/// place in the project, and `--check` shall hold every one to the skill's
+/// any-difference rule.
 #[derive(Spec)]
 pub struct SyncMirrorsEveryArtifactTheDependencyShips;
-
-/// When `sync` runs, it shall set the repository's `core.hooksPath` to
-/// `.lid-rs/hooks`; `sync --check` shall fail when it is not set to that.
-#[derive(Spec)]
-pub struct SyncAssertsTheHooksPath;
-
-/// When `init` runs in a repository whose `core.hooksPath` is already set to
-/// another value, it shall report that as a conflict.
-#[derive(Spec)]
-pub struct AForeignHooksPathIsAnInitConflict;
