@@ -112,6 +112,14 @@ fn describe_one_difference(relative: &Path, current: Option<&String>, source: Op
 /// Recursively reads every file under `root`, keyed by its path relative to
 /// `root`.
 fn read_relative_files(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
+    let mut files = BTreeMap::new();
+    collect_relative_files(root, root, &mut files)?;
+    Ok(files)
+}
+
+/// Visits `dir` (a subtree of `root`), recursing into subdirectories and
+/// inserting every file's content keyed by its path relative to `root`.
+fn collect_relative_files(root: &Path, dir: &Path, files: &mut BTreeMap<PathBuf, String>) -> Result<(), String> {
     todo!()
 }
 
