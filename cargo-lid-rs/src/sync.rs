@@ -163,6 +163,58 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
+/// The git config key the synced hooks are registered under.
+pub const HOOKS_PATH_KEY: &str = "core.hooksPath";
+
+/// Where the hook scripts land, and what `core.hooksPath` is set to.
+pub const HOOKS_IN_PROJECT: &str = ".lid-rs/hooks";
+
+/// One artifact the `lid-rs` crate ships and `sync` mirrors: a file or a
+/// directory, at its path in the crate and its path in the project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Artifact {
+    /// Path relative to the crate's manifest directory.
+    pub in_crate: &'static str,
+    /// Path relative to the workspace root.
+    pub in_project: &'static str,
+    /// Whether the mirrored files are marked executable (hook scripts).
+    pub executable: bool,
+}
+
+/// Everything the resolved `lid-rs` ships for the project, in mirror order:
+/// the skill directory, the workflow, the phase agent, the hook scripts.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+pub fn artifacts() -> [Artifact; 4] {
+    todo!()
+}
+
+/// The files of one artifact as shipped by the resolved `lid-rs`, relative
+/// path → content: a directory's whole tree, or a single file under its name.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+fn artifact_files(project: &Project, artifact: &Artifact) -> Result<BTreeMap<PathBuf, String>, String> {
+    todo!()
+}
+
+/// The project-side root of one artifact.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+fn artifact_root(project: &Project, artifact: &Artifact) -> Result<PathBuf, String> {
+    todo!()
+}
+
+/// Sets `core.hooksPath` to the synced hooks directory in the repository at
+/// `root`.
+#[implements(spec::SyncAssertsTheHooksPath)]
+pub fn assert_hooks_path(root: &Path) -> Result<(), String> {
+    todo!()
+}
+
+/// Fails unless `core.hooksPath` in the repository at `root` is the synced
+/// hooks directory.
+#[implements(spec::SyncAssertsTheHooksPath)]
+pub fn check_hooks_path(root: &Path) -> Result<(), String> {
+    todo!()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

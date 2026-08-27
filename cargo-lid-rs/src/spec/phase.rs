@@ -124,9 +124,9 @@ pub struct AStopWithoutARecordIsAllowed;
 // ---- init and sync: installing the hooks and the workflow ---------------------
 
 /// When `sync` runs, it shall mirror each artifact the resolved `lid-rs`
-/// ships — `skill/`, `workflow/lid-rs.js`, `agent/lid-rs-phase.md`,
-/// `hooks/commit-msg` — to its place in the project, and `--check` shall
-/// hold every one to the skill's any-difference rule.
+/// ships — the `skill/`, `workflow/`, `agent/`, and `hooks/` directories —
+/// to its place in the project, and `--check` shall hold every one to the
+/// skill's any-difference rule.
 #[derive(Spec)]
 pub struct SyncMirrorsEveryArtifactTheDependencyShips;
 
