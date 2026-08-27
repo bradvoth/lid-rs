@@ -50,7 +50,11 @@ Phase 1 and write the claim, or restructure.
 ## The gate (README §4.5) — run before any commit
 
 A gate that exists, gates: run whatever subset currently applies, from the
-first commit onward.
+first commit onward. Phase commits (`phase N:` on an `lld/<slice>` branch)
+run their phase's check in the `commit-msg` hook `sync` installs — the full
+list below at `phase 7:` — so the hook, not the agent, is what gates them;
+`--no-verify` is a suppression like any `#[allow]`. `phase-check 7` is the
+floor; `mdbook build book` is this workspace's extra step, run by hand.
 
 ```bash
 cargo check --all-targets
@@ -59,7 +63,7 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
 cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs --allow-dirty   # tarballs build standalone
-cargo run -p cargo-lid-rs -- sync --check   # .claude/skills/lid-rs/SKILL.md == lid-rs/skill/SKILL.md (canonical; edit that one)
+cargo run -p cargo-lid-rs -- sync --check   # .claude/{skills,workflows,agents} and .lid-rs/hooks == lid-rs/{skill,workflow,agent,hooks} (canonical; edit those)
 cargo run -p cargo-lid-rs -- mutants   # check 12 from source (consumers: `cargo lid-rs mutants`)
 mdbook build book                    # the site is assembled by inclusion; breaks on drift
 ```

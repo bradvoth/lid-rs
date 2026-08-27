@@ -1,0 +1,4 @@
+#!/bin/sh
+# Managed by `cargo lid-rs sync`; do not edit. A `phase N:` commit runs
+# phase N's check; a failing check refuses the commit (docs/intent/phase/lld.md).
+exec "$(dirname "$0")/run" hook commit-msg "$1"

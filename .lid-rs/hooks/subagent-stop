@@ -1,0 +1,4 @@
+#!/bin/sh
+# Managed by `cargo lid-rs sync`; do not edit. Refuses, once, a lid-rs-phase
+# worker's stop when no commit was made since it started.
+exec "$(dirname "$0")/run" hook subagent-stop

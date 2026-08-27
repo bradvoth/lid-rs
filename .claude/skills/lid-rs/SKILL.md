@@ -30,7 +30,8 @@ this split exists to prevent.
    restate it at Phase 0 — and a directive to a fork may not waive Phase 5.
    Keep self-reviewing under a waiver.
 2. **A firing lint is the system working.** Never suppress a warning, raise a
-   clippy threshold, add `#[allow]`, or wildcard a match to get past the gate.
+   clippy threshold, add `#[allow]`, wildcard a match, or pass `git commit
+   --no-verify` to get past a gate or a phase hook.
    The only sanctioned `#[allow]`s are the ones inside macro-generated
    registration blocks, which you never write by hand. `#[mutants::skip]` is
    a suppression too: only on pure I/O sequencing, only with the reason in
@@ -56,7 +57,11 @@ A slice's work lives on its own branch, created at Phase 0 and named for the
 slice (e.g. `lld/<slice-name>`). Each phase's approval is its own commit —
 `phase N: <what was approved>` — so the branch's log is the resumption point:
 read it with `git log` before asking where a slice left off, rather than
-tracking phase state in a file. Phase 6 has no independent stop in the walk
+tracking phase state in a file. The tag is also what gates the commit: the
+repository's `commit-msg` hook (installed by `cargo lid-rs sync`) runs phase
+N's check — `cargo lid-rs phase-check N` — and refuses the commit when it
+fails, so you never decide whether a check runs; you read its output when
+one refuses you. A mistyped tag (`phase 6:`, `phase 8:`) is refused too. Phase 6 has no independent stop in the walk
 below, so its commit merges into Phase 7's ("Gate, then commit"); every other
 phase that ends in **STOP for review** gets its own commit at approval.
 
@@ -67,6 +72,14 @@ instead of one squashed diff that hides which order things happened in.
 Whether the branch is squash-merged, merged, or rebased into the default
 branch afterward is the human's call at PR time; this convention only
 prescribes the shape of the working branch.
+
+The same branch can be built unattended: the `lid-rs` workflow (synced to
+`.claude/workflows/lid-rs.js`) walks phases 2–7 from a human-approved
+`phase 1:` commit with a clean worker and a clean reviewer per phase, and
+stops with numbered decisions wherever the methodology needs the human. Its
+output is indistinguishable from a session's — the same tags, the same
+gate at each commit — so either mode can pick up where the other stopped.
+This skill is the interactive mode; it does not launch the workflow.
 
 ## The phases (0–8)
 

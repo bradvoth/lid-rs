@@ -154,9 +154,14 @@ Claude Code's own eight-refusal cap is never reached. Both commands exit
 zero when the agent record is missing (a `subagent-stop` with no matching
 `subagent-start` is not the worker's fault).
 
-Agent definitions are read when a session starts, so a newly synced
-`lid-rs-phase.md` is available from the next session; `sync` says so when
-it writes the file.
+A newly synced `lid-rs-phase.md` is not usable the instant it is written:
+in the session that wrote it, the agent type was reported unavailable at
+first and available some minutes later, so discovery is delayed rather
+than immediate; a fresh session is the reliable path. Whether an agent's
+own frontmatter `SubagentStart` fires for itself is not documented; if it
+does not, no record is written and every stop is allowed — the hook fails
+open, by the no-record claim — and the next phase's precondition still
+reads the log. The first workflow run settles it.
 
 ### The workflow: `cargo lid-rs sync` ships `.claude/workflows/lid-rs.js`
 
@@ -244,7 +249,7 @@ could be told apart in git, one of them has left the methodology.
 | Phase 5 test execution | One `cargo test … --exact` run per validation, exit status as verdict | One `cargo test --lib` run with libtest output parsed; `--format json` | One process per test costs seconds on a slice-sized set and needs no parsing of libtest's human-oriented output; JSON output is nightly-only. |
 | Phase 5 slice identity | `SPEC` records by source file `src/spec/<slice>.rs`, slice from the branch name | Parse `src/spec/` for the module; a `--claims` list; a `#[lid_rs::slice]` attribute | The registry already carries the file; the branch convention already carries the slice; constraint 2 forbids the parse. |
 | Phase 7's list | The tool holds README §4.5 verbatim, in order, as one more copy the README's rule binds | Make `cargo lid-rs gate` the canonical gate and reduce the README to a pointer; read the list from a config table | Keeping the list canonical in prose is a deliberate choice for now: the spec stays readable without the tool, and the copies-must-match rule is already the discipline. Promoting the tool to canonical is a README change with its own slice when the copies are seen to drift. |
-| Untagged commits | Not gated | Gate every commit on an `lld/*` branch with the full gate | The full gate rebuilds under mutation; running it on every fixup commit makes people bypass hooks. The slice commit that closes Phase 7 is untagged by the skill's convention and is the one the workflow's Phase 7 worker makes only after `phase-check 7` passes — recorded in the commit body. |
+| Untagged commits | Not gated; the Phase 7 slice commit is tagged (`phase 7: <version>: <what and why>`) so the hook runs the full gate on it | Gate every commit on an `lld/*` branch with the full gate; leave the slice commit untagged and have the Phase 7 worker run `phase-check 7` itself | The full gate rebuilds under mutation; running it on every fixup commit makes people bypass hooks. An untagged slice commit would put the gate back in the agent's hands, which is the failure this slice removes — so the skill's Phase 7 convention gains the tag, and the changelog-readable subject follows it. |
 | Mistyped tags | `phase 0/6/8+:` refused, not ignored | Treat as untagged | A tag the hook silently ignores is a phase that silently escapes its check. |
 | Hook installation | `init` writes `.lid-rs/hooks/commit-msg` and sets `core.hooksPath`; `sync` re-asserts and `--check` verifies | Write into `.git/hooks/` (unversioned, lost on clone); a `pre-commit`-framework config; a Claude Code hook in `.claude/settings.json` | `core.hooksPath` is the only git mechanism that makes a versioned hook directory authoritative; it is per-clone config, which is why `sync` owns re-asserting it. `.claude/settings.json` is user territory `sync` must not own whole, and gates only Claude Code. |
 | The workflow's input | A branch with a human-approved `phase 1:` commit; no waiver argument | A slice name, with the workflow drafting the LLD; a `--waive` argument mirroring the skill's per-slice waiver | Phase 1 is human-owned; a workflow that drafts it and continues has approved its own LLD. The skill's evidence shows a waiver given once is reused; an argument is a waiver given every time. |
