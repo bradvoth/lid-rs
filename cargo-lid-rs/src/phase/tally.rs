@@ -82,3 +82,48 @@ pub fn apply(tally: Tally, event: Event) -> Tally {
 pub fn trailers(tally: &Tally, phase: Phase) -> String {
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::phase::fixture;
+    use lid_rs::validates;
+
+    #[test]
+    #[validates(spec::EveryToolCallIsTallied)]
+    fn every_event_counts_once() {
+        let mut tally = Tally::default();
+        for event in [
+            Event::Tool(ToolKind::Edit),
+            Event::Tool(ToolKind::Edit),
+            Event::Tool(ToolKind::Observation),
+            Event::Tool(ToolKind::Command),
+            Event::PostEditCheck,
+            Event::StopCheck,
+            Event::PolicyRefusal,
+            Event::StopRefusal,
+        ] {
+            tally = apply(tally, event);
+        }
+        assert_eq!(
+            tally,
+            Tally { edits: 2, observations: 1, commands: 1, post_edit_checks: 1, stop_checks: 1, policy_refusals: 1, stop_refusals: 1 }
+        );
+        let (_dir, project) = fixture::copy("tally-store");
+        let agent = format!("store-{}", std::process::id());
+        assert_eq!(load(&project, &agent).expect("empty"), Tally::default());
+        record(&project, &agent, Event::Tool(ToolKind::Edit)).expect("record");
+        record(&project, &agent, Event::StopRefusal).expect("record");
+        assert_eq!(load(&project, &agent).expect("stored"), Tally { edits: 1, stop_refusals: 1, ..Tally::default() });
+    }
+
+    #[test]
+    #[validates(spec::TheTallyIsWrittenAsTrailers)]
+    fn the_tally_is_written_as_trailers() {
+        let tally = Tally { edits: 14, observations: 9, commands: 0, post_edit_checks: 14, stop_checks: 1, policy_refusals: 1, stop_refusals: 0 };
+        assert_eq!(
+            trailers(&tally, Phase::Seven),
+            "Lid-Rs-Phase: 7\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\n"
+        );
+    }
+}

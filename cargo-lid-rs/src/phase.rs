@@ -231,9 +231,15 @@ fn hook_pre_tool(project: &Project, phase: Phase, input: &HookInput) -> Result<H
     todo!()
 }
 
-/// The policy verdict for one edit, as the hook renders it.
-#[implements(spec::ARefusedEditQuotesTheDisciplineRow)]
+/// The policy verdict for one edit on the current branch's slice.
 fn edit_verdict(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+    todo!()
+}
+
+/// The policy verdict for one edit on a named slice: the human's
+/// acceptance of a compile-time slice first, then the path policy.
+#[implements(spec::ARefusedEditQuotesTheDisciplineRow, spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+fn edit_verdict_for(project: &Project, phase: Phase, slice: &str, input: &HookInput) -> Result<HookVerdict, String> {
     todo!()
 }
 
@@ -511,11 +517,120 @@ pub fn red_verdict(unvalidated: &[String], outcomes: &[Outcome]) -> Result<(), S
 }
 
 #[cfg(test)]
+pub(crate) mod fixture {
+    //! A LID-ready package with one slice, built once against this checkout
+    //! and copied per test, for the hooks to run against.
+
+    use std::path::{Path, PathBuf};
+    use std::sync::OnceLock;
+
+    use crate::init::{LidRsSource, Options, init_in};
+    use crate::project::Project;
+
+    /// This checkout's `lid-rs` crate directory.
+    pub fn lid_rs_checkout() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs").canonicalize().expect("lid-rs checkout")
+    }
+
+    /// The workspace's own project, with dependencies resolved.
+    pub fn workspace() -> Project {
+        Project::load_graph_at(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml")).expect("cargo metadata")
+    }
+
+    /// Runs git in `dir`, asserting success.
+    pub fn git(dir: &Path, args: &[&str]) {
+        let status = std::process::Command::new("git")
+            .args(["-c", "user.email=t@t", "-c", "user.name=t"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("git");
+        assert!(status.success(), "git {args:?} in {}", dir.display());
+    }
+
+    /// A fresh scratch directory.
+    pub fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("lid-rs-phase-tests").join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// The package `app`, initialised by `init` against this checkout, with
+    /// a slice `hello` (LLD, module, spec file) committed on `lld/hello`.
+    fn build() -> PathBuf {
+        let parent = scratch("fixture-source");
+        let status = std::process::Command::new(crate::project::cargo_command().get_program())
+            .args(["new", "--lib", "app", "--vcs", "none"])
+            .current_dir(&parent)
+            .status()
+            .expect("cargo new");
+        assert!(status.success());
+        let dir = parent.join("app");
+        std::fs::write(dir.join("src/lib.rs"), "").expect("empty lib");
+        init_in(&dir, &Options { lid_rs: LidRsSource::Path(lid_rs_checkout()) }).expect("init");
+        // One shared target directory across every copy, so a copy's check
+        // reuses the compiled lid-rs.
+        std::fs::create_dir_all(dir.join(".cargo")).expect(".cargo");
+        std::fs::write(
+            dir.join(".cargo/config.toml"),
+            format!("[build]\ntarget-dir = \"{}\"\n", std::env::temp_dir().join("lid-rs-phase-tests/target").display()),
+        )
+        .expect("config");
+        std::fs::create_dir_all(dir.join("docs/intent/hello")).expect("docs");
+        std::fs::write(dir.join("docs/intent/hello/lld.md"), "# hello\n\nThe hello slice.\n").expect("lld");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hello\"\n}\n").expect("module");
+        let lib = std::fs::read_to_string(dir.join("src/lib.rs")).expect("lib");
+        std::fs::write(dir.join("src/lib.rs"), format!("{lib}\n#[doc = include_str!(\"../docs/intent/hello/lld.md\")]\npub mod hello;\n")).expect("lib");
+        git(&dir, &["init", "-q", "-b", "main"]);
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "phase 1: LLD for hello"]);
+        git(&dir, &["checkout", "-q", "-b", "lld/hello"]);
+        dir
+    }
+
+    /// A private copy of the fixture at a scratch path, with its project.
+    pub fn copy(name: &str) -> (PathBuf, Project) {
+        static SOURCE: OnceLock<PathBuf> = OnceLock::new();
+        let source = SOURCE.get_or_init(build);
+        let dir = scratch(name);
+        let status = std::process::Command::new("cp").args(["-R", &format!("{}/.", source.display()), &dir.display().to_string()]).status().expect("cp");
+        assert!(status.success());
+        let project = Project::load_graph_at(&dir.join("Cargo.toml")).expect("cargo metadata");
+        (dir, project)
+    }
+
+    /// The fixture's current `HEAD`.
+    pub fn head(dir: &Path) -> String {
+        let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(dir).output().expect("git");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A hook input for a stop with this final message.
+    pub fn stop_input(agent: &str, message: &str) -> super::HookInput {
+        super::HookInput { agent_id: agent.to_string(), last_message: message.to_string(), ..Default::default() }
+    }
+
+    /// A hook input for a tool call on a path.
+    pub fn tool_input(agent: &str, tool: &str, path: &Path) -> super::HookInput {
+        super::HookInput {
+            agent_id: agent.to_string(),
+            tool_name: Some(tool.to_string()),
+            tool_path: Some(path.to_path_buf()),
+            ..Default::default()
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use std::path::{Path, PathBuf};
 
     use super::*;
     use lid_rs::validates;
+
+    use super::fixture;
+    use super::policy::{ToolKind, kind_of};
 
     fn strings(list: &[&str]) -> Vec<String> {
         list.iter().map(|a| (*a).to_string()).collect()
@@ -802,5 +917,135 @@ mod tests {
         let err = red_verdict(&[], &[red("A", "t::a"), green("B", "t::b")]).expect_err("green fails");
         assert!(err.contains("t::b") && !err.contains("t::a"), "{err}");
         red_verdict(&[], &[red("A", "t::a"), red("B", "t::b")]).expect("all red passes");
+    }
+
+    #[test]
+    #[validates(spec::ReadsAreNeverRefused)]
+    fn reads_are_never_refused() {
+        let (dir, project) = fixture::copy("reads");
+        let agent = format!("reads-{}", std::process::id());
+        for tool in ["Read", "Grep", "Glob", "LSP"] {
+            let input = fixture::tool_input(&agent, tool, Path::new("/etc/hosts"));
+            assert_eq!(hook_pre_tool(&project, Phase::Two, &input).expect("hook"), HookVerdict::Allow, "{tool}");
+        }
+        let outside = fixture::tool_input(&agent, "Edit", &dir.join("Cargo.toml"));
+        assert!(matches!(hook_pre_tool(&project, Phase::Two, &outside).expect("hook"), HookVerdict::Refuse(_)));
+        assert_eq!(kind_of("Read"), ToolKind::Observation);
+        assert_eq!(kind_of("Edit"), ToolKind::Edit);
+        assert_eq!(kind_of("Write"), ToolKind::Edit);
+        assert_eq!(kind_of("Bash"), ToolKind::Command);
+    }
+
+    #[test]
+    #[validates(spec::EveryToolCallIsTallied)]
+    fn every_tool_call_is_tallied() {
+        let (dir, project) = fixture::copy("tally");
+        let agent = format!("tally-{}", std::process::id());
+        hook_pre_tool(&project, Phase::Three, &fixture::tool_input(&agent, "Read", &dir.join("src/lib.rs"))).expect("hook");
+        hook_pre_tool(&project, Phase::Three, &fixture::tool_input(&agent, "Edit", &dir.join("src/hello.rs"))).expect("hook");
+        hook_pre_tool(&project, Phase::Three, &fixture::tool_input(&agent, "Edit", &dir.join("Cargo.toml"))).expect("hook");
+        let tally = tally::load(&project, &agent).expect("tally");
+        assert_eq!((tally.observations, tally.edits, tally.policy_refusals), (1, 2, 1));
+    }
+
+    #[test]
+    #[validates(spec::EveryEditIsFollowedByClippy)]
+    fn every_edit_is_followed_by_clippy() {
+        let (dir, project) = fixture::copy("post-edit");
+        let clean = hook_post_edit(&project, &fixture::tool_input("x", "Edit", &dir.join("src/hello.rs"))).expect("hook");
+        assert_eq!(clean, HookVerdict::Context("cargo clippy: clean".to_string()));
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    let unused = 1;\n    \"hello\"\n}\n").expect("write");
+        let HookVerdict::Context(output) = hook_post_edit(&project, &fixture::tool_input("x", "Edit", &dir.join("src/hello.rs"))).expect("hook") else {
+            panic!("context, never a refusal");
+        };
+        assert!(output.contains("unused"), "{output}");
+    }
+
+    #[test]
+    #[validates(spec::AStopBlockEndsThePhaseWithoutACommit)]
+    fn a_stop_block_ends_the_phase_without_a_commit() {
+        let (dir, project) = fixture::copy("stop-block");
+        std::fs::write(dir.join("src/hello.rs"), "//! Changed but not committed.\n").expect("write");
+        let before = fixture::head(&dir);
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("s", "Blocked.\n\n```stop\n1. The LLD needs a claim for X.\n```\n")).expect("hook");
+        assert_eq!(verdict, HookVerdict::Allow);
+        assert_eq!(fixture::head(&dir), before, "nothing was committed");
+    }
+
+    #[test]
+    #[validates(spec::ACommitBlockRunsThePhasesCheck)]
+    fn a_commit_block_runs_the_phases_check() {
+        let (dir, project) = fixture::copy("commit-check");
+        std::fs::write(dir.join("src/hello.rs"), "//! Broken.\n\n/// Greets.\npub fn greet() -> u32 {\n    \"hello\"\n}\n").expect("write");
+        let before = fixture::head(&dir);
+        let HookVerdict::Refuse(reason) = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook") else {
+            panic!("a failing check refuses the stop");
+        };
+        assert!(reason.contains("E0308") || reason.contains("mismatched types"), "{reason}");
+        assert_eq!(fixture::head(&dir), before, "nothing was committed");
+        let wrong_tag = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 2: claims\n```\n")).expect("hook");
+        assert!(matches!(wrong_tag, HookVerdict::Refuse(r) if r.contains("phase 3:")));
+    }
+
+    #[test]
+    #[validates(spec::OnlyThePoliciesPathsAreStaged)]
+    fn a_passing_check_commits_exactly_the_policys_paths() {
+        let (dir, project) = fixture::copy("commit-ok");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n").expect("write");
+        let before = fixture::head(&dir);
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("ok", "Done.\n\n```commit\nphase 3: skeleton for hello\n\nThe body.\n```\n")).expect("hook");
+        assert_eq!(verdict, HookVerdict::Allow);
+        let after = fixture::head(&dir);
+        assert_ne!(after, before, "a commit was made");
+        let show = std::process::Command::new("git").args(["show", "--stat", "--format=%B", "HEAD"]).current_dir(&dir).output().expect("git");
+        let show = String::from_utf8_lossy(&show.stdout);
+        assert!(show.contains("phase 3: skeleton for hello") && show.contains("src/hello.rs"), "{show}");
+        assert!(show.contains("Lid-Rs-Phase: 3") && show.contains("Lid-Rs-Tools:"), "{show}");
+    }
+
+    #[test]
+    #[validates(spec::NothingToCommitIsARefusal)]
+    fn nothing_to_commit_is_a_refusal() {
+        let (_dir, project) = fixture::copy("commit-nothing");
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("n", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("nothing to commit")), "{verdict:?}");
+    }
+
+    #[test]
+    #[validates(spec::ChangesOutsideThePolicyRefuseTheStop)]
+    fn changes_outside_the_policy_refuse_the_stop() {
+        let (dir, project) = fixture::copy("commit-outside");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
+        std::fs::write(dir.join("clippy.toml"), "cognitive-complexity-threshold = 99\n").expect("write");
+        let before = fixture::head(&dir);
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("o", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("clippy.toml")), "{verdict:?}");
+        assert_eq!(fixture::head(&dir), before);
+    }
+
+    #[test]
+    #[validates(spec::SyncedArtifactsMustMatchAtTheStop)]
+    fn synced_artifacts_must_match_at_the_stop() {
+        let (dir, project) = fixture::copy("commit-synced");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
+        let skill = dir.join(".claude/skills/lid-rs/SKILL.md");
+        let original = std::fs::read_to_string(&skill).expect("skill");
+        std::fs::write(&skill, format!("{original}\ntampered\n")).expect("write");
+        let before = fixture::head(&dir);
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("y", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("SKILL.md")), "{verdict:?}");
+        assert_eq!(fixture::head(&dir), before);
+    }
+
+    #[test]
+    #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+    fn a_compile_time_slice_needs_the_humans_acceptance() {
+        // The workspace's own macros slice lives in a proc-macro crate and
+        // carries no acceptance file.
+        let workspace = fixture::workspace();
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/macros.rs");
+        let input = fixture::tool_input("m", "Edit", &target);
+        let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
+        assert!(matches!(&verdict, HookVerdict::Refuse(r) if r.contains("compile-time-accepted")), "{verdict:?}");
     }
 }
