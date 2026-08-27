@@ -177,3 +177,8 @@ pub struct SyncCheckFailsOnAnyDifferenceAndWritesNothing;
 /// directory, `sync` shall fail naming which.
 #[derive(Spec)]
 pub struct AMissingSkillSourceFailsByName;
+
+// ---- phase (docs/intent/phase/lld.md) -----------------------------------------
+
+mod phase;
+pub use phase::*;
