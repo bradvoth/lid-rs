@@ -646,4 +646,20 @@ mod tests {
         assert!(leftovers.is_empty(), "placeholders left in {leftovers:?}");
     }
 
+    #[test]
+    #[validates(spec::AForeignHooksPathIsAnInitConflict)]
+    fn a_foreign_hooks_path_is_an_init_conflict() {
+        let root = scratch("hooks-conflict");
+        let git = |args: &[&str]| {
+            let status = std::process::Command::new("git").args(args).current_dir(&root).status().expect("git");
+            assert!(status.success());
+        };
+        git(&["init", "-q"]);
+        assert_eq!(foreign_hooks_path(&root), None, "unset is not a conflict");
+        git(&["config", sync::HOOKS_PATH_KEY, sync::HOOKS_IN_PROJECT]);
+        assert_eq!(foreign_hooks_path(&root), None, "already the synced hooks is not a conflict");
+        git(&["config", sync::HOOKS_PATH_KEY, ".husky"]);
+        let conflict = foreign_hooks_path(&root).expect("another hooks path is a conflict");
+        assert!(conflict.contains(".husky"), "{conflict}");
+    }
 }

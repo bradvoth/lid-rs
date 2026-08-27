@@ -365,4 +365,64 @@ mod tests {
             (Ok(Mode::Write), Ok(Mode::Check), true, true)
         );
     }
+    /// A fresh scratch git repository.
+    fn scratch_repo(name: &str) -> PathBuf {
+        let dir = scratch(name);
+        let status = std::process::Command::new("git").args(["init", "-q"]).current_dir(&dir).status().expect("git");
+        assert!(status.success());
+        dir
+    }
+
+    #[test]
+    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    fn sync_mirrors_every_artifact_the_dependency_ships() {
+        let table = artifacts();
+        let rows: Vec<(&str, &str, bool)> = table.iter().map(|a| (a.in_crate, a.in_project, a.executable)).collect();
+        assert_eq!(
+            rows,
+            [
+                ("skill", ".claude/skills/lid-rs", false),
+                ("workflow", ".claude/workflows", false),
+                ("agent", ".claude/agents", false),
+                ("hooks", ".lid-rs/hooks", true),
+            ]
+        );
+        // The checkout's lid-rs ships every artifact, and a write mirrors each.
+        let root = scratch("artifacts");
+        let project = project_at(&root);
+        for artifact in &table {
+            let files = artifact_files(&project, artifact).expect("the checkout ships it");
+            assert!(!files.is_empty(), "{} ships files", artifact.in_crate);
+            assert_eq!(artifact_root(&project, artifact).expect("root"), root.join(artifact.in_project));
+        }
+        write(&project).expect("writes every artifact");
+        for name in ["run", "commit-msg", "subagent-start", "subagent-stop"] {
+            let script = root.join(HOOKS_IN_PROJECT).join(name);
+            assert!(script.is_file(), "{} is mirrored", script.display());
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let mode = std::fs::metadata(&script).expect("meta").permissions().mode();
+                assert!(mode & 0o111 != 0, "{} is executable", script.display());
+            }
+        }
+        assert!(root.join(".claude/workflows/lid-rs.js").is_file());
+        assert!(root.join(".claude/agents/lid-rs-phase.md").is_file());
+        // A stray file in any mirrored directory fails the check.
+        std::fs::write(root.join(".claude/agents/extra.md"), "x").expect("write");
+        let err = check(&project).expect_err("an extra file is a difference");
+        assert!(err.contains("extra.md"), "{err}");
+    }
+
+    #[test]
+    #[validates(spec::SyncAssertsTheHooksPath)]
+    fn sync_asserts_the_hooks_path() {
+        let root = scratch_repo("hooks-path");
+        let err = check_hooks_path(&root).expect_err("unset fails the check");
+        assert!(err.contains(HOOKS_PATH_KEY), "{err}");
+        assert_hooks_path(&root).expect("sets");
+        assert_eq!(git_config_get(&root, HOOKS_PATH_KEY).expect("git"), Some(HOOKS_IN_PROJECT.to_string()));
+        check_hooks_path(&root).expect("set to the synced hooks passes");
+        assert_hooks_path(&root).expect("idempotent");
+    }
 }
