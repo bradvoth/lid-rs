@@ -209,6 +209,21 @@ fn render(kind: HookKind, verdict: &HookVerdict) -> String {
     todo!()
 }
 
+/// `PreToolUse`'s deny decision with its reason.
+fn deny_json(reason: &str) -> String {
+    todo!()
+}
+
+/// `PostToolUse`'s additional context.
+fn context_json(context: &str) -> String {
+    todo!()
+}
+
+/// `Stop`'s block decision with its reason.
+fn block_json(reason: &str) -> String {
+    todo!()
+}
+
 /// `hook pre-tool <n>`: an editing tool's target must be in the phase's
 /// allowed set; every call is tallied.
 #[implements(spec::ReadsAreNeverRefused, spec::EveryToolCallIsTallied)]
