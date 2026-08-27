@@ -50,6 +50,16 @@ fn path(project: &Project, agent_id: &str) -> Result<PathBuf, String> {
     todo!()
 }
 
+/// The tally as stored.
+fn to_json(tally: &Tally) -> String {
+    todo!()
+}
+
+/// A stored tally.
+fn from_json(json: &str) -> Result<Tally, String> {
+    todo!()
+}
+
 /// The agent's tally so far; empty for an agent with none.
 pub fn load(project: &Project, agent_id: &str) -> Result<Tally, String> {
     todo!()

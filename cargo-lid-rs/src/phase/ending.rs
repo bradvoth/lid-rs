@@ -54,6 +54,11 @@ pub fn subject_matches(phase: Phase, message: &str) -> Result<(), String> {
     todo!()
 }
 
+/// The message's subject: its first non-empty line.
+fn subject_of(message: &str) -> &str {
+    todo!()
+}
+
 /// The refusal for a failing check: the output, the `gates.md` row for the
 /// check it names, and what the phase permits.
 #[implements(spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves)]

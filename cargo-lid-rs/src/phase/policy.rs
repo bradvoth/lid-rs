@@ -92,6 +92,22 @@ fn discipline_rows(project: &Project, phase: Phase) -> Result<Vec<String>, Strin
     todo!()
 }
 
+/// A file of the synced skill, read from the project's copy.
+pub(super) fn read_synced(project: &Project, relative: &str) -> Result<String, String> {
+    todo!()
+}
+
+/// The rows of a Markdown table whose first cell contains `tag` as a
+/// whole word, without the header and separator rows.
+pub(super) fn table_rows_tagged(markdown: &str, tag: &str) -> Vec<String> {
+    todo!()
+}
+
+/// The number a phase is written as in the skill's tables.
+pub(super) fn number_of(phase: Phase) -> u8 {
+    todo!()
+}
+
 /// The slice's execution class, from the crate's target kinds.
 #[implements(spec::ACompileTimeSliceIsDisclosed)]
 pub fn execution_class(project: &Project, crate_root: &Path) -> Result<ExecutionClass, String> {
