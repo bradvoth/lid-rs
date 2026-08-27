@@ -41,53 +41,44 @@ fn mode_of(args: &[String]) -> Result<Mode, String> {
     }
 }
 
-/// Writes every file of the dependency's skill to the project's copy; a
-/// second run changes nothing.
-#[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot)]
+/// Writes every file of every artifact the dependency ships to its place in
+/// the project, then registers the hooks; a second run changes nothing.
+#[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn write(project: &Project) -> Result<(), String> {
-    write_files(&copy_root(project)?, &skill_files(project)?)
+    artifacts().iter().try_for_each(|artifact| write_artifact(project, artifact))
 }
 
-/// Fails naming every file the project's copy is missing, has extra, or
-/// differs in, against the dependency's skill; writes nothing.
-#[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing)]
+/// Writes one artifact's files under its project root.
+fn write_artifact(project: &Project, artifact: &Artifact) -> Result<(), String> {
+    write_files(&artifact_root(project, artifact)?, &artifact_files(project, artifact)?)
+}
+
+/// Fails naming every file the project's copies are missing, have extra, or
+/// differ in, against what the dependency ships; writes nothing.
+#[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn check(project: &Project) -> Result<(), String> {
-    let root = copy_root(project)?;
-    let source = skill_files(project)?;
-    let current = existing_files(&root);
-    let differences = describe_differences(&current, &source);
-    if differences.is_empty() {
-        Ok(())
-    } else {
-        Err(format!(
-            "{} is missing or differs from the skill shipped by the resolved lid-rs; run `cargo lid-rs sync`:\n  {}",
-            root.display(),
-            differences.join("\n  ")
-        ))
-    }
-}
-
-/// The skill shipped by the `lid-rs` the project resolves, as relative path
-/// → file content.
-#[implements(spec::TheSkillComesFromTheResolvedLidRsDependency, spec::AMissingSkillSourceFailsByName)]
-fn skill_files(project: &Project) -> Result<BTreeMap<PathBuf, String>, String> {
-    let dir = project
-        .lid_rs_package_dir()
-        .ok_or("the project resolves no `lid-rs` dependency; add it first")?;
-    let root = dir.join(SKILL_IN_CRATE);
-    read_relative_files(&root).map_err(|e| {
+    let differences: Vec<String> = artifacts()
+        .iter()
+        .map(|artifact| artifact_differences(project, artifact))
+        .collect::<Result<Vec<_>, _>>()?
+        .concat();
+    differences.is_empty().then_some(()).ok_or_else(|| {
         format!(
-            "the resolved `lid-rs` at {} ships no skill ({}): {e}; a lid-rs of 0.2.1 or later is needed",
-            dir.display(),
-            root.display()
+            "the project's copies are missing or differ from what the resolved lid-rs ships; run `cargo lid-rs sync`:\n  {}",
+            differences.join("\n  ")
         )
     })
 }
 
-/// The project's copy root: `<workspace_root>/.claude/skills/lid-rs/`.
-#[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot)]
-fn copy_root(project: &Project) -> Result<PathBuf, String> {
-    Ok(project.root()?.join(SKILL_IN_PROJECT))
+/// One artifact's named differences, each prefixed with its project path.
+fn artifact_differences(project: &Project, artifact: &Artifact) -> Result<Vec<String>, String> {
+    let root = artifact_root(project, artifact)?;
+    let source = artifact_files(project, artifact)?;
+    let current = existing_files(&root);
+    Ok(describe_differences(&current, &source)
+        .into_iter()
+        .map(|difference| format!("{}/{difference}", artifact.in_project))
+        .collect())
 }
 
 /// The files currently under `root`, keyed by path relative to `root`; empty
@@ -163,6 +154,58 @@ fn write_file(path: &Path, content: &str) -> Result<(), String> {
     std::fs::write(path, content).map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
+/// One artifact the `lid-rs` crate ships and `sync` mirrors: a directory,
+/// at its path in the crate and its path in the project.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Artifact {
+    /// Path relative to the crate's manifest directory.
+    pub in_crate: &'static str,
+    /// Path relative to the workspace root.
+    pub in_project: &'static str,
+}
+
+/// Everything the resolved `lid-rs` ships for the project, in mirror order:
+/// the skill directory, the workflows, the phase agents.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+pub fn artifacts() -> [Artifact; 3] {
+    [
+        Artifact { in_crate: SKILL_IN_CRATE, in_project: SKILL_IN_PROJECT },
+        Artifact { in_crate: "workflow", in_project: ".claude/workflows" },
+        Artifact { in_crate: "agent", in_project: ".claude/agents" },
+    ]
+}
+
+/// The files of one artifact as shipped by the `lid-rs` the project
+/// resolves — registry or path, never the tool's own build — as relative
+/// path → content; a missing dependency or a `lid-rs` that ships no such
+/// artifact fails naming which.
+#[implements(
+    spec::TheSkillComesFromTheResolvedLidRsDependency,
+    spec::AMissingSkillSourceFailsByName,
+    spec::SyncMirrorsEveryArtifactTheDependencyShips,
+)]
+fn artifact_files(project: &Project, artifact: &Artifact) -> Result<BTreeMap<PathBuf, String>, String> {
+    let dir = project
+        .lid_rs_package_dir()
+        .ok_or("the project resolves no `lid-rs` dependency; add it first")?;
+    let root = dir.join(artifact.in_crate);
+    read_relative_files(&root).map_err(|e| {
+        format!(
+            "the resolved `lid-rs` at {} ships no {} ({}): {e}; a lid-rs of {} or later is needed",
+            dir.display(),
+            artifact.in_crate,
+            root.display(),
+            env!("CARGO_PKG_VERSION")
+        )
+    })
+}
+
+/// The project-side root of one artifact.
+#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+fn artifact_root(project: &Project, artifact: &Artifact) -> Result<PathBuf, String> {
+    Ok(project.root()?.join(artifact.in_project))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -216,7 +259,7 @@ mod tests {
     #[validates(spec::TheSkillComesFromTheResolvedLidRsDependency)]
     fn the_skill_comes_from_the_resolved_lid_rs_dependency() {
         let root = scratch("source");
-        let source = skill_files(&project_at(&root)).expect("this checkout's lid-rs ships a skill");
+        let source = artifact_files(&project_at(&root), &artifacts()[0]).expect("this checkout's lid-rs ships a skill");
         assert_eq!(source, canonical_skill_files(), "every file in the source is the dependency's skill, byte for byte");
     }
 
@@ -234,10 +277,10 @@ mod tests {
     fn a_missing_skill_source_fails_by_name() {
         let root = scratch("missing");
         let no_dependency = Project::from_json(&doc(&root, &[("app", &root)])).expect("parses");
-        let without = skill_files(&no_dependency).expect_err("no lid-rs must fail");
+        let without = artifact_files(&no_dependency, &artifacts()[0]).expect_err("no lid-rs must fail");
         let old_lid_rs = scratch("old-lid-rs");
         let too_old = Project::from_json(&doc(&root, &[("app", &root), ("lid-rs", &old_lid_rs)])).expect("parses");
-        let too_old = skill_files(&too_old).expect_err("a lid-rs without a skill directory must fail");
+        let too_old = artifact_files(&too_old, &artifacts()[0]).expect_err("a lid-rs without a skill directory must fail");
         assert!(without.contains("lid-rs") && too_old.contains(&old_lid_rs.display().to_string()), "{without}\n{too_old}");
     }
 
@@ -301,5 +344,46 @@ mod tests {
             (mode_of(&[]), mode_of(&strings(&["--check"])), mode_of(&strings(&["--bogus"])).is_err_and(|e| e.contains("--bogus")), via_run),
             (Ok(Mode::Write), Ok(Mode::Check), true, true)
         );
+    }
+    #[test]
+    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    fn the_mirror_table_names_every_artifact() {
+        let rows: Vec<(&str, &str)> = artifacts().iter().map(|a| (a.in_crate, a.in_project)).collect();
+        assert_eq!(rows, [("skill", ".claude/skills/lid-rs"), ("workflow", ".claude/workflows"), ("agent", ".claude/agents")]);
+    }
+
+    #[test]
+    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    fn every_artifact_the_checkout_ships_has_files_and_a_project_root() {
+        let root = scratch("artifacts");
+        let project = project_at(&root);
+        for artifact in &artifacts() {
+            let files = artifact_files(&project, artifact).expect("the checkout ships it");
+            assert!(!files.is_empty(), "{} ships files", artifact.in_crate);
+            assert_eq!(artifact_root(&project, artifact).expect("root"), root.join(artifact.in_project));
+        }
+    }
+
+    #[test]
+    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    fn a_write_mirrors_the_workflow_and_the_agents() {
+        let root = scratch("artifacts-write");
+        let project = project_at(&root);
+        write(&project).expect("writes every artifact");
+        assert!(root.join(".claude/workflows/lid-rs.js").is_file());
+        assert!(root.join(".claude/agents/lid-rs-phase-2.md").is_file());
+        assert!(root.join(".claude/agents/lid-rs-review.md").is_file());
+    }
+
+    #[test]
+    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    fn an_extra_file_in_any_mirrored_directory_fails_the_check() {
+        let root = scratch("artifacts-extra");
+        let project = project_at(&root);
+        write(&project).expect("writes every artifact");
+        check(&project).expect("a fresh mirror passes");
+        std::fs::write(root.join(".claude/agents/extra.md"), "x").expect("write");
+        let err = check(&project).expect_err("an extra file is a difference");
+        assert!(err.contains("extra.md"), "{err}");
     }
 }

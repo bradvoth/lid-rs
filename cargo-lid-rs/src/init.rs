@@ -630,5 +630,4 @@ mod tests {
             .collect();
         assert!(leftovers.is_empty(), "placeholders left in {leftovers:?}");
     }
-
 }

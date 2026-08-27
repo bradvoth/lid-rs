@@ -72,7 +72,15 @@ The skill must carry, in this order of importance:
    only state the skill keeps between turns. No file records "which phase am
    I on"; that answer comes from `git log` on the current branch, which is
    also what makes an LLD's PR reviewable by walking commits in phase order
-   instead of one squashed diff.
+   instead of one squashed diff. Phases 2–7 are run by the phase agents
+   (`cargo-lid-rs/docs/intent/phase/lld.md`): the skill's session spawns
+   each, presents its commit, and never edits code or decides whether a
+   check runs — the agent's hooks do both.
+7. **The other mode** — the same branch can be built unattended by the
+   `lid-rs` workflow, with the same phase agents and a read-only reviewer
+   agent in the human's seat; the skill names it, states that the two
+   modes' output is indistinguishable in git, says what the hooks bound
+   and what they do not, and does not launch it.
 
 | Rule | The moment it applies | Evidence (`dmdr`) |
 |---|---|---|
@@ -100,6 +108,8 @@ The skill must carry, in this order of importance:
 | Failure remediation format | Per-check table with meaning and correct response | Prose guidance | The moment of use is "a gate just fired"; a lookup table matches it. |
 | Form of the earned rules | `references/discipline.md`, one when → do-this table, read at a phase stop or a gate firing | Inline in `SKILL.md` (the 0.2 arrangement); worked examples inline at each phase | `sync` now carries a directory (below), so "one more thing to carry" no longer argues for staying inline; an always-loaded `SKILL.md` that holds every phase's rules is exactly the context an agent that can't track the whole workflow drops first. One table stays the single source a row's phase tag can point at, instead of duplicating rows across phase files where they'd drift. |
 | Where the canonical skill lives | `lid-rs/skill/` — `SKILL.md` a thin dispatcher, `references/*.md` the phase, gate, and mechanics detail — inside the crate that its toolchain-half describes; working copies are synced, never edited | A single `lid-rs/skill/SKILL.md` (the 0.1–0.2 arrangement); `.claude/skills/lid-rs/SKILL.md` as canonical with a template copy in the tool; a plugin | A single file that must state every phase in full is read whole the moment the skill triggers, which is the failure this change exists to fix (weaker agents losing the workflow in a file that large). Splitting by phase means only the current phase's detail loads. The crate-shipped, synced-not-edited arrangement is otherwise unchanged from 0.2's rationale. |
+| Who runs the phase checks | The phase agent's stop hook, which also makes the commit; the skill's session only spawns and reviews | The agent runs each phase's check itself and pastes the output (the 0.2.1 arrangement); a git `commit-msg` hook keyed on the tag (0.2.2's first design) | The `dmdr` evidence is a list of checks the agent was told to run and did not: a red run skipped under a reused waiver, "commit anyway" offered at a failed gate. A check the agent runs is a check the agent can skip; a git hook gates the commit but not the committer. The phase agent has no git and edits only its phase's paths. Details and alternatives in `cargo-lid-rs/docs/intent/phase/lld.md`. |
+| The Phase 7 commit's subject | `phase 7: <version>: <what and why>` | The project's convention alone (the 0.2.1 arrangement) | The tag is what makes the hook run the full gate before the slice commit exists; without it the gate is the agent's to run, which is the failure above. The changelog-readable part follows the tag. |
 | State between turns | A branch per LLD (`lld/<slice-name>`), one commit per phase at approval | A state file (`.lid-rs-state.json` or similar) naming the current phase and slice | Git already versions the exact artifact each phase produces; a state file is a second source of truth that can drift from what's actually on disk, and is one more file `sync`/the gate would need to know about. `git log` on the branch answers "what phase are we on" from the same evidence a reviewer uses, and turns an LLD's PR into something read commit-by-commit in phase order rather than as one diff. The convention prescribes only the working branch's shape; squash, merge, or rebase into the default branch is the human's call at PR time. |
 | Evidence placement | The examples and the project they came from live in this LLD only; the skill states the check | Worked examples in the skill; anonymised examples in the skill | A rule read at the moment it applies needs the check, and a story about another project is noise at that moment; the evidence exists to justify the rule to a reviewer of this design, which is what an LLD is for. Named here, because a named example is checkable. |
 | Stop-message contract | ≤3 numbered decisions; "continue" approves those only; waivers per slice | Free-form summary ending "approve or flag" | Nine bare "continue"s in `dmdr` show the free-form stop becomes ceremony; a numbered decision is something a reviewer answers. |

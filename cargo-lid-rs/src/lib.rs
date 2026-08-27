@@ -4,6 +4,8 @@
 pub mod init;
 pub mod mapping;
 pub mod mutants;
+#[doc = include_str!("../docs/intent/phase/lld.md")]
+pub mod phase;
 pub mod project;
 pub mod spec;
 #[doc = include_str!("../docs/intent/sync/lld.md")]
@@ -12,7 +14,7 @@ pub mod sync;
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check]>";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | hook <commit-msg <file> | subagent-start | subagent-stop>>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
@@ -41,6 +43,8 @@ fn dispatch(args: &[String]) -> Result<(), String> {
         Some("init") => init::run(&args[1..]),
         Some("new") => init::run_new(&args[1..]),
         Some("sync") => sync::run(&args[1..]),
+        Some("phase-check") => phase::run(&args[1..]),
+        Some("hook") => phase::hook(&args[1..]),
         Some(other) => Err(format!("unknown subcommand `{other}`\n{USAGE}")),
         None => Err(USAGE.to_string()),
     }
