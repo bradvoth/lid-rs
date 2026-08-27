@@ -1,3 +1,4 @@
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
@@ -6,10 +7,10 @@ use crate::project::Project;
 use crate::spec;
 
 /// Where the skill lives inside the `lid-rs` package.
-const SKILL_IN_CRATE: &str = "skill/SKILL.md";
+const SKILL_IN_CRATE: &str = "skill";
 
 /// Where the project's copy lives, relative to the workspace root.
-pub const SKILL_IN_PROJECT: &str = ".claude/skills/lid-rs/SKILL.md";
+pub const SKILL_IN_PROJECT: &str = ".claude/skills/lid-rs";
 
 /// What `sync` was asked to do.
 #[derive(Debug, PartialEq, Eq)]
@@ -40,50 +41,87 @@ fn mode_of(args: &[String]) -> Result<Mode, String> {
     }
 }
 
-/// Writes the dependency's skill to the project's copy; a second run changes
-/// nothing.
+/// Writes every file of the dependency's skill to the project's copy; a
+/// second run changes nothing.
 #[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot)]
 pub fn write(project: &Project) -> Result<(), String> {
-    write_file(&copy_path(project)?, &skill_source(project)?)
+    write_files(&copy_root(project)?, &skill_files(project)?)
 }
 
-/// Fails naming the project's copy when it is absent or differs from the
-/// dependency's skill; writes nothing.
+/// Fails naming every file the project's copy is missing, has extra, or
+/// differs in, against the dependency's skill; writes nothing.
 #[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing)]
 pub fn check(project: &Project) -> Result<(), String> {
-    let path = copy_path(project)?;
-    let source = skill_source(project)?;
-    let current = std::fs::read_to_string(&path).unwrap_or_default();
-    if current == source {
+    let root = copy_root(project)?;
+    let source = skill_files(project)?;
+    let current = existing_files(&root);
+    let differences = describe_differences(&current, &source);
+    if differences.is_empty() {
         Ok(())
     } else {
         Err(format!(
-            "{} is missing or differs from the skill shipped by the resolved lid-rs; run `cargo lid-rs sync`",
-            path.display()
+            "{} is missing or differs from the skill shipped by the resolved lid-rs; run `cargo lid-rs sync`:\n  {}",
+            root.display(),
+            differences.join("\n  ")
         ))
     }
 }
 
-/// The skill shipped by the `lid-rs` the project resolves.
+/// The skill shipped by the `lid-rs` the project resolves, as relative path
+/// → file content.
 #[implements(spec::TheSkillComesFromTheResolvedLidRsDependency, spec::AMissingSkillSourceFailsByName)]
-fn skill_source(project: &Project) -> Result<String, String> {
+fn skill_files(project: &Project) -> Result<BTreeMap<PathBuf, String>, String> {
     let dir = project
         .lid_rs_package_dir()
         .ok_or("the project resolves no `lid-rs` dependency; add it first")?;
-    let path = dir.join(SKILL_IN_CRATE);
-    std::fs::read_to_string(&path).map_err(|e| {
+    let root = dir.join(SKILL_IN_CRATE);
+    read_relative_files(&root).map_err(|e| {
         format!(
-            "the resolved `lid-rs` at {} ships no skill ({}): {e}; a lid-rs of 0.2 or later is needed",
+            "the resolved `lid-rs` at {} ships no skill ({}): {e}; a lid-rs of 0.2.1 or later is needed",
             dir.display(),
-            path.display()
+            root.display()
         )
     })
 }
 
-/// The project's copy: `<workspace_root>/.claude/skills/lid-rs/SKILL.md`.
+/// The project's copy root: `<workspace_root>/.claude/skills/lid-rs/`.
 #[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot)]
-fn copy_path(project: &Project) -> Result<PathBuf, String> {
+fn copy_root(project: &Project) -> Result<PathBuf, String> {
     Ok(project.root()?.join(SKILL_IN_PROJECT))
+}
+
+/// The files currently under `root`, keyed by path relative to `root`; empty
+/// if `root` doesn't exist.
+fn existing_files(root: &Path) -> BTreeMap<PathBuf, String> {
+    todo!()
+}
+
+/// Named differences between `current` and `source`: a path missing from
+/// `current`, a path in `current` not in `source`, or a path whose content
+/// differs.
+fn describe_differences(current: &BTreeMap<PathBuf, String>, source: &BTreeMap<PathBuf, String>) -> Vec<String> {
+    todo!()
+}
+
+/// One relative path's difference, if any, between the project's copy and
+/// the dependency's skill.
+fn describe_one_difference(relative: &Path, current: Option<&String>, source: Option<&String>) -> Option<String> {
+    todo!()
+}
+
+/// Recursively reads every file under `root`, keyed by its path relative to
+/// `root`.
+fn read_relative_files(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
+    todo!()
+}
+
+/// Writes `files`, each at its relative path under `root`, creating
+/// directories.
+fn write_files(root: &Path, files: &BTreeMap<PathBuf, String>) -> Result<(), String> {
+    for (relative, content) in files {
+        write_file(&root.join(relative), content)?;
+    }
+    Ok(())
 }
 
 /// Writes a file, creating its directories.

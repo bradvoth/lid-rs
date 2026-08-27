@@ -80,7 +80,7 @@ pub enum Change {
     SyncSkill {
         /// The manifest whose resolved `lid-rs` supplies the skill.
         manifest: PathBuf,
-        /// Where the copy lands: `<workspace_root>/.claude/skills/lid-rs/SKILL.md`.
+        /// Where the copy lands: `<workspace_root>/.claude/skills/lid-rs/`.
         path: PathBuf,
     },
     /// The `lid-rs` dependency, added by `cargo add`.
