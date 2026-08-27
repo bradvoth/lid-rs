@@ -23,8 +23,8 @@ Commit the slice as `phase 7: <version>: <what and why>` — the tag first,
 then the project's normal convention — with the phase history legible in
 the body. This commit covers Phase 6's implementation together with the
 passing gate, since Phase 6 has no stop of its own, and the tag is what
-makes the `commit-msg` hook run the full gate on it (the list above, as
-`cargo lid-rs phase-check 7`) before it exists: a gate the agent ran by
+makes the phase agent's stop hook run the full gate on it (the list above,
+as `cargo lid-rs phase-check 7`) before it exists: a gate the agent ran by
 hand is a gate the agent could have skipped. It is typically the branch's
 last phase commit before opening the PR; the PR is then reviewable by
 walking phases 1 through 7 in order.

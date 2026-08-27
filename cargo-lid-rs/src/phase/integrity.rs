@@ -12,30 +12,54 @@ use crate::sync;
 /// The synced artifacts match the dependency's, as a refusal reason.
 #[implements(spec::SyncedArtifactsMustMatchAtTheStop)]
 pub fn synced_artifacts_match(project: &Project) -> Result<(), String> {
-    todo!()
+    sync::check(project).map_err(|e| format!("the synced artifacts changed since the phase started — code the check ran may have written them: {e}"))
 }
 
 /// Nothing outside the allowed set (paths relative to the workspace root)
 /// is modified, untracked, or deleted; otherwise the offenders, named.
 #[implements(spec::ChangesOutsideThePolicyRefuseTheStop)]
 pub fn outside_policy_clean(project: &Project, allowed: &[PathBuf]) -> Result<(), String> {
-    todo!()
+    let outside: Vec<String> = changed_paths(project)?
+        .into_iter()
+        .filter(|path| !under_any(path, allowed))
+        .map(|path| path.display().to_string())
+        .collect();
+    outside.is_empty().then_some(()).ok_or_else(|| {
+        format!(
+            "changed outside this phase's allowed paths — the agent could not have written these, so the code the check ran did: {}",
+            outside.join(", ")
+        )
+    })
 }
 
 /// The changed paths within the allowed set — what a commit would stage.
 #[implements(spec::NothingToCommitIsARefusal)]
 pub fn changed_within(project: &Project, allowed: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
-    todo!()
+    Ok(changed_paths(project)?.into_iter().filter(|path| under_any(path, allowed)).collect())
 }
 
-/// `git status --porcelain` as workspace-relative paths.
+/// `git status --porcelain` as workspace-relative paths, without the
+/// target directory: the hooks themselves write there (the tally).
 fn changed_paths(project: &Project) -> Result<Vec<PathBuf>, String> {
-    todo!()
+    let output = crate::project::capture(project.git()?.args(["status", "--porcelain", "--untracked-files=all"]))?;
+    let target = project.target_directory()?.strip_prefix(project.root()?).map(Path::to_path_buf).ok();
+    Ok(output
+        .lines()
+        .filter_map(status_path)
+        .filter(|path| target.as_deref().is_none_or(|t| !path.starts_with(t)))
+        .collect())
+}
+
+/// The path of one porcelain status line; a rename's new name.
+fn status_path(line: &str) -> Option<PathBuf> {
+    let entry = line.get(3..)?;
+    let path = entry.rsplit(" -> ").next().unwrap_or(entry);
+    Some(PathBuf::from(path.trim_matches('"')))
 }
 
 /// Whether a path is one of, or under, the allowed entries.
 fn under_any(path: &Path, allowed: &[PathBuf]) -> bool {
-    todo!()
+    allowed.iter().any(|entry| path == entry || path.starts_with(entry))
 }
 
 #[cfg(test)]

@@ -150,7 +150,10 @@ synced `references/discipline.md` row, plus what the phase may do instead:
 proceed within the allowed paths, or end with the numbered decision.
 
 Reading is never refused: the agent may read anything, which is what makes
-the policy a confused-deputy boundary rather than a secrecy one.
+the policy a confused-deputy boundary rather than a secrecy one. A command
+— impossible by the agents' tool lists — is refused if one ever arrives,
+and a hook that cannot decide (no slice on the branch, no project) refuses
+rather than letting the call through.
 
 The same hook keeps the **tally**: one record per `agent_id` under
 `<target>/lid-rs/agents/`, counting tool calls by kind — edits (`Edit`,
@@ -191,8 +194,10 @@ message must carry exactly one of two fenced blocks:
 
 A message with neither block, or both, is refused with the format.
 
-A failed check is a refusal — Claude Code's `{"decision": "block",
-"reason": …}` on stdout, which keeps the agent running with the reason as
+The check runs as `phase-check <n>` in a fresh process of the same binary,
+its output captured whole: the hook's own stdout is its channel to Claude
+Code, and the gate's engines write to theirs. A failed check is a refusal —
+Claude Code's `{"decision": "block", "reason": …}` on stdout, which keeps the agent running with the reason as
 its next turn. The reason is three parts, in order: the failing step's
 output verbatim; the skill's correct response for the check that fired,
 quoted from the synced `references/gates.md` row (a clippy lint maps to

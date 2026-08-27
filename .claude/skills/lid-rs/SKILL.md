@@ -57,11 +57,22 @@ A slice's work lives on its own branch, created at Phase 0 and named for the
 slice (e.g. `lld/<slice-name>`). Each phase's approval is its own commit —
 `phase N: <what was approved>` — so the branch's log is the resumption point:
 read it with `git log` before asking where a slice left off, rather than
-tracking phase state in a file. The tag is also what gates the commit: the
-repository's `commit-msg` hook (installed by `cargo lid-rs sync`) runs phase
-N's check — `cargo lid-rs phase-check N` — and refuses the commit when it
-fails, so you never decide whether a check runs; you read its output when
-one refuses you. A mistyped tag (`phase 6:`, `phase 8:`) is refused too. Phase 6 has no independent stop in the walk
+tracking phase state in a file.
+
+Phases 2–7 are not done in this session: each is run by the phase's agent
+(`lid-rs-phase-2`, `-3`, `-4`, `-5`, `-7`, synced to `.claude/agents/`),
+spawned by this session with the slice, the branch, the LLD path, and the
+branch's `git log --oneline` in its prompt. That agent can only read and
+edit; its hooks enforce the phase's path policy, run clippy after every
+edit, and — when it ends with a ```` ```commit ```` block — run the phase's
+check (`cargo lid-rs phase-check N`) and make the commit, with `Lid-Rs-*`
+trailers counting its edits, observations, checks, and refusals. A failing
+check keeps the agent running with the output and the skill's rule for it;
+a ```` ```stop ```` block ends the phase uncommitted with the decisions
+that block it. This session never edits code in a LID project and never
+decides whether a check runs: it presents the commit (`git show`, the
+trailers, the decisions) at the stop, and on "continue" spawns the next
+phase's agent; on findings, the same phase's agent again with them. Phase 6 has no independent stop in the walk
 below, so its commit merges into Phase 7's ("Gate, then commit"); every other
 phase that ends in **STOP for review** gets its own commit at approval.
 
@@ -75,11 +86,19 @@ prescribes the shape of the working branch.
 
 The same branch can be built unattended: the `lid-rs` workflow (synced to
 `.claude/workflows/lid-rs.js`) walks phases 2–7 from a human-approved
-`phase 1:` commit with a clean worker and a clean reviewer per phase, and
-stops with numbered decisions wherever the methodology needs the human. Its
-output is indistinguishable from a session's — the same tags, the same
-gate at each commit — so either mode can pick up where the other stopped.
-This skill is the interactive mode; it does not launch the workflow.
+`phase 1:` commit with the same phase agents and a read-only reviewer
+agent in the human's seat, and stops with numbered decisions wherever the
+methodology needs the human. Its output is indistinguishable from a
+session's — the same agents, the same tags, the same gate at each commit —
+so either mode can pick up where the other stopped. This skill is the
+interactive mode; it does not launch the workflow.
+
+Whoever runs either mode should know what the hooks bound and what they do
+not: the agent's tool calls are bounded — no command, no file outside the
+phase, no commit of its own — but the code it writes is executed by the
+checks, at the Phase 5 and 7 stops and after every edit in a compile-time
+slice, with the session's privileges. Run unattended only where untrusted
+code may run.
 
 ## The phases (0–8)
 
@@ -90,16 +109,18 @@ Read the linked file when you enter that phase — not before.
   → `references/phase-0.md`
 - **Phase 1 — LLD** *(human-owned; you draft)*. **STOP for review.**
   → `references/phase-1.md`
-- **Phase 2 — Derive claims** *(you propose, human approves)*. **STOP for
-  review.** → `references/phase-2.md`
-- **Phase 3 — Layer-0 skeleton** *(you propose, human approves)*. `cargo
-  check` passes. **STOP for review.** → `references/phase-3.md`
-- **Phase 4 — Descend breadth-first.** Stop refining when you'd trust the
-  leaf on sight. → `references/phase-4.md`
-- **Phase 5 — Failing-first validations.** Confirm red. **STOP for review.**
-  → `references/phase-5.md`
-- **Phase 6 — Implement leaves.** → `references/phase-6.md`
-- **Phase 7 — Gate, then commit.** → `references/phase-7.md`
+- **Phase 2 — Derive claims** *(`lid-rs-phase-2` proposes, human
+  approves)*. **STOP for review.** → `references/phase-2.md`
+- **Phase 3 — Layer-0 skeleton** *(`lid-rs-phase-3`)*. Its check is `cargo
+  check`. **STOP for review.** → `references/phase-3.md`
+- **Phase 4 — Descend breadth-first** *(`lid-rs-phase-4`)*. Stop refining
+  when you'd trust the leaf on sight. → `references/phase-4.md`
+- **Phase 5 — Failing-first validations** *(`lid-rs-phase-5`)*. Its check
+  is the red run. **STOP for review.** → `references/phase-5.md`
+- **Phase 6 — Implement leaves** *(`lid-rs-phase-7`, with 7)*. →
+  `references/phase-6.md`
+- **Phase 7 — Gate, then commit** *(`lid-rs-phase-7`)*. Its check is the
+  full gate. → `references/phase-7.md`
 - **Phase 8 — Change.** Every change is an LLD edit, cascaded.
   → `references/phase-8.md`
 
