@@ -327,10 +327,11 @@ fn slice_flag(rest: &[String]) -> Result<Option<String>, String> {
     }
 }
 
-/// The slice given, or the current branch's, or none.
+/// The slice given, or the current branch's, or none — a detached `HEAD`
+/// is on no branch and so names no slice.
 #[implements(spec::TheSliceComesFromTheBranchName)]
 fn resolve_slice(project: &Project, given: Option<String>) -> Result<Option<String>, String> {
-    Ok(given.or(slice_of_branch(&current_branch(project)?)))
+    Ok(given.or(current_branch(project)?.and_then(|branch| slice_of_branch(&branch))))
 }
 
 /// The slice an `lld/<slice>` branch is for, or none for any other name.
@@ -339,9 +340,15 @@ pub fn slice_of_branch(branch: &str) -> Option<String> {
     branch.strip_prefix("lld/").map(str::to_string)
 }
 
-/// The repository's current branch name; a detached `HEAD` is an error.
-fn current_branch(project: &Project) -> Result<String, String> {
-    Ok(capture(project.git()?.args(["symbolic-ref", "--short", "HEAD"]))?.trim().to_string())
+/// The repository's current branch name, or none on a detached `HEAD`
+/// (`symbolic-ref` exits non-zero there, quietly).
+fn current_branch(project: &Project) -> Result<Option<String>, String> {
+    let output = project
+        .git()?
+        .args(["symbolic-ref", "--quiet", "--short", "HEAD"])
+        .output()
+        .map_err(|e| format!("running git symbolic-ref: {e}"))?;
+    Ok(output.status.success().then(|| String::from_utf8_lossy(&output.stdout).trim().to_string()))
 }
 
 /// The message's subject: its first line that is neither empty nor a `#`
@@ -719,6 +726,17 @@ mod tests {
         assert_eq!(resolve_slice(&project, None).expect("git"), None, "the default branch is no slice");
         git(&root, &["checkout", "-q", "-b", "lld/demo"]);
         assert_eq!(resolve_slice(&project, None).expect("git"), Some("demo".to_string()));
+    }
+
+    #[test]
+    #[validates(spec::TheSliceComesFromTheBranchName)]
+    fn a_detached_head_names_no_slice() {
+        let root = scratch_repo("resolve-slice-detached");
+        let project = project_in_repo(&root);
+        git(&root, &["-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "x"]);
+        git(&root, &["checkout", "-q", "--detach"]);
+        assert_eq!(resolve_slice(&project, None).expect("git"), None, "detached HEAD: no branch, no slice");
+        assert_eq!(resolve_slice(&project, Some("given".to_string())).expect("git"), Some("given".to_string()));
     }
 
     #[test]
