@@ -121,6 +121,13 @@ impl Project {
             .collect()
     }
 
+    /// Names of the members that publish — those whose manifest does not
+    /// say `publish = false` — which the gate runs `cargo package` for
+    /// (`docs/intent/phase/lld.md`).
+    pub fn publishing_members(&self) -> Vec<String> {
+        todo!()
+    }
+
     /// A cargo invocation rooted at the project.
     #[implements(spec::TheProjectRootComesFromCargoMetadata)]
     pub fn cargo(&self) -> Result<Command, String> {
