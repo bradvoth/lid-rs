@@ -111,7 +111,7 @@ fn describe_one_difference(relative: &Path, current: Option<&String>, source: Op
 
 /// Recursively reads every file under `root`, keyed by its path relative to
 /// `root`.
-fn read_relative_files(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
+pub(crate) fn read_relative_files(root: &Path) -> Result<BTreeMap<PathBuf, String>, String> {
     let mut files = BTreeMap::new();
     collect_relative_files(root, root, &mut files)?;
     Ok(files)
@@ -183,13 +183,17 @@ mod tests {
         list.iter().map(|a| (*a).to_string()).collect()
     }
 
+    /// The canonical skill's files, relative to its `skill/` root.
+    fn canonical_skill_files() -> BTreeMap<PathBuf, String> {
+        read_relative_files(&lid_rs_checkout().join(SKILL_IN_CRATE)).expect("this checkout's lid-rs ships a skill")
+    }
+
     #[test]
     #[validates(spec::TheSkillComesFromTheResolvedLidRsDependency)]
     fn the_skill_comes_from_the_resolved_lid_rs_dependency() {
         let root = scratch("source");
-        let source = skill_source(&project_at(&root)).expect("this checkout's lid-rs ships a skill");
-        let canonical = std::fs::read_to_string(lid_rs_checkout().join(SKILL_IN_CRATE)).expect("canonical skill");
-        assert!(source == canonical, "the source is the dependency's skill, byte for byte");
+        let source = skill_files(&project_at(&root)).expect("this checkout's lid-rs ships a skill");
+        assert_eq!(source, canonical_skill_files(), "every file in the source is the dependency's skill, byte for byte");
     }
 
     #[test]
@@ -206,10 +210,10 @@ mod tests {
     fn a_missing_skill_source_fails_by_name() {
         let root = scratch("missing");
         let no_dependency = Project::from_json(&doc(&root, &[("app", &root)])).expect("parses");
-        let without = skill_source(&no_dependency).expect_err("no lid-rs must fail");
+        let without = skill_files(&no_dependency).expect_err("no lid-rs must fail");
         let old_lid_rs = scratch("old-lid-rs");
         let too_old = Project::from_json(&doc(&root, &[("app", &root), ("lid-rs", &old_lid_rs)])).expect("parses");
-        let too_old = skill_source(&too_old).expect_err("a lid-rs without a skill must fail");
+        let too_old = skill_files(&too_old).expect_err("a lid-rs without a skill directory must fail");
         assert!(without.contains("lid-rs") && too_old.contains(&old_lid_rs.display().to_string()), "{without}\n{too_old}");
     }
 
@@ -219,12 +223,14 @@ mod tests {
         let root = scratch("write");
         let project = project_at(&root);
         write(&project).expect("first write");
-        let path = root.join(SKILL_IN_PROJECT);
-        let first = std::fs::read_to_string(&path).expect("the copy exists at the workspace root");
+        let copy_dir = root.join(SKILL_IN_PROJECT);
+        let first = read_relative_files(&copy_dir).expect("the copy exists at the workspace root");
         write(&project).expect("second write");
-        let second = std::fs::read_to_string(&path).expect("still there");
-        let canonical = std::fs::read_to_string(lid_rs_checkout().join(SKILL_IN_CRATE)).expect("canonical");
-        assert!(first == canonical && second == first, "the copy is the dependency's skill and a rerun changes nothing");
+        let second = read_relative_files(&copy_dir).expect("still there");
+        assert!(
+            first == canonical_skill_files() && second == first,
+            "the copy is every file of the dependency's skill, and a rerun changes nothing"
+        );
     }
 
     #[test]
@@ -232,17 +238,33 @@ mod tests {
     fn sync_check_fails_on_any_difference_and_writes_nothing() {
         let root = scratch("check");
         let project = project_at(&root);
-        let path = root.join(SKILL_IN_PROJECT);
+        let copy_dir = root.join(SKILL_IN_PROJECT);
         let absent = check(&project).expect_err("an absent copy fails");
-        let created_by_check = path.exists();
+        let created_by_check = copy_dir.exists();
         write(&project).expect("write");
         let identical = check(&project);
-        std::fs::write(&path, "edited\n").expect("edit");
-        let edited = check(&project).expect_err("an edited copy fails");
-        let overwritten = std::fs::read_to_string(&path).expect("read") != "edited\n";
+
+        let skill_md = copy_dir.join("SKILL.md");
+        std::fs::write(&skill_md, "edited\n").expect("edit");
+        let edited = check(&project).expect_err("an edited file fails");
+
+        let extra = copy_dir.join("stray.md");
+        std::fs::write(&extra, "not part of the skill\n").expect("write extra");
+        let with_extra = check(&project).expect_err("an extra file fails");
+
+        let overwritten = std::fs::read_to_string(&skill_md).expect("read") != "edited\n";
+        let extra_removed = !extra.exists();
         assert_eq!(
-            (absent.contains("SKILL.md"), created_by_check, identical, edited.contains("SKILL.md"), overwritten),
-            (true, false, Ok(()), true, false)
+            (
+                absent.contains(SKILL_IN_PROJECT),
+                created_by_check,
+                identical,
+                edited.contains("SKILL.md"),
+                with_extra.contains("stray.md"),
+                overwritten,
+                extra_removed,
+            ),
+            (true, false, Ok(()), true, true, false, false)
         );
     }
 

@@ -614,9 +614,9 @@ mod tests {
     #[validates(spec::TheSkillComesFromTheResolvedLidRsDependency)]
     fn an_initialised_package_carries_its_dependencys_skill() {
         let dir = fresh_package("new-skill");
-        let synced = std::fs::read_to_string(dir.join(sync::SKILL_IN_PROJECT)).expect("the skill was synced");
-        let canonical = std::fs::read_to_string(lid_rs_checkout().join("skill/SKILL.md")).expect("canonical skill");
-        assert!(synced == canonical, "init syncs the skill of the lid-rs it just added");
+        let synced = sync::read_relative_files(&dir.join(sync::SKILL_IN_PROJECT)).expect("the skill was synced");
+        let canonical = sync::read_relative_files(&lid_rs_checkout().join("skill")).expect("canonical skill");
+        assert!(synced == canonical, "init syncs the skill of the lid-rs it just added, every file");
     }
 
     #[test]
