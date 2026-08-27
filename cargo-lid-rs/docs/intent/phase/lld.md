@@ -104,15 +104,17 @@ backstop that catches a bypassed phase commit's consequences at PR time.
 
 The hook script is one line — `exec cargo lid-rs hook commit-msg "$1"` —
 so the logic lives in the binary under this crate's own gate, and the script
-never needs updating. `init` writes it to `.lid-rs/hooks/commit-msg`
-(executable) and sets `git config core.hooksPath .lid-rs/hooks` in the
-project's repository; a `core.hooksPath` already set to another value is a
-conflict under `init`'s all-or-nothing rule, since the project has a hook
-arrangement of its own to reconcile. `sync` re-asserts the config on every
-run (it is per-clone, so a fresh clone needs it), and `sync --check` fails
-when the config is absent or the script differs from what `init` writes —
-the first non-skill artifact `sync` owns, the case its LLD deferred until a
-`lid-rs` change needed it.
+never needs updating. The `lid-rs` crate ships it as `hooks/commit-msg`,
+and `sync` mirrors it to `.lid-rs/hooks/commit-msg` (executable) like every
+other artifact the crate ships — one mirror table, one any-difference rule.
+`sync` also sets `git config core.hooksPath .lid-rs/hooks` in the project's
+repository on every run (the config is per-clone, so a fresh clone needs
+it), and `sync --check` fails when it is not set to that. `init` obtains
+both by calling `sync`, as it already does for the skill; a `core.hooksPath`
+already set to another value is a conflict under `init`'s all-or-nothing
+rule, since the project has a hook arrangement of its own to reconcile.
+These are the first non-skill artifacts `sync` owns — the case its LLD
+deferred until a `lid-rs` change needed it.
 
 ### The phase agent: `lid-rs-phase`, and `cargo lid-rs hook subagent-{start,stop}`
 
@@ -133,8 +135,10 @@ stdin. `subagent-start` records the branch's `HEAD` under
 `<target>/lid-rs/agents/<agent_id>`; `subagent-stop` compares. If `HEAD`
 has moved, the worker committed and the stop is allowed. If it has not and
 this is the first stop attempt (`stop_hook_active` false), the stop is
-refused — exit 2, with the instruction on stderr, which Claude Code delivers
-to the worker as its next turn: *no `phase N:` commit was made since you
+refused — a `{"decision": "block", "reason": …}` on stdout, the form Claude
+Code accepts beside exit 2, so a hook that itself fails (exit 1) is shown to
+the user rather than mistaken for a refusal — and the reason is delivered to
+the worker as its next turn: *no `phase N:` commit was made since you
 started; either commit it, or end with the numbered decisions that block
 it.* The second attempt is allowed regardless: a worker that has hit a
 Phase 1 event has nothing to commit and must be able to say so, and the
@@ -208,14 +212,15 @@ could be told apart in git, one of them has left the methodology.
 | `Phase` | Closed set `One`–`Five`, `Seven`; `TryFrom<u8>` refuses 0, 6, 8+ with the message above |
 | `tag_of(subject) -> Option<Phase>` | The `phase N:` prefix, or none |
 | `slice_of_branch(name) -> Option<String>` | `lld/<slice>` → `<slice>` |
-| `check(project, phase, slice) -> Result<(), String>` | One `match` over `Phase`, each arm one check function |
-| `check_docs`, `check_build`, `check_lints`, `check_gate` | The command sequences for phases 1, 3/4, 2, 7 |
+| `check(project, phase, slice) -> Result<(), String>` | One `match` over `Phase`: phase 5 → `check_red`; every other phase → `execute(plan(phase))` |
+| `plan(phase, project) -> Vec<Step>` | The phase's command sequence as data — phases 1, 2, 3/4, 7 — so the sequence is unit-testable and mutation-covered without running cargo |
+| `execute(project, steps) -> Result<(), String>` | Runs steps in order; the first failure is the result, named |
 | `check_red(project, slice)` | Phase 5: `slice_claims` → `claim_validations` → `run_test` each; collects the unvalidated and the green |
 | `slice_claims(registry, slice) -> Vec<String>` | `SPEC` records whose file is the slice's spec module |
 | `claim_validations(registry, claims) -> Vec<TestPath>` | `VALID` edges on those claims, item paths made libtest-relative via `mapping` |
 | `run_test(project, package, path) -> bool` | One `cargo test --lib -p … -- --exact` run; exit status |
-| `init` additions | `.lid-rs/hooks/commit-msg` + `core.hooksPath`, with their conflict rules |
-| `sync` additions | `workflow/lid-rs.js` → `.claude/workflows/lid-rs.js`; `agent/lid-rs-phase.md` → `.claude/agents/lid-rs-phase.md`; hook script and config asserted and checked |
+| `init` additions | A foreign `core.hooksPath` joins the conflict set |
+| `sync` additions | The mirror table gains `workflow/lid-rs.js` → `.claude/workflows/lid-rs.js`, `agent/lid-rs-phase.md` → `.claude/agents/lid-rs-phase.md`, `hooks/commit-msg` → `.lid-rs/hooks/commit-msg` (executable); `core.hooksPath` asserted and checked |
 | `lid-rs/workflow/lid-rs.js` | The workflow, shipped in the crate's tarball |
 
 ## Decisions & Alternatives
@@ -226,7 +231,7 @@ could be told apart in git, one of them has left the methodology.
 | Where the stop hook is declared | Frontmatter of the distributed `lid-rs-phase` agent (`SubagentStart` + `Stop`) | A `SubagentStop` entry in `.claude/settings.json` with a matcher on `workflow-subagent`; no stop hook (the next phase's precondition reads the log) | Declared on the agent, the hook is scoped to phase workers by construction and `sync` owns the file whole; a settings entry gates every workflow agent (reviewers included), lives in a file `sync` must not own, and needs a matcher that the 2026-08-26 spike showed filters on `agent_type` exactly — workable, but two files where one will do. Spiked the same day: settings-level hooks fire for workflow agents, exit 2 reaches the subagent as its next instruction, and agent definitions load at session start; frontmatter hooks themselves are verified at Phase 5. |
 | Stop refusal budget | One refusal, then allow | Refuse until a phase commit exists (Claude Code caps at eight); refuse unless the last message carries a stop marker | A worker at a Phase 1 event has nothing to commit and must be able to stop with its decisions; a marker in prose is a protocol the model can forget. One refusal catches a forgotten commit — the only case the hook is for — and never makes an honest stop impossible. |
 | `cargo lid-rs` from a hook | The hooks invoke `cargo lid-rs …` as consumers do; this workspace routes that to the source tree | Hooks invoke a workspace-specific `cargo run -p cargo-lid-rs -- …` | The synced files are byte-identical in every project, so the command in them must be the consumer's. How this workspace makes `cargo lid-rs` resolve to the working tree (a cargo alias, or an installed binary from the tree) is settled at Phase 3 by testing which cargo honours; CLAUDE.md's "run from source" rule is the constraint. |
-| Check logic location | In the `cargo-lid-rs` binary; the hook script is one `exec` line | A shell script carrying the phase table, synced from the crate | The logic gets claims, tests, and check 12 like any other code; the script never changes, so the crate ships no hook file. The binary's phase table is version-coupled to the skill's phase walk the same way `mutants` is coupled to the registry format — the seam the skill LLD defers is unchanged by this. |
+| Check logic location | In the `cargo-lid-rs` binary; the hook script is one `exec` line, shipped and mirrored like the skill | A shell script carrying the phase table, synced from the crate; `init` writing the one-liner from a template and `sync` checking it separately | The logic gets claims, tests, and check 12 like any other code; the script never changes. Shipping it in the crate keeps one mirror table instead of a mirror plus a special case. The binary's phase table is version-coupled to the skill's phase walk the same way `mutants` is coupled to the registry format — the seam the skill LLD defers is unchanged by this. |
 | Phase 5 test execution | One `cargo test … --exact` run per validation, exit status as verdict | One `cargo test --lib` run with libtest output parsed; `--format json` | One process per test costs seconds on a slice-sized set and needs no parsing of libtest's human-oriented output; JSON output is nightly-only. |
 | Phase 5 slice identity | `SPEC` records by source file `src/spec/<slice>.rs`, slice from the branch name | Parse `src/spec/` for the module; a `--claims` list; a `#[lid_rs::slice]` attribute | The registry already carries the file; the branch convention already carries the slice; constraint 2 forbids the parse. |
 | Phase 7's list | The tool holds README §4.5 verbatim, in order, as one more copy the README's rule binds | Make `cargo lid-rs gate` the canonical gate and reduce the README to a pointer; read the list from a config table | Keeping the list canonical in prose is a deliberate choice for now: the spec stays readable without the tool, and the copies-must-match rule is already the discipline. Promoting the tool to canonical is a README change with its own slice when the copies are seen to drift. |
