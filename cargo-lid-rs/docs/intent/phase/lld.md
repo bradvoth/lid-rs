@@ -246,10 +246,11 @@ decision to run a slice unattended.
 
 - **Precondition** (one reviewer agent, structured output): branch
   `lld/<slice>` exists, its log holds a `phase 1:` commit, the tree is
-  clean, which phase commits are present, and the slice's execution class
-  (Security posture, below) — a compile-time slice is reported before any
-  worker runs, and the run proceeds only if `args.compile_time` was passed,
-  the human's explicit acceptance for that slice. The run starts at the first
+  clean, which phase commits are present, and — read from the slice
+  crate's manifest and `docs/intent/<slice>/` — whether the slice is
+  compile-time and whether the human has accepted it (Security posture,
+  below). A compile-time slice without acceptance stops the run before any
+  worker runs; the hooks refuse it regardless. The run starts at the first
   phase without a commit — resumption is reading the branch, as the skill
   prescribes. No `phase 1:` commit means the run stops before doing
   anything: the LLD is the human's.
@@ -332,8 +333,11 @@ hold these facts:
   script consumes the slice's files, executes the agent's code after every
   edit; such a slice is a **compile-time slice**, reported by the
   precondition from `cargo metadata` (a `proc-macro` or `custom-build`
-  target), and the unattended mode refuses it without the human's explicit
-  acceptance for that run.
+  target). Its edits are refused by the policy unless the human has
+  accepted it by committing `docs/intent/<slice>/compile-time-accepted`
+  with the LLD — a file in the human-owned path, so acceptance is a human
+  commit the hooks verify in both modes, never an argument a model could
+  supply.
 - **Reads are unbounded** by design; confidentiality is not a property of
   this boundary. Nothing the agent reads leaves through a tool — it has no
   network and no command — but what its code reads at Phase 5 or 7 can.
@@ -371,7 +375,8 @@ document does not imply it.
 | `hook_stop(project, phase, input) -> StopDecision` | Parse the message; `commit` → integrity → check → integrity → stage → commit → allow; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crate_root)` | `git status --porcelain` filtered against the allowed set; anything else is named |
-| `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, slice)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
+| `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
+| `compile_time_accepted(crate_root, slice)` | Whether `docs/intent/<slice>/compile-time-accepted` exists |
 | `Ending::{Commit(message), Stop(decisions)}`, `ending_of(message)` | The stop protocol, parsed from the final message |
 | `refusal_for(step_output) -> String` | Output + `gates.md` row for the check that fired + what the phase permits |
 | `check_of_lint(name) -> Option<Check>` | The lint → check mapping |
@@ -390,7 +395,7 @@ document does not imply it.
 | Policy enforcement point | `PreToolUse` on the agent, with reasons quoted from `discipline.md` | Prose in the phase files (the 0.2.1 arrangement); a post-hoc diff check at the stop | A rule in prose is dropped exactly when it is inconvenient (skill LLD, evidence table); a diff check at the stop lets the agent spend a phase on work it must then discard. Refusing at the call is immediate, and quoting the discipline row keeps one source of truth for the rule's wording. |
 | Confused-deputy scope | Writes are bounded; reads are not | Also restrict what the agent may read | The boundary is about what an instruction — from the prompt or from a file — can make the agent *do*; hiding files would make the reviewer's cold reading impossible and gains nothing once writes are bounded. |
 | Runtime tampering | Detected at the stop (synced artifacts and everything outside the policy must be unchanged) and refused; prevented only by isolation | Sandbox every check from the hook (`bwrap`, `sandbox-exec`); ignore it | Detection is cheap, deterministic, and names the event; a sandbox is a control of its own with platform rules, deferred rather than implied. Ignoring it would let a Phase 5 test rewrite the policy the next session loads. |
-| Compile-time slices | Disclosed from `cargo metadata`; the unattended mode requires the human's per-run acceptance | Refuse them outright; treat them like any slice | The tool's own `lid-rs-macros` is such a crate and must be workable; the human, not the workflow, decides to run compile-time code unattended. |
+| Compile-time slices | Disclosed from `cargo metadata`; edits refused unless `docs/intent/<slice>/compile-time-accepted` exists, a file only the human's Phase 1 commit can add | Refuse them outright; treat them like any slice; a workflow argument (`args.compile_time`) | The tool's own `lid-rs-macros` is such a crate and must be workable; the human, not the workflow, decides to run compile-time code unattended. A workflow argument reaches the hook only through a model's prompt, which is exactly the channel the policy must not trust; a file in a path no agent can write is a decision the hook can verify. |
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
 | Staging | Exactly the policy's allowed paths | `git add -A`; the agent names files | The set that bounds edits bounds the commit; anything else the agent could not have written. |
 | Stop-refusal budget | Refuse while the check fails, up to Claude Code's cap of eight | One refusal then allow (the first design); refuse forever | A failing check is not a reason to let the phase end; eight rounds of clippy output is more than a fixable phase needs, and the cap leaves a dirty, uncommitted tree the next precondition refuses. A `stop` block is always allowed, so an honest stop is never blocked. |
