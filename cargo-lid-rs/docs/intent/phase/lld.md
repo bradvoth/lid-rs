@@ -65,10 +65,28 @@ the human makes.
 | Phase | Check | What it proves |
 |---|---|---|
 | 1 | `cargo doc --no-deps` with broken intra-doc links denied; `cargo test --doc` | The LLD's links resolve and its code blocks compile — it is wired into its module from the first commit |
-| 2 | `cargo check --all-targets`; `cargo clippy --all-targets -- -D warnings` | The claims are documented items (check 3) that build |
+| 2 | `cargo check --all-targets`; `cargo clippy --all-targets -- -D warnings -A deprecated` | The claims are documented items (check 3) that build; a reworded claim's old name may still be cited, and those citations are the next phase's work list, not this phase's failure |
 | 3, 4 | `cargo check --all-targets` | The skeleton, at this layer, type-checks (check 4) |
-| 5 | Every claim in the slice has at least one `#[validates]` test, and every such test **fails** | The validations are red against `todo!()` before implementation exists |
+| 5 | Every claim in the red set has at least one `#[validates]` test, and every such test **fails** | The validations are red against `todo!()` before implementation exists |
 | 7 | README §4.5, in order, first failure named | The slice passes the gate |
+
+**A reworded claim.** Phase 2 writes `src/spec/` and nothing else, while
+the sites that cite a claim are in the slice's module, so a rename cannot
+land in one phase. A reword is therefore the renamed struct plus, in
+`src/spec/mod.rs`, a deprecated alias for the old name —
+`#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;` —
+which registers no claim, so the graph sees only the new one, and makes
+every citation of the old name warn with its replacement. Phase 2's lint
+step leaves `deprecated` at warn because those warnings are the cascade in
+flight: the list of sites Phases 3 and 4 revisit. Phase 7's gate denies
+them as it always did, so no citation of a retired name survives the slice,
+and an alias no citation names is deleted by the next Phase 2 on the slice.
+The alias lives in `src/spec/mod.rs` rather than the slice's spec file
+because a `pub use` of a deprecated item is itself a warning the gate would
+deny. A `#[deprecated]` `Spec` struct cannot play this part: once its
+citations move it is a registered claim with no implementer, which checks
+10 and 11 refuse, and only Phase 2 may delete it — the same phase that
+cannot move the citations.
 
 Phase 5 is the check no other tool runs. The slice's claims are the `SPEC`
 records whose source file is `src/spec/<slice>.rs` (kebab-case slice name
@@ -80,6 +98,23 @@ carrying the test's item path; each test runs alone, `cargo test --lib -p
 with no validation, or a validation that passes, is named in the failure. A
 slice whose spec file registers no claims is a failure too ("no claims for
 slice `<name>`"), never a vacuous pass.
+
+**The red set** is what changed since the slice was last gated. The base
+is the newest commit reachable from `HEAD` whose subject starts `phase 7:`
+— any slice's, since a gate commit leaves every other slice's spec file as
+it was. The red set is the slice's claims, from the registry as above,
+whose definition the branch added since that base: the claim's name, as
+`struct <Name>`, on an added line of `git diff <base> -- src/spec/<slice>.rs`
+in the slice's crate. With no gate commit in the history the whole file is
+added and the red set is every claim — a fresh slice. On a Phase 8 edit the
+red set is exactly the claims Phase 2 renamed or added, since a reword is a
+rename (the `phase-check` section above); the slice's other claims keep
+their green validations, which Phase 7's gate runs. An empty red set on a
+branch with a gate commit is a failure naming the base ("no claim added
+since <base>: nothing for phase 5 to be red about") — a Phase 8 edit that
+changes no claim has no Phases 3–7, and the workflow stops with that
+decision. The graph still comes from the registry alone; the diff decides
+only which of its names are new.
 
 `--slice` defaults to the current branch's name with the `lld/` prefix
 removed, the skill's branch convention; a detached `HEAD` or a branch not of
@@ -150,14 +185,18 @@ synced `references/discipline.md` row, plus what the phase may do instead:
 proceed within the allowed paths, or end with the numbered decision.
 
 Reading is never refused: the agent may read anything, which is what makes
-the policy a confused-deputy boundary rather than a secrecy one. A command
-— impossible by the agents' tool lists — is refused if one ever arrives,
-and a hook that cannot decide (no slice on the branch, no project) refuses
-rather than letting the call through.
+the policy a confused-deputy boundary rather than a secrecy one. The
+workflow's `StructuredOutput` — the final call a `schema` forces, which
+reads nothing and writes nothing — is an observation for the same reason:
+it is the agent's answer, made after its commit block has already been
+judged. A command — impossible by the agents' tool lists — is refused if
+one ever arrives, and a hook that cannot decide (no slice on the branch, no
+project) refuses rather than letting the call through.
 
 The same hook keeps the **tally**: one record per `agent_id` under
 `<target>/lid-rs/agents/`, counting tool calls by kind — edits (`Edit`,
-`Write`), observations (`Read`, `Grep`, `Glob`, `LSP`), commands (`Bash`,
+`Write`), observations (`Read`, `Grep`, `Glob`, `LSP`, `StructuredOutput`),
+commands (`Bash`,
 which the tool list makes impossible and the tally makes visible if a
 definition ever drifts), and refusals. `post-edit` and `stop` add their
 checks and refusals to it.
@@ -370,6 +409,7 @@ document does not imply it.
 | `plan(phase, publishing) -> Vec<Step>` | A phase's steps as data |
 | `execute`, `execute_with`, `run_step` | Runs steps in order; the first failure is the result |
 | `check_red`, `slice_claims`, `claim_validations`, `run_test`, `unvalidated`, `red_verdict` | The phase 5 red run over the registry dump |
+| `gate_base(project) -> Option<String>`, `red_set(project, crate_root, slice, claims) -> Vec<Claim>` | The newest `phase 7:` commit reachable from `HEAD`; the slice's claims whose `struct <Name>` line the diff since it added |
 | `slice_of_branch`, `resolve_slice`, `current_branch` | The slice from `lld/<slice>`; a detached `HEAD` names none |
 | `HookInput` | The boundary type over the hook JSON: `agent_id`, `tool_name`, `tool_input` path, `last_assistant_message`, `stop_hook_active` |
 | `policy::allowed(phase, crate_root, path) -> Verdict` | The path table; `Verdict::Refused(reason)` carries the discipline row |
@@ -402,6 +442,9 @@ document does not imply it.
 | Runtime tampering | Detected at the stop (synced artifacts and everything outside the policy must be unchanged) and refused; prevented only by isolation | Sandbox every check from the hook (`bwrap`, `sandbox-exec`); ignore it | Detection is cheap, deterministic, and names the event; a sandbox is a control of its own with platform rules, deferred rather than implied. Ignoring it would let a Phase 5 test rewrite the policy the next session loads. |
 | Compile-time slices | Disclosed from `cargo metadata`; edits refused unless `docs/intent/<slice>/compile-time-accepted` exists, a file only the human's Phase 1 commit can add | Refuse them outright; treat them like any slice; a workflow argument (`args.compile_time`) | The tool's own `lid-rs-macros` is such a crate and must be workable; the human, not the workflow, decides to run compile-time code unattended. A workflow argument reaches the hook only through a model's prompt, which is exactly the channel the policy must not trust; a file in a path no agent can write is a decision the hook can verify. |
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
+| The workflow's structured answer | `StructuredOutput` is an observation | A fourth tool kind; a command, with the workflow parsing the worker's final message instead of a `schema` | The call reads and writes nothing, and it arrives after the stop hook has already judged the commit block: refusing it there ends the run with the phase committed and the workflow reporting a failure. A tool kind of its own would count something the tally has no question about. |
+| The red run on a Phase 8 edit | Scoped to the claims added since the newest `phase 7:` commit, by name in the spec file's diff | Every claim of the slice (the first design); an explicit `--claims` list; the claims the Phase 2 commit's diff touched at all; a registry dump of the base commit | Every claim of the slice can only be red by un-implementing the slice, so an implemented slice's Phase 5 could never pass the hook. A `--claims` list is an argument that reaches the hook through a model's prompt. Any changed line of the Phase 2 diff would sweep in a claim whose doc comment merely mentions another. A base registry dump means building the base commit for every red run. The gate commit is the one moment the slice is known whole, and a renamed struct is exactly one added `struct <Name>` line. |
+| A reworded claim under the policy | The renamed struct plus a `#[deprecated]` type alias for the old name in `src/spec/mod.rs`; Phase 2's clippy runs with `-A deprecated` | `#[deprecated]` on the claim struct itself; a hard rename, with Phase 2's check tolerating unresolved citations; widening Phase 2's policy to the citing module | A deprecated `Spec` struct registers a claim that, once its citations move, has no implementer — checks 10 and 11 refuse it, and only Phase 2 could delete it. Unresolved citations are compile errors no lint level tolerates, and they stop the registry tests compiling too. Widening the policy gives Phase 2 the code it exists to be kept out of. The alias registers nothing, warns at exactly the citation sites, and clippy's `deprecated` is the one lint whose firing at Phase 2 is the methodology's own signal rather than a defect; the gate at Phase 7 still denies it. |
 | Staging | Exactly the policy's allowed paths | `git add -A`; the agent names files | The set that bounds edits bounds the commit; anything else the agent could not have written. |
 | Stop-refusal budget | Refuse while the check fails, up to Claude Code's cap of eight | One refusal then allow (the first design); refuse forever | A failing check is not a reason to let the phase end; eight rounds of clippy output is more than a fixable phase needs, and the cap leaves a dirty, uncommitted tree the next precondition refuses. A `stop` block is always allowed, so an honest stop is never blocked. |
 | Trusted binary in the tool's own workspace | Hooks name the installed `cargo-lid-rs` directly, refreshed from `main` after merge; no synced script | A synced `hooks/run` script preferring `cargo run -p cargo-lid-rs` here (the first design); a separate worktree build | A worker in this repository edits the hook's own source; running it from the tree means the policy is whatever the worker last wrote. Enforcing only landed policy is the price of the tool being its own consumer. |
@@ -423,16 +466,20 @@ document does not imply it.
    `[workspace.metadata.lid_rs] gate_extra` list `phase-check 7` would run
    after the floor. Until then those steps live in CI only.
 2. Worktree isolation per phase worker (see Decisions).
-3. The workflow's Phase 8 path: an edited LLD on an existing slice's
-   branch re-enters at Phase 2 with renamed claims; the precondition's
-   "first phase without a commit" reading needs the `-<what-changed>`
-   branch convention settled first.
+3. The workflow's Phase 8 path: the precondition's "first phase without a
+   commit" reading of an existing slice's branch needs the
+   `-<what-changed>` branch convention settled first.
 4. A documentation phase: the cascade a slice causes in README, CLAUDE.md,
    and the skill is no phase agent's to make under the policy; today it is
    the human's, or the main session's outside a LID phase.
-5. `rust-analyzer` in `rust-toolchain.toml`'s components, so the LSP tool
+5. A phase with nothing to do: on a Phase 8 edit whose layer 0 is already
+   leaves, Phase 4 has no edit to make, and the stop hook's "nothing staged"
+   refusal is the right answer to the wrong question. The workflow runs
+   every phase; a phase that ends with a stop block saying so is today's
+   path, and the session skips it by hand.
+6. `rust-analyzer` in `rust-toolchain.toml`'s components, so the LSP tool
    works for the reviewer without a manual install.
-6. Running each check under an OS sandbox from the hook — no network,
+7. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.
 
