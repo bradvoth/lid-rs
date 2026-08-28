@@ -4,9 +4,16 @@ Every change is an LLD edit, cascaded:
 
 1. Edit the LLD (`phase-1.md`'s discipline applies).
 2. Re-derive affected claims.
-3. Rename or `#[deprecated]` changed claims — renaming *should* break
-   citations, that is forced re-review, not friction.
-4. `cargo check` names every citation site to revisit; work through them.
+3. Rename changed claims, keeping each old name as
+   `#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;`
+   in `src/spec/mod.rs` — every citation of the old name *should* start
+   warning, that is forced re-review, not friction. Never `#[deprecated]`
+   on the struct itself: once its citations move it is a registered claim
+   with no implementer, and only Phase 2 may delete it.
+4. `cargo check` names every citation site to revisit. Phase 2's check
+   leaves them warning; Phases 3 and 4 work through them; Phase 7's gate
+   denies any that remain. Delete an alias no citation names at the next
+   Phase 2 on the slice.
 
 Bug fixes walk the same arrow: find where behaviour diverged from intent,
 decide whether intent was wrong, unexpressed, or misimplemented, and cascade

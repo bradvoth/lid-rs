@@ -61,8 +61,9 @@ The skill must carry, in this order of importance:
    threshold.
 4. **Mechanics discovered building this workspace** — the crate-scoped graph
    checks, `intent_graph!()` placement, module tracing via
-   `implements_module!`, spec retirement via `#[deprecated]` (definition site
-   stays clean; citation sites warn), the required linkme wrapper
+   `implements_module!`, spec retirement via a `#[deprecated]` alias for the
+   old name (the registry sees only the new claim; citation sites warn), the
+   required linkme wrapper
    attribute, and the bootstrap/brownfield adoption order.
 5. **Where discipline slips** — the moments at which a principle from 1–3
    is silently abandoned, each paired with the check the agent performs

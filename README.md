@@ -147,7 +147,7 @@ silently fails to populate turns every check over it into a vacuous pass. See
 | **Coverage of the graph** | `linkme` distributed slices + an ordinary `#[test]` | Enumeration at link time. No source parsing anywhere. See [§5](https://bradvoth.github.io/lid-rs/spec/registry.html). |
 | **Non-vacuous assertion** | Diff-scoped `cargo-mutants`, test subset narrowed by the registry | Proves the test *depends on* the implementation, not merely that it executed it. |
 | **Spec → code cascade** | Recompilation; `#[non_exhaustive]`; exhaustive `match` | Adding a case breaks every dispatch site. A compiler error, not an agent pass. |
-| **Spec retirement** | `#[deprecated]` on the spec struct | Warns at every citation site through the const assertion. Stable compiler, zero tooling. |
+| **Spec retirement** | Rename the struct; keep the old name as a `#[deprecated]` type alias in `src/spec/mod.rs` | Warns at every citation site through the const assertion; the alias registers no claim, so the graph sees only the new one. Stable compiler, zero tooling. |
 | **Refinement skeleton** | Signatures with `todo!()` bodies | `!` coerces to any type, so a whole layer **type-checks before any leaf exists**. |
 | **Complexity budget** | `clippy.toml` thresholds | Enforces dispatch/work separation, which is what makes undeclared decisions detectable. |
 
@@ -201,7 +201,7 @@ applied here to the spec layer.
 
 The objection is rename cost: rewording a claim should change its name, breaking
 every citation. That's the correct behaviour: a reworded claim *should* force re-review at
-each implementing site. `#[deprecated]` provides the migration path. Numbers make the rename cheap by making it meaningless.
+each implementing site. A `#[deprecated]` alias for the old name provides the migration path. Numbers make the rename cheap by making it meaningless.
 
 **Foreign keys are the exception.** When claims originate outside the codebase —
 a compliance matrix, a customer's numbered spec document, a regulatory
@@ -726,9 +726,10 @@ is a small local semantic question.
 
 **Phase 8 — Change.**
 Every change is an LLD edit, cascaded: edit `lld.md` → re-derive affected specs →
-rename or `#[deprecated]` the changed claims → `cargo check` names every citation
-site to revisit. Deleting a spec breaks the build at every site that implemented
-it.
+rename the changed claims, leaving each old name as a `#[deprecated]` alias →
+`cargo check` names every citation site to revisit (Phase 2's check leaves them
+warning; Phase 7's gate denies them). Deleting a spec breaks the build at every
+site that implemented it.
 
 **Slice seams.** At each boundary, reconcile before Phase 3: slice *n* often
 wants something slice *n−1* built. Reuse only when the shared thing is one

@@ -21,10 +21,13 @@
 - **Methods** take `#[implements]` like free fns (registrations are
   body-injected). Structs and enums take it too (e.g. a
   `#[non_exhaustive]` closed-set enum implements its closed-set claim).
-- **Spec retirement**: add `#[deprecated = "why; what replaces it"]` to the
-  claim struct. Its definition site stays clean; every citation site warns,
-  and `-D warnings` turns each into a named work item. Delete the struct only
-  when no citations remain.
+- **Spec retirement**: rename the claim struct and keep the old name as
+  `#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;` in
+  `src/spec/mod.rs`. The alias registers no claim; every citation site
+  warns, and the gate's `-D warnings` turns each into a named work item.
+  Never deprecate the struct itself — a registered claim with no
+  implementer fails the graph checks. Delete the alias when no citations
+  remain.
 - **Untraced code** is fine for leaf helpers with no spec-governed behaviour.
   The mutation gate arbitrates empirically: a killed mutant in an untraced fn
   means it *is* participating — trace it or move it behind a traced boundary.
