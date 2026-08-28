@@ -405,11 +405,11 @@ document does not imply it.
 | `phase::run(args)` | `phase-check` entry: parses `<n>` and `--slice`, dispatches to `check` |
 | `phase::hook(args)` | One `match` over the hook kind: `pre-tool <n>`, `post-edit <n>`, `stop <n>`; each reads Claude Code's JSON from stdin |
 | `Phase` | Closed set `One`–`Five`, `Seven`; `TryFrom<u8>` refuses 0, 6, 8+ |
-| `Step` | Closed set: the gate's steps plus the red run |
+| `Step` | Closed set: the gate's steps, phase 2's lint, and the red run |
 | `plan(phase, publishing) -> Vec<Step>` | A phase's steps as data |
 | `execute`, `execute_with`, `run_step` | Runs steps in order; the first failure is the result |
 | `check_red`, `slice_claims`, `claim_validations`, `run_test`, `unvalidated`, `red_verdict` | The phase 5 red run over the registry dump |
-| `gate_base(project) -> Option<String>`, `red_set(project, crate_root, slice, claims) -> Vec<Claim>` | The newest `phase 7:` commit reachable from `HEAD`; the slice's claims whose `struct <Name>` line the diff since it added |
+| `gate_base(project) -> Option<String>`, `red_set(project, crate_root, slice, claims) -> Vec<String>` | The newest `phase 7:` commit reachable from `HEAD`; the slice's claims whose `struct <Name>` line the diff since it added |
 | `slice_of_branch`, `resolve_slice`, `current_branch` | The slice from `lld/<slice>`; a detached `HEAD` names none |
 | `HookInput` | The boundary type over the hook JSON: `agent_id`, `tool_name`, `tool_input` path, `last_assistant_message`, `stop_hook_active` |
 | `policy::allowed(phase, crate_root, path) -> Verdict` | The path table; `Verdict::Refused(reason)` carries the discipline row |
@@ -417,7 +417,7 @@ document does not imply it.
 | `Tally`, `tally::record(agent_id, kind)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
 | `hook_pre_tool(phase, input)` | Policy verdict for editing tools, tally for every tool |
 | `hook_post_edit(project, input)` | Clippy, rendered as `additionalContext` |
-| `hook_stop(project, phase, input) -> StopDecision` | Parse the message; `commit` → integrity → check → integrity → stage → commit → allow; `stop` → allow; else refuse |
+| `hook_stop(project, phase, input) -> HookVerdict` | Parse the message; `commit` → integrity → check → integrity → stage → commit → allow; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crate_root)` | `git status --porcelain` filtered against the allowed set; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
@@ -479,7 +479,16 @@ document does not imply it.
    path, and the session skips it by hand.
 6. `rust-analyzer` in `rust-toolchain.toml`'s components, so the LSP tool
    works for the reviewer without a manual install.
-7. Running each check under an OS sandbox from the hook — no network,
+7. A gate longer than the harness allows: Claude Code ends a subagent that
+   makes no stream progress for 600 s, and this slice's Phase 7 gate takes
+   about 17 minutes, almost all of it check 12 over 51 claim groups — so
+   the stop hook that runs it is killed before it can commit, and Phase 7
+   is committed by hand with the gate's run recorded in the body. A faster
+   check 12 (one `cargo mutants` invocation over the diff, judged per group
+   from `outcomes.json`), or a stop hook that hands the gate to a
+   detached process and refuses until it reports, would put Phase 7 back
+   under the hook.
+8. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.
 
