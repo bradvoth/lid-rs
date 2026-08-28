@@ -943,7 +943,21 @@ mod tests {
     #[test]
     #[validates(spec::PhaseTwoChecksTheClaimsBuildAndLint)]
     fn phase_two_checks_the_claims_build_and_lint() {
-        assert_eq!(plan(Phase::Two, &[]), [Step::Check, Step::Clippy]);
+        assert_eq!(plan(Phase::Two, &[]), [Step::Check, Step::ClippyAllowingDeprecated]);
+        // The lint step itself, on a package whose only warning is a citation
+        // of a deprecated item — the cascade in flight: phase 2's clippy lets
+        // it through; the gate's clippy, the same command without
+        // `-A deprecated`, denies it.
+        let (dir, project) = fixture::copy("phase-two-lint");
+        std::fs::write(
+            dir.join("src/hello.rs"),
+            "//! The hello slice.\n\n/// Greets.\n#[deprecated = \"replaced by greet_warmly\"]\npub fn greet() -> &'static str {\n    \"hello\"\n}\n\n\
+             /// Greets, warmly.\npub fn greet_warmly() -> &'static str {\n    greet()\n}\n",
+        )
+        .expect("write");
+        run_step(&project, None, &Step::ClippyAllowingDeprecated).expect("a deprecated citation passes phase 2's lint");
+        let err = run_step(&project, None, &Step::Clippy).expect_err("the gate's clippy denies the same citation");
+        assert!(err.contains("deprecated"), "{err}");
     }
 
     #[test]
@@ -1109,6 +1123,147 @@ mod tests {
         assert_eq!(require_claims(strings(&["A"]), "login").expect("claims pass through"), strings(&["A"]));
     }
 
+    /// Stages everything and commits it under `subject`, as a phase's stop
+    /// hook would; the new `HEAD`.
+    fn commit_all(dir: &Path, subject: &str) -> String {
+        fixture::git(dir, &["add", "-A"]);
+        fixture::git(dir, &["commit", "-q", "--allow-empty", "-m", subject]);
+        fixture::head(dir)
+    }
+
+    /// Writes a scratch crate's `src/spec/hello.rs`.
+    fn write_hello_spec(root: &Path, content: &str) {
+        let spec = root.join("src/spec");
+        std::fs::create_dir_all(&spec).expect("spec dir");
+        std::fs::write(spec.join("hello.rs"), content).expect("spec file");
+    }
+
+    #[test]
+    #[validates(spec::TheBaseIsTheNewestGateCommitReachableFromHead)]
+    fn the_base_is_the_newest_gate_commit_reachable_from_head() {
+        let root = scratch_repo("gate-base");
+        let project = project_in_repo(&root);
+        commit_all(&root, "phase 1: LLD for a");
+        assert_eq!(gate_base(&project).expect("git"), None, "no gate commit in the history");
+        let older = commit_all(&root, "phase 7: 0.1.0: a gated");
+        let newest = commit_all(&root, "phase 7: 0.2.0: b gated");
+        commit_all(&root, "phase 2: claims for a (Phase 8 edit)");
+        // A later gate on a branch HEAD does not reach is not the base.
+        fixture::git(&root, &["checkout", "-q", "-b", "elsewhere"]);
+        let unreachable = commit_all(&root, "phase 7: 0.9.0: elsewhere gated");
+        fixture::git(&root, &["checkout", "-q", "-"]);
+        // A subject that mentions the tag without starting with it is no gate.
+        commit_all(&root, "docs: the phase 7: tag is a prefix");
+        let base = gate_base(&project).expect("git");
+        assert_eq!(base, Some(newest), "not the older gate {older}, nor the unreachable {unreachable}");
+    }
+
+    #[test]
+    #[validates(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+    fn a_line_declares_a_struct_whatever_follows_the_name() {
+        for line in ["pub struct Name;", "struct Name {", "pub(crate) struct Name(u8);", "pub struct Name<T>;", "    pub struct Name;"] {
+            assert!(declares_struct(line, "Name"), "{line}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+    fn a_longer_name_a_mention_or_an_alias_declares_no_struct() {
+        let not_declarations = [
+            "pub struct NameLonger;",
+            "pub struct LongerName;",
+            "/// Adds a `struct Name` line.",
+            "pub use other::Name;",
+            "#[deprecated = \"replaced by Longer\"] pub type Name = other::Longer;",
+            "",
+        ];
+        for line in not_declarations {
+            assert!(!declares_struct(line, "Name"), "{line}");
+        }
+    }
+
+    /// A unified diff of a spec file: one claim kept as context, one removed,
+    /// two added — one of which is named by the kept claim's name plus a
+    /// suffix — and a doc-comment mention of the kept claim on an added line.
+    const SPEC_DIFF: &str = "\
+diff --git a/src/spec/hello.rs b/src/spec/hello.rs
+--- a/src/spec/hello.rs
++++ b/src/spec/hello.rs
+@@ -1,6 +1,12 @@
+ /// When greeted, the system shall say hello.
+ #[derive(Spec)]
+ pub struct Greets;
+-/// Retired.
+-pub struct Waves;
++
++/// When greeted warmly, unlike `struct Greets`, it shall say hello there.
++#[derive(Spec)]
++pub struct GreetsWarmly;
++
++/// When greeted twice, it shall say hello twice.
++#[derive(Spec)]
++pub struct GreetsTwice;
+";
+
+    #[test]
+    #[validates(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+    fn the_red_set_is_the_claims_added_since_the_base() {
+        let claims = strings(&["GreetsTwice", "Greets", "GreetsWarmly", "Waves"]);
+        let added = added_structs(SPEC_DIFF, &claims);
+        assert_eq!(added, strings(&["GreetsTwice", "GreetsWarmly"]), "the claims' order; the kept, removed, and mentioned names excluded");
+        assert!(added_structs("", &claims).is_empty(), "an empty diff adds nothing");
+    }
+
+    #[test]
+    #[validates(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+    fn the_red_set_comes_from_the_spec_files_diff_since_the_base() {
+        let root = scratch_repo("red-set-diff");
+        let project = project_in_repo(&root);
+        write_hello_spec(&root, "/// Says hello.\npub struct Greets;\n");
+        let base = commit_all(&root, "phase 7: 0.1.0: hello gated");
+        write_hello_spec(&root, "/// Says hello.\npub struct Greets;\n\n/// Warmly, unlike `Greets`.\npub struct GreetsWarmly;\n");
+        commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
+        let diff = spec_diff(&project, &root, "hello", &base).expect("git diff");
+        assert!(diff.contains("+pub struct GreetsWarmly;"), "{diff}");
+        let red = red_set(&project, &root, "hello", strings(&["Greets", "GreetsWarmly"])).expect("git");
+        assert_eq!(red, strings(&["GreetsWarmly"]));
+    }
+
+    #[test]
+    #[validates(spec::AFreshSliceHasEveryClaimInTheRedSet)]
+    fn a_fresh_slice_has_every_claim_in_the_red_set() {
+        let root = scratch_repo("red-set-fresh");
+        let project = project_in_repo(&root);
+        write_hello_spec(&root, "/// Says hello.\npub struct Greets;\n\n/// Waves.\npub struct Waves;\n");
+        commit_all(&root, "phase 1: LLD for hello");
+        commit_all(&root, "phase 2: claims for hello");
+        let claims = strings(&["Greets", "Waves"]);
+        let red = red_set(&project, &root, "hello", claims.clone()).expect("git");
+        assert_eq!(red, claims, "no gate commit: every claim, in the registry's order");
+    }
+
+    #[test]
+    #[validates(spec::AnEmptyRedSetAfterAGateFailsTheRedCheck)]
+    fn an_empty_red_set_after_a_gate_fails_the_red_check() {
+        let err = require_red_set("3369f6d", vec![]).expect_err("nothing added is a failure");
+        assert!(err.contains("3369f6d") && err.contains("no claim added since"), "{err}");
+        assert_eq!(require_red_set("3369f6d", strings(&["A"])).expect("a red set passes through"), strings(&["A"]));
+    }
+
+    #[test]
+    #[validates(spec::AnEmptyRedSetAfterAGateFailsTheRedCheck)]
+    fn a_phase_eight_edit_that_adds_no_claim_has_nothing_to_be_red_about() {
+        let root = scratch_repo("red-set-empty");
+        let project = project_in_repo(&root);
+        write_hello_spec(&root, "/// Says hello.\npub struct Greets;\n");
+        let base = commit_all(&root, "phase 7: 0.1.0: hello gated");
+        // A doc-comment edit that renames nothing adds no `struct` line.
+        write_hello_spec(&root, "/// When greeted, it shall say hello.\npub struct Greets;\n");
+        commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
+        let err = red_set(&project, &root, "hello", strings(&["Greets"])).expect_err("nothing added since the gate");
+        assert!(err.contains(&base) && err.contains("no claim added since"), "{err}");
+    }
+
     #[test]
     #[validates(spec::EveryClaimNeedsAValidationBeforePhaseFivePasses)]
     fn every_claim_needs_a_validation_before_phase_five_passes() {
@@ -1156,14 +1311,56 @@ mod tests {
         assert!(!alone, "the probe fails when run alone, as run_test does");
     }
 
+    /// The fixture slice's spec file at its gate: one claim.
+    const GATED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\npub struct Greets;\n";
+
+    /// The spec file after a Phase 8 edit adds a second claim.
+    const EDITED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\npub struct Greets;\n\n\
+                               /// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\npub struct GreetsWarmly;\n";
+
+    /// The fixture slice's `greet`, cited, and its validation, green.
+    const GREET: &str = "/// Greets.\n#[implements(crate::spec::Greets)]\npub fn greet() -> &'static str {\n    \"hello\"\n}\n";
+    const GREETS_TEST: &str = "    #[test]\n    #[validates(crate::spec::Greets)]\n    fn greets() {\n        assert_eq!(super::greet(), \"hello\");\n    }\n";
+
+    /// The validation the edit adds for `GreetsWarmly`.
+    const GREETS_WARMLY_TEST: &str =
+        "\n    #[test]\n    #[validates(crate::spec::GreetsWarmly)]\n    fn greets_warmly() {\n        assert_eq!(super::greet_warmly(), \"hello there\");\n    }\n";
+
+    /// The fixture slice's module: `greet` and its test, plus whatever items
+    /// and tests the edit has added.
+    fn hello_module(items: &str, tests: &str) -> String {
+        format!("//! The hello slice.\n\nuse lid_rs::implements;\n\n{GREET}{items}\n#[cfg(test)]\nmod tests {{\n    use lid_rs::validates;\n\n{GREETS_TEST}{tests}}}\n")
+    }
+
+    /// The leaf the edit adds for `GreetsWarmly`, with this body.
+    fn greet_warmly(body: &str) -> String {
+        format!("\n/// Greets, warmly.\n#[implements(crate::spec::GreetsWarmly)]\npub fn greet_warmly() -> &'static str {{\n    {body}\n}}\n")
+    }
+
+    /// The fixture with its `hello` slice implemented, validated green, and
+    /// gated; then a Phase 8 edit adding `GreetsWarmly`, its leaf `todo!()`.
+    fn gated_then_edited(name: &str) -> (PathBuf, Project) {
+        let (dir, project) = fixture::copy(name);
+        std::fs::write(dir.join("src/spec/mod.rs"), "//! Claims for app.\n\nmod hello;\n\npub use hello::*;\n").expect("spec mod");
+        std::fs::write(dir.join("src/spec/hello.rs"), GATED_SPEC).expect("spec");
+        std::fs::write(dir.join("src/hello.rs"), hello_module("", "")).expect("module");
+        commit_all(&dir, "phase 7: 0.1.0: hello greets");
+        std::fs::write(dir.join("src/spec/hello.rs"), EDITED_SPEC).expect("spec");
+        std::fs::write(dir.join("src/hello.rs"), hello_module(&greet_warmly("todo!()"), GREETS_WARMLY_TEST)).expect("module");
+        commit_all(&dir, "phase 2: claims for hello (Phase 8 edit): warmth");
+        (dir, project)
+    }
+
     #[test]
     #[validates(spec::AGreenValidationFailsTheRedCheck)]
-    fn the_red_run_fails_on_an_implemented_slice() {
-        // The sync slice is implemented: every one of its validations passes,
-        // so its red run must fail and name one of them. (Not this slice: its
-        // validations include this test, and the run would recurse.)
-        let err = check_red(&this_project(), "sync").expect_err("green validations fail the red run");
-        assert!(err.contains("sync::tests::the_skill_copy_lives_at_the_workspace_root"), "{err}");
+    fn the_red_run_judges_only_the_red_sets_validations() {
+        let (dir, project) = gated_then_edited("red-run");
+        // `greets` is green and outside the red set; `greets_warmly` is red.
+        check_red(&project, "hello").expect("a red red set passes, whatever the gated validations do");
+        // Implementing the leaf turns the red set's one validation green.
+        std::fs::write(dir.join("src/hello.rs"), hello_module(&greet_warmly("\"hello there\""), GREETS_WARMLY_TEST)).expect("module");
+        let err = check_red(&project, "hello").expect_err("a green validation in the red set fails");
+        assert!(err.contains("hello::tests::greets_warmly passes") && !err.contains("hello::tests::greets passes"), "{err}");
     }
 
     #[test]
@@ -1179,7 +1376,7 @@ mod tests {
     fn reads_are_never_refused() {
         let (dir, project) = fixture::copy("reads");
         let agent = format!("reads-{}", std::process::id());
-        for tool in ["Read", "Grep", "Glob", "LSP"] {
+        for tool in ["Read", "Grep", "Glob", "LSP", "StructuredOutput"] {
             let input = fixture::tool_input(&agent, tool, Path::new("/etc/hosts"));
             assert_eq!(hook_pre_tool(&project, Phase::Two, &input).expect("hook"), HookVerdict::Allow, "{tool}");
         }
@@ -1189,8 +1386,26 @@ mod tests {
 
     #[test]
     #[validates(spec::ReadsAreNeverRefused)]
+    fn the_workflows_structured_answer_is_allowed_without_a_path() {
+        // The final call a workflow `schema` forces reads nothing, writes
+        // nothing, and names no file.
+        let (_dir, project) = fixture::copy("structured-output");
+        let agent = format!("answer-{}", std::process::id());
+        let answer = HookInput { agent_id: agent, tool_name: Some("StructuredOutput".to_string()), ..Default::default() };
+        assert_eq!(hook_pre_tool(&project, Phase::Five, &answer).expect("hook"), HookVerdict::Allow);
+    }
+
+    #[test]
+    #[validates(spec::ReadsAreNeverRefused)]
     fn tools_are_classified_by_name() {
-        let cases = [("Read", ToolKind::Observation), ("LSP", ToolKind::Observation), ("Edit", ToolKind::Edit), ("Write", ToolKind::Edit), ("Bash", ToolKind::Command)];
+        let cases = [
+            ("Read", ToolKind::Observation),
+            ("LSP", ToolKind::Observation),
+            ("StructuredOutput", ToolKind::Observation),
+            ("Edit", ToolKind::Edit),
+            ("Write", ToolKind::Edit),
+            ("Bash", ToolKind::Command),
+        ];
         for (tool, kind) in cases {
             assert_eq!(kind_of(tool), kind, "{tool}");
         }
