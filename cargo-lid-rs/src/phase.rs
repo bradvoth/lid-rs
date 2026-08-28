@@ -66,14 +66,18 @@ impl TryFrom<u8> for Phase {
 }
 
 /// One step of a phase's check — the closed set of things a check runs,
-/// which is README §4.5's list plus the red run.
+/// which is README §4.5's list, phase 2's lint, and the red run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[implements(spec::PhaseSevenRunsTheGateInOrder)]
+#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::PhaseTwoChecksTheClaimsBuildAndLint)]
 pub enum Step {
     /// `cargo check --all-targets`.
     Check,
     /// `cargo clippy --all-targets -- -D warnings`.
     Clippy,
+    /// `cargo clippy --all-targets -- -D warnings -A deprecated`: phase 2's
+    /// lint, where a citation of a retired claim's name is the cascade in
+    /// flight — the next phases' work list — rather than a failure.
+    ClippyAllowingDeprecated,
     /// `cargo doc --no-deps` with broken intra-doc links denied.
     Doc,
     /// `cargo test --doc`.
@@ -492,7 +496,7 @@ pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(),
 pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     match phase {
         Phase::One => vec![Step::Doc, Step::DocTests],
-        Phase::Two => vec![Step::Check, Step::Clippy],
+        Phase::Two => vec![Step::Check, Step::ClippyAllowingDeprecated],
         Phase::Three | Phase::Four => vec![Step::Check],
         Phase::Five => vec![Step::Red],
         Phase::Seven => gate(publishing),
@@ -530,6 +534,7 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
     match step {
         Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
         Step::Clippy => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings"], &[]),
+        Step::ClippyAllowingDeprecated => todo!(),
         Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
         Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
@@ -543,14 +548,16 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
 /// The phase 5 failure when no slice is known.
 const NO_SLICE: &str = "phase 5 needs a slice: the branch is not `lld/<slice>`, and no --slice <name> was given";
 
-/// The phase 5 red run: the slice's claims, their validations, each run
-/// alone; fails naming every unvalidated claim and every green test.
+/// The phase 5 red run: the slice's claims, the red set among them, its
+/// validations each run alone; fails naming every unvalidated red-set claim
+/// and every green test.
 #[implements(spec::AGreenValidationFailsTheRedCheck)]
 pub fn check_red(project: &Project, slice: &str) -> Result<(), String> {
     let registries = package_registries(project)?;
     let claims = require_claims(all_slice_claims(&registries, slice), slice)?;
-    let outcomes = run_validations(project, &registries, &claims)?;
-    red_verdict(&unvalidated(&claims, &outcomes), &outcomes)
+    let red = red_set(project, &slice_crate(project, slice)?, slice, claims)?;
+    let outcomes = run_validations(project, &registries, &red)?;
+    red_verdict(&unvalidated(&red, &outcomes), &outcomes)
 }
 
 /// `phase-check`'s arguments: the phase number, then optionally
@@ -674,6 +681,39 @@ fn require_claims(claims: Vec<String>, slice: &str) -> Result<Vec<String>, Strin
     } else {
         Ok(claims)
     }
+}
+
+/// The red set — what changed since the slice was last gated: every claim on
+/// a fresh slice; after a gate, the claims the branch added since it, which
+/// must not be empty.
+#[implements(spec::AFreshSliceHasEveryClaimInTheRedSet, spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+pub fn red_set(project: &Project, crate_root: &Path, slice: &str, claims: Vec<String>) -> Result<Vec<String>, String> {
+    match gate_base(project)? {
+        None => Ok(claims),
+        Some(base) => require_red_set(&base, added_since(project, crate_root, slice, &base, &claims)?),
+    }
+}
+
+/// The newest commit reachable from `HEAD` whose subject starts `phase 7:`,
+/// whichever slice it gated; none when the history holds no gate commit.
+#[implements(spec::TheBaseIsTheNewestGateCommitReachableFromHead)]
+pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
+    todo!()
+}
+
+/// Those of the claims whose `struct <Name>` line is an added line of
+/// `git diff <base> -- src/spec/<slice>.rs` in the slice's crate.
+#[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+fn added_since(project: &Project, crate_root: &Path, slice: &str, base: &str, claims: &[String]) -> Result<Vec<String>, String> {
+    todo!()
+}
+
+/// The red set, or the failure naming the base when nothing was added since
+/// it: a Phase 8 edit that changes no claim has nothing for phase 5 to be
+/// red about.
+#[implements(spec::AnEmptyRedSetAfterAGateFailsTheRedCheck)]
+fn require_red_set(base: &str, red: Vec<String>) -> Result<Vec<String>, String> {
+    todo!()
 }
 
 /// `(claim, test)` for every validation edge on the claims, the test's item
