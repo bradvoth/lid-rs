@@ -16,7 +16,7 @@ pub struct PhasesWithoutACommitHaveNoCheck;
 pub struct PhaseOneChecksTheDocs;
 
 /// When phase 2 is checked, the tool shall run `cargo check --all-targets`,
-/// then clippy with warnings denied, in that order.
+/// then clippy with warnings denied except `deprecated`, in that order.
 #[derive(Spec)]
 pub struct PhaseTwoChecksTheClaimsBuildAndLint;
 
@@ -56,19 +56,42 @@ pub struct TheSliceComesFromTheBranchName;
 #[derive(Spec)]
 pub struct ASliceWithNoClaimsFailsTheRedCheck;
 
-/// When a slice claim has no validation edge, the phase 5 check shall fail
-/// naming the claim.
+/// When the red run locates its base, the base shall be the newest commit
+/// reachable from `HEAD` whose subject starts `phase 7:`, whichever slice
+/// that gate was for.
+#[derive(Spec)]
+pub struct TheBaseIsTheNewestGateCommitReachableFromHead;
+
+/// When a base exists, the red set shall be those of the slice's registered
+/// claims whose `struct <Name>` line is an added line of `git diff <base> --
+/// src/spec/<slice>.rs` in the slice's crate.
+#[derive(Spec)]
+pub struct TheRedSetIsTheClaimsAddedSinceTheBase;
+
+/// When no gate commit is reachable from `HEAD`, the red set shall be every
+/// claim of the slice.
+#[derive(Spec)]
+pub struct AFreshSliceHasEveryClaimInTheRedSet;
+
+/// When a base exists and the red set is empty, the phase 5 check shall fail
+/// naming the base, never pass vacuously.
+#[derive(Spec)]
+pub struct AnEmptyRedSetAfterAGateFailsTheRedCheck;
+
+/// When a claim in the red set has no validation edge, the phase 5 check
+/// shall fail naming the claim.
 #[derive(Spec)]
 pub struct EveryClaimNeedsAValidationBeforePhaseFivePasses;
 
-/// When the slice's validations are run, each shall run alone as `cargo test
-/// --lib -p <package> -- --exact <path>`, with the citing item's path made
-/// libtest-relative, and its exit status shall be its outcome.
+/// When the red set's validations are run, each shall run alone as `cargo
+/// test --lib -p <package> -- --exact <path>`, with the citing item's path
+/// made libtest-relative, and its exit status shall be its outcome.
 #[derive(Spec)]
 pub struct EachValidationRunsAloneByExactName;
 
-/// When a slice validation passes at phase 5, the check shall fail naming
-/// the test; when every validation fails, the check shall pass.
+/// When a validation of a red-set claim passes at phase 5, the check shall
+/// fail naming the test; when every one fails, the check shall pass, whatever
+/// the slice's other validations do.
 #[derive(Spec)]
 pub struct AGreenValidationFailsTheRedCheck;
 
@@ -109,7 +132,8 @@ pub struct PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy;
 pub struct ARefusedEditQuotesTheDisciplineRow;
 
 /// When a phase agent calls a tool that does not edit — Read, Grep, Glob,
-/// LSP — the hook shall allow it whatever the path.
+/// LSP, or the workflow's `StructuredOutput` — the hook shall allow it
+/// whatever the path.
 #[derive(Spec)]
 pub struct ReadsAreNeverRefused;
 
