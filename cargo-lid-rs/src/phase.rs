@@ -702,9 +702,32 @@ pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
 }
 
 /// Those of the claims whose `struct <Name>` line is an added line of
-/// `git diff <base> -- src/spec/<slice>.rs` in the slice's crate.
+/// `git diff <base> -- src/spec/<slice>.rs` in the slice's crate: the diff,
+/// then the selection over it.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
 fn added_since(project: &Project, crate_root: &Path, slice: &str, base: &str, claims: &[String]) -> Result<Vec<String>, String> {
+    Ok(added_structs(&spec_diff(project, crate_root, slice, base)?, claims))
+}
+
+/// `git diff <base> -- <crate_root>/src/spec/<slice>.rs`, whole: the path
+/// is the slice crate's spec file, which git takes absolute from the
+/// workspace root it runs at.
+#[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+fn spec_diff(project: &Project, crate_root: &Path, slice: &str, base: &str) -> Result<String, String> {
+    todo!()
+}
+
+/// Those of the claims that some added line of the diff — a `+` line, not
+/// the `+++` header — declares as `struct <Name>`, in the claims' order.
+#[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+pub fn added_structs(diff: &str, claims: &[String]) -> Vec<String> {
+    todo!()
+}
+
+/// Whether one line of source declares `struct <name>` — that name whole,
+/// not one it prefixes, whatever follows it (`;`, `{`, `(`, `<`).
+#[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
+pub fn declares_struct(line: &str, name: &str) -> bool {
     todo!()
 }
 
