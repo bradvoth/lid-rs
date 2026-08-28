@@ -534,7 +534,7 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
     match step {
         Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
         Step::Clippy => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings"], &[]),
-        Step::ClippyAllowingDeprecated => todo!(),
+        Step::ClippyAllowingDeprecated => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings", "-A", "deprecated"], &[]),
         Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
         Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
@@ -696,9 +696,16 @@ pub fn red_set(project: &Project, crate_root: &Path, slice: &str, claims: Vec<St
 
 /// The newest commit reachable from `HEAD` whose subject starts `phase 7:`,
 /// whichever slice it gated; none when the history holds no gate commit.
+/// The log is read as `<hash> <subject>` lines and the subject alone is
+/// matched: `--grep` would also match a body line that starts with the tag.
 #[implements(spec::TheBaseIsTheNewestGateCommitReachableFromHead)]
 pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
-    todo!()
+    let log = crate::project::capture(project.git()?.args(["log", "--format=%H %s"]))?;
+    Ok(log
+        .lines()
+        .filter_map(|line| line.split_once(' '))
+        .find(|(_, subject)| subject.starts_with("phase 7:"))
+        .map(|(hash, _)| hash.to_string()))
 }
 
 /// Those of the claims whose `struct <Name>` line is an added line of
@@ -714,21 +721,32 @@ fn added_since(project: &Project, crate_root: &Path, slice: &str, base: &str, cl
 /// workspace root it runs at.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
 fn spec_diff(project: &Project, crate_root: &Path, slice: &str, base: &str) -> Result<String, String> {
-    todo!()
+    crate::project::capture(project.git()?.args(["diff", base, "--"]).arg(crate_root.join(spec_file_of(slice))))
 }
 
 /// Those of the claims that some added line of the diff — a `+` line, not
-/// the `+++` header — declares as `struct <Name>`, in the claims' order.
+/// the `+++` header — declares as `struct <Name>`, in the claims' order. A
+/// registered name is the claim's module path (`app::spec::hello::Greets`);
+/// its last segment is the struct the line declares.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
 pub fn added_structs(diff: &str, claims: &[String]) -> Vec<String> {
-    todo!()
+    let added: Vec<&str> = diff.lines().filter_map(|line| line.strip_prefix('+')).filter(|rest| !rest.starts_with("++")).collect();
+    claims
+        .iter()
+        .filter(|name| added.iter().any(|line| declares_struct(line, name.rsplit("::").next().unwrap_or(name))))
+        .cloned()
+        .collect()
 }
 
 /// Whether one line of source declares `struct <name>` — that name whole,
-/// not one it prefixes, whatever follows it (`;`, `{`, `(`, `<`).
+/// not one it prefixes, whatever follows it (`;`, `{`, `(`, `<`): the word
+/// after the word `struct` begins with the name and continues with no
+/// identifier character. A comment line declares nothing.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
 pub fn declares_struct(line: &str, name: &str) -> bool {
-    todo!()
+    let code = !line.trim_start().starts_with("//");
+    let after_name = line.split_whitespace().skip_while(|word| *word != "struct").nth(1).and_then(|word| word.strip_prefix(name));
+    code && after_name.is_some_and(|rest| !rest.starts_with(|c: char| c.is_alphanumeric() || c == '_'))
 }
 
 /// The red set, or the failure naming the base when nothing was added since
@@ -736,7 +754,11 @@ pub fn declares_struct(line: &str, name: &str) -> bool {
 /// red about.
 #[implements(spec::AnEmptyRedSetAfterAGateFailsTheRedCheck)]
 fn require_red_set(base: &str, red: Vec<String>) -> Result<Vec<String>, String> {
-    todo!()
+    if red.is_empty() {
+        Err(format!("no claim added since {base}: nothing for phase 5 to be red about"))
+    } else {
+        Ok(red)
+    }
 }
 
 /// `(claim, test)` for every validation edge on the claims, the test's item
@@ -1235,6 +1257,10 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         let added = added_structs(SPEC_DIFF, &claims);
         assert_eq!(added, strings(&["GreetsTwice", "GreetsWarmly"]), "the claims' order; the kept, removed, and mentioned names excluded");
         assert!(added_structs("", &claims).is_empty(), "an empty diff adds nothing");
+        // The registry names a claim by its module path; the struct line
+        // declares the last segment.
+        let registered = strings(&["app::spec::hello::GreetsTwice", "app::spec::hello::Greets", "app::spec::hello::Waves"]);
+        assert_eq!(added_structs(SPEC_DIFF, &registered), strings(&["app::spec::hello::GreetsTwice"]));
     }
 
     #[test]

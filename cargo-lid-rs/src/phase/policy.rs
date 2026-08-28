@@ -15,7 +15,9 @@ use crate::spec;
 pub enum ToolKind {
     /// `Edit`, `Write`, `MultiEdit`, `NotebookEdit`: subject to the policy.
     Edit,
-    /// `Read`, `Grep`, `Glob`, `LSP`: never refused.
+    /// `Read`, `Grep`, `Glob`, `LSP`, and the workflow's `StructuredOutput`
+    /// — the answer a `schema` forces, which reads and writes nothing:
+    /// never refused.
     Observation,
     /// `Bash` and anything else that runs: absent from the agents' tools.
     Command,
@@ -43,7 +45,7 @@ pub enum ExecutionClass {
 pub fn kind_of(tool_name: &str) -> ToolKind {
     match tool_name {
         "Edit" | "Write" | "MultiEdit" | "NotebookEdit" => ToolKind::Edit,
-        "Read" | "Grep" | "Glob" | "LSP" => ToolKind::Observation,
+        "Read" | "Grep" | "Glob" | "LSP" | "StructuredOutput" => ToolKind::Observation,
         _ => ToolKind::Command,
     }
 }
