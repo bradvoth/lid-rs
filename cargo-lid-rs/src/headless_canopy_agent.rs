@@ -5,6 +5,8 @@ use lid_rs::implements;
 
 pub mod door;
 pub mod ending;
+#[cfg(test)]
+pub mod replay;
 pub mod review;
 pub mod tools;
 pub mod turn;
@@ -297,10 +299,18 @@ fn phase_outcome(run: &Run, phase: Phase) -> Result<Vec<String>, Stop> {
     if run.state.committed.contains(&phase) { Ok(skipped(phase)) } else { attempt(run, phase, Attempt::First, None) }
 }
 
-/// Says the phase is already committed and skipped; a skipped phase records
-/// no decisions.
+/// Says the phase is already committed and skipped ([`skipped_line`]); a
+/// skipped phase records no decisions.
 #[implements(spec::CommittedPhasesAreSkippedAndSaidSo)]
 pub fn skipped(phase: Phase) -> Vec<String> {
+    println!("{}", skipped_line(phase));
+    Vec::new()
+}
+
+/// What the run prints for a phase already committed: that it is skipped,
+/// naming the phase.
+#[implements(spec::CommittedPhasesAreSkippedAndSaidSo)]
+pub fn skipped_line(phase: Phase) -> String {
     todo!()
 }
 
@@ -402,4 +412,397 @@ pub fn pr_ready(branch: &str, decisions: &[String]) -> String {
 #[implements(spec::TheLastLineIsTheTerminalStateAndTheExitStatusFollowsIt)]
 pub fn stopped(stop: &Stop) -> String {
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::Path;
+
+    use lid_rs::validates;
+
+    use super::replay::{self, Replay, Route, Seen, SessionScript};
+    use super::*;
+    use crate::phase::fixture;
+
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| (*s).to_string()).collect()
+    }
+
+    /// The last line of a rendering.
+    fn last_line(text: &str) -> &str {
+        text.trim_end().lines().last().unwrap_or("")
+    }
+
+    /// Asserts a text mentions every needle.
+    fn mentions(text: &str, needles: &[&str]) {
+        assert!(needles.iter().all(|needle| text.contains(needle)), "expected {needles:?} in: {text}");
+    }
+
+    /// Asserts a stop is at `at` and its decisions mention every needle.
+    fn stop_says(stop: &Stop, at: At, needles: &[&str]) {
+        assert_eq!(stop.at, at, "{stop:?}");
+        mentions(&stop.decisions.join("\n"), needles);
+    }
+
+    /// Asserts the replay opened exactly one session, `id`, dialled with the
+    /// synced agent `agent` as its system prompt.
+    fn only_dial_is(replay: &Replay, id: &str, dir: &Path, agent: &str) {
+        assert_eq!(replay.opened(), [id], "exactly one session opens");
+        assert_eq!(system_of(&first_dial(replay)).trim(), agent_text(dir, agent).trim());
+    }
+
+    /// Asserts a commit body carries `Lid-Rs-Agent: <agent>` between the phase
+    /// and the tools trailers.
+    fn agent_trailer_between(body: &str, agent: &str) {
+        let phase_at = body.find("Lid-Rs-Phase: ").expect("the phase trailer");
+        let agent_at = body.find(&format!("Lid-Rs-Agent: {agent}")).expect("the agent trailer");
+        let tools_at = body.find("Lid-Rs-Tools:").expect("the tools trailer");
+        assert!(phase_at < agent_at && agent_at < tools_at, "{body}");
+    }
+
+    /// Asserts a log holds two `phase 3:` commits over the LLD's, the older
+    /// one being `rejected`, unamended.
+    fn two_phase_three_commits(log: &[String], rejected: &str) {
+        let subjects: Vec<&str> = log.iter().filter_map(|line| line.split_once(' ').map(|(_, s)| s)).collect();
+        assert_eq!(subjects, ["phase 3: skeleton for hello", "phase 3: skeleton for hello", "phase 1: LLD for hello"]);
+        assert!(log[1].starts_with(rejected), "the rejected commit stays in history unamended: {log:?}");
+    }
+
+    /// The fixture's precondition state as `precondition` establishes it,
+    /// with these phases committed.
+    fn state(project: &Project, committed: Vec<Phase>) -> Precondition {
+        Precondition { slice: "hello".to_string(), branch: "lld/hello".to_string(), crate_root: project.root().expect("root"), committed }
+    }
+
+    /// A worker session whose one turn ends with a `stop` block naming one decision.
+    fn stopping_session(id: &str, decision: &str) -> SessionScript {
+        SessionScript::new(id).page(replay::settling_page(&format!("Blocked.\n\n```stop\n1. {decision}\n```\n")))
+    }
+
+    /// A worker session whose one turn ends with a `commit` block.
+    fn committing_session(id: &str, message: &str) -> SessionScript {
+        SessionScript::new(id).page(replay::settling_page(&format!("Done.\n\n```commit\n{message}```\n")))
+    }
+
+    /// A reviewer session whose one turn ends with a `review` block.
+    fn reviewing_session(id: &str, block: &str) -> SessionScript {
+        SessionScript::new(id).page(replay::settling_page(&format!("Reviewed.\n\n```review\n{block}```\n")))
+    }
+
+    /// The first dial the replay saw.
+    fn first_dial(replay: &Replay) -> Seen {
+        replay.seen().into_iter().find(|seen| seen.route() == Some(Route::Start)).expect("a dial")
+    }
+
+    /// The `system` a dial carried.
+    fn system_of(dial: &Seen) -> String {
+        dial.body.as_ref().and_then(|body| body["settings"]["system"].as_str()).expect("the dial's system").to_string()
+    }
+
+    /// The `max_cost` a dial carried.
+    fn max_cost_of(dial: &Seen) -> f64 {
+        dial.body.as_ref().and_then(|body| body["settings"]["max_cost"].as_f64()).expect("the dial's max_cost")
+    }
+
+    /// A synced agent file's body, its frontmatter cut by hand.
+    fn agent_text(dir: &Path, name: &str) -> String {
+        let text = std::fs::read_to_string(dir.join(".claude/agents").join(format!("{name}.md"))).expect("the synced agent");
+        let after_open = text.strip_prefix("---\n").expect("frontmatter opens");
+        let close = after_open.find("\n---\n").expect("frontmatter closes");
+        after_open[close + "\n---\n".len()..].to_string()
+    }
+
+    /// Stages everything and commits it under `subject`; the new `HEAD`.
+    fn commit_all(dir: &Path, subject: &str) -> String {
+        fixture::git(dir, &["add", "-A"]);
+        fixture::git(dir, &["commit", "-q", "--allow-empty", "-m", subject]);
+        fixture::head(dir)
+    }
+
+    /// `git log --format=%H %s`, newest first.
+    fn log_lines(dir: &Path) -> Vec<String> {
+        let out = std::process::Command::new("git").args(["log", "--format=%H %s"]).current_dir(dir).output().expect("git log");
+        String::from_utf8_lossy(&out.stdout).lines().map(str::to_string).collect()
+    }
+
+    #[test]
+    #[validates(spec::CanopyTakesSliceDoorAndMaxCostAsItsFlags)]
+    fn canopy_takes_slice_door_and_max_cost_as_its_flags() {
+        assert_eq!(PRODUCTION_DOOR, "https://api.canopyhq.dev");
+        let defaults = Flags { slice: None, door: PRODUCTION_DOOR.to_string(), max_cost: DEFAULT_MAX_COST };
+        assert_eq!(parse_flags(&[]).expect("no flags"), defaults);
+        let all = parse_flags(&strings(&["--slice", "login", "--door", "http://127.0.0.1:1", "--max-cost", "2.5"])).expect("all three");
+        assert_eq!(all, Flags { slice: Some("login".to_string()), door: "http://127.0.0.1:1".to_string(), max_cost: 2.5 });
+    }
+
+    #[test]
+    #[validates(spec::CanopyTakesSliceDoorAndMaxCostAsItsFlags)]
+    fn any_other_flag_is_rejected_by_name_and_the_key_is_never_a_flag() {
+        let key = parse_flags(&strings(&["--key", "secret"])).expect_err("the key is never a flag");
+        assert!(key.contains("--key") && !key.contains("secret"), "{key}");
+        let bare = parse_flags(&strings(&["--slice"])).expect_err("a flag needs its value");
+        assert!(bare.contains("--slice"), "{bare}");
+        let door = parse_flags(&strings(&["--slice", "login", "--dor", "x"])).expect_err("a misspelt flag");
+        assert!(door.contains("--dor"), "{door}");
+    }
+
+    #[test]
+    #[validates(spec::MaxCostIsTheFlagsAmountOrFive)]
+    fn max_cost_is_the_flags_amount_or_five() {
+        let given = parse_flags(&strings(&["--max-cost", "0.25"])).expect("an amount").max_cost;
+        assert_eq!((DEFAULT_MAX_COST, Flags::default().max_cost, given, amount("12").expect("an integer amount")), (5.0, 5.0, 0.25, 12.0));
+        mentions(&amount("lots").expect_err("not a number"), &["lots"]);
+    }
+
+    #[test]
+    #[validates(spec::TheKeyComesFromCanopyKeyOrTheRunStopsFirst)]
+    fn the_key_comes_from_canopy_key_or_the_run_stops_first() {
+        assert_eq!(KEY_VARIABLE, "CANOPY_KEY");
+        assert_eq!(api_key(Some("k-1".to_string())).expect("set"), "k-1");
+        let stop = api_key(None).expect_err("unset");
+        assert_eq!(stop.decisions.len(), 1, "{stop:?}");
+        stop_says(&stop, At::Precondition, &["CANOPY_KEY"]);
+    }
+
+    #[test]
+    #[validates(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
+    fn every_phase_prints_its_ending() {
+        let committed = ending_line(Phase::Three, &Ok(WorkerEnd::Committed("abc1234".to_string(), strings(&["keep it"]))));
+        mentions(&committed, &["3", "abc1234"]);
+        let decisions = ending_line(Phase::Five, &Ok(WorkerEnd::Decisions(strings(&["needs a claim", "and a row"]))));
+        mentions(&decisions, &["needs a claim", "and a row"]);
+        mentions(&ending_line(Phase::Two, &Ok(WorkerEnd::Refused("phase 2 is not clean".to_string()))), &["phase 2 is not clean"]);
+        mentions(&ending_line(Phase::Two, &Err("max_requests reached".to_string())), &["max_requests reached"]);
+    }
+
+    #[test]
+    #[validates(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
+    fn every_phase_prints_its_review_verdict() {
+        let approved = verdict_line(Phase::Three, &Ok(Review::Approved));
+        assert!(approved.contains('3') && approved.to_lowercase().contains("approved"), "{approved}");
+        let rejected = verdict_line(Phase::Three, &Ok(Review::Rejected(strings(&["the leaf branches", "a helper sits in phase.rs"]))));
+        assert!(rejected.contains("the leaf branches") && rejected.contains("a helper sits in phase.rs"), "{rejected}");
+        let failed = verdict_line(Phase::Three, &Err("the session halted: budget".to_string()));
+        assert!(failed.contains("the session halted: budget"), "{failed}");
+    }
+
+    #[test]
+    #[validates(spec::TheLastLineIsTheTerminalStateAndTheExitStatusFollowsIt)]
+    fn the_last_line_is_the_terminal_state_and_the_exit_status_follows_it() {
+        let ready = terminal("lld/hello", Outcome::PrReady { decisions: strings(&["a"]) }).expect("PR-ready is Ok: exit 0");
+        mentions(last_line(&ready), &["PR-ready"]);
+        let stop = Stop { at: At::Phase(Phase::Five), decisions: strings(&["x", "y"]) };
+        let text = terminal("lld/hello", Outcome::Stopped(stop.clone())).expect_err("stopped is Err: exit 1");
+        assert_eq!(text, stopped(&stop));
+        mentions(&last_line(&text).to_lowercase(), &["stopped", "5"]);
+        mentions(&text, &["1. x", "2. y"]);
+        let at_review = stopped(&Stop { at: At::Review(Phase::Three), decisions: strings(&["z"]) });
+        mentions(&last_line(&at_review).to_lowercase(), &["review", "3"]);
+    }
+
+    #[test]
+    #[validates(spec::PrReadyEndsWithTheBranchAndEveryRecordedDecision)]
+    fn pr_ready_ends_with_the_branch_and_every_recorded_decision() {
+        let text = pr_ready("lld/hello", &strings(&["a decision", "another"]));
+        assert!(text.contains("1. a decision") && text.contains("2. another"), "{text}");
+        assert!(last_line(&text).contains("lld/hello") && last_line(&text).contains("PR-ready"), "{text}");
+        let none = pr_ready("lld/hello", &[]);
+        assert!(last_line(&none).contains("lld/hello") && last_line(&none).contains("PR-ready"), "{none}");
+    }
+
+    #[test]
+    #[validates(spec::ThePreconditionNeedsTheSliceBranchCheckedOut)]
+    fn the_precondition_needs_the_slice_branch_checked_out() {
+        let from_branch = slice_of("lld/hello", None).expect("the branch names the slice");
+        let given = slice_of("lld/hello", Some("hello")).expect("the given slice matches");
+        assert_eq!((from_branch.as_str(), given.as_str()), ("hello", "hello"));
+        stop_says(&slice_of("lld/hello", Some("login")).expect_err("another slice's branch"), At::Precondition, &["lld/hello", "login"]);
+        stop_says(&slice_of("main", None).expect_err("no slice branch"), At::Precondition, &["main"]);
+    }
+
+    #[test]
+    #[validates(spec::ThePreconditionNeedsTheSliceBranchCheckedOut)]
+    fn the_precondition_reads_the_branch_with_git() {
+        let (dir, project) = fixture::copy("canopy-precondition-branch");
+        let state = precondition(&project, None).expect("lld/hello is checked out");
+        assert_eq!((state.slice.as_str(), state.branch.as_str()), ("hello", "lld/hello"));
+        assert_eq!(state.crate_root.canonicalize().expect("crate"), dir.canonicalize().expect("dir"));
+        fixture::git(&dir, &["checkout", "-q", "main"]);
+        stop_says(&precondition(&project, None).expect_err("main is no slice branch"), At::Precondition, &["main"]);
+    }
+
+    #[test]
+    #[validates(spec::ThePreconditionNeedsAPhaseOneCommit)]
+    fn the_precondition_needs_a_phase_one_commit() {
+        phase_one_present(&strings(&["phase 2: claims for hello", "phase 1: LLD for hello"])).expect("present");
+        stop_says(&phase_one_present(&strings(&["docs: notes", "initial"])).expect_err("absent"), At::Precondition, &["phase 1:"]);
+        let (dir, project) = fixture::copy("canopy-precondition-phase-one");
+        fixture::git(&dir, &["checkout", "-q", "--orphan", "fresh"]);
+        fixture::git(&dir, &["commit", "-q", "-m", "start"]);
+        fixture::git(&dir, &["branch", "-M", "lld/hello"]);
+        stop_says(&precondition(&project, None).expect_err("a history without phase 1"), At::Precondition, &["phase 1:"]);
+    }
+
+    #[test]
+    #[validates(spec::ThePreconditionNeedsACleanTree)]
+    fn the_precondition_needs_a_clean_tree() {
+        clean_tree(&[]).expect("clean");
+        let stop = clean_tree(&strings(&["src/hello.rs", "notes.md"])).expect_err("dirty");
+        assert_eq!(stop.at, At::Precondition);
+        assert!(stop.decisions[0].contains("src/hello.rs") && stop.decisions[0].contains("notes.md"), "{stop:?}");
+        let (dir, project) = fixture::copy("canopy-precondition-dirty");
+        std::fs::write(dir.join("src/hello.rs"), "//! changed\n").expect("write");
+        let stop = precondition(&project, None).expect_err("a modified file");
+        assert!(stop.decisions[0].contains("src/hello.rs"), "{stop:?}");
+    }
+
+    #[test]
+    #[validates(spec::CommittedPhasesAreReadFromTheSubjectTags)]
+    fn committed_phases_are_read_from_the_subject_tags() {
+        let subjects = strings(&["phase 6: leaves", "docs: the phase 3: tag in a body", "phase 3: skeleton for hello", "phase 2: claims for hello", "phase 1: LLD for hello"]);
+        assert_eq!(committed_phases(&subjects), [Phase::Three, Phase::Two, Phase::One]);
+        let (dir, project) = fixture::copy("canopy-precondition-committed");
+        assert_eq!(precondition(&project, None).expect("state").committed, [Phase::One]);
+        commit_all(&dir, "phase 2: claims for hello");
+        commit_all(&dir, "phase 3: skeleton for hello");
+        commit_all(&dir, "phase 6: leaves");
+        assert_eq!(precondition(&project, None).expect("state").committed, [Phase::Three, Phase::Two, Phase::One]);
+    }
+
+    #[test]
+    #[validates(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
+    fn a_compile_time_slice_stops_at_the_precondition_without_acceptance() {
+        let (dir, project) = fixture::copy("canopy-acceptance");
+        let root = project.root().expect("root");
+        acceptance(&project, &root, "hello").expect("an ordinary slice needs no acceptance");
+        let stop = accepted(&root, "hello").expect_err("no acceptance file");
+        assert_eq!(stop.at, At::Precondition);
+        assert!(stop.decisions[0].contains("docs/intent/hello/compile-time-accepted"), "{stop:?}");
+        std::fs::write(dir.join("build.rs"), "fn main() {}\n").expect("build.rs");
+        let compile_time = Project::load_graph_at(&dir.join("Cargo.toml")).expect("metadata");
+        let stop = acceptance(&compile_time, &root, "hello").expect_err("a compile-time slice without acceptance");
+        assert!(stop.decisions[0].contains("compile-time-accepted"), "{stop:?}");
+        std::fs::write(dir.join("docs/intent/hello/compile-time-accepted"), "").expect("accept");
+        acceptance(&compile_time, &root, "hello").expect("accepted");
+        accepted(&root, "hello").expect("accepted");
+    }
+
+    #[test]
+    #[validates(spec::CommittedPhasesAreSkippedAndSaidSo)]
+    fn committed_phases_are_skipped_and_said_so() {
+        mentions(&skipped_line(Phase::Two).to_lowercase(), &["2", "skip"]);
+        assert!(skipped(Phase::Two).is_empty(), "a skipped phase records no decisions");
+        let (_dir, project) = fixture::copy("canopy-skip-all");
+        let replay = Replay::serve(vec![]);
+        let all = state(&project, PHASES.to_vec());
+        assert_eq!(build(&project, &replay.door("k"), &all, 5.0), Outcome::PrReady { decisions: vec![] });
+        assert!(replay.seen().is_empty(), "every phase committed: no session opens");
+    }
+
+    #[test]
+    #[validates(spec::CommittedPhasesAreSkippedAndSaidSo, spec::ThePhasesAreOneSessionEachInOrder)]
+    fn the_run_starts_at_the_first_phase_without_a_commit() {
+        let (dir, project) = fixture::copy("canopy-skip-some");
+        let replay = Replay::serve(vec![stopping_session("s5", "phase 5 needs a decision")]);
+        let committed = state(&project, vec![Phase::One, Phase::Two, Phase::Three, Phase::Four]);
+        let outcome = build(&project, &replay.door("k"), &committed, 0.75);
+        assert_eq!(outcome, Outcome::Stopped(Stop { at: At::Phase(Phase::Five), decisions: strings(&["phase 5 needs a decision"]) }));
+        assert_eq!(replay.opened(), ["s5"]);
+        let dial = first_dial(&replay);
+        let (system, agent) = (system_of(&dial), agent_text(&dir, "lid-rs-phase-5"));
+        assert_eq!((system.trim(), max_cost_of(&dial)), (agent.trim(), 0.75), "Phase 5's agent, and the amount given to build rather than the default");
+    }
+
+    #[test]
+    #[validates(spec::ThePhasesAreOneSessionEachInOrder, spec::AWorkersStopBlockEndsTheRunWithItsDecisions, spec::MaxCostIsTheFlagsAmountOrFive)]
+    fn the_phases_are_one_session_each_in_order() {
+        assert_eq!(PHASES, [Phase::Two, Phase::Three, Phase::Four, Phase::Five, Phase::Seven]);
+        let (dir, project) = fixture::copy("canopy-order");
+        let replay = Replay::serve(vec![stopping_session("s2", "stop here")]);
+        let outcome = build(&project, &replay.door("k"), &state(&project, vec![Phase::One]), 2.5);
+        assert_eq!(outcome, Outcome::Stopped(Stop { at: At::Phase(Phase::Two), decisions: strings(&["stop here"]) }));
+        only_dial_is(&replay, "s2", &dir, "lid-rs-phase-2");
+        assert_eq!(max_cost_of(&first_dial(&replay)), 2.5, "the amount given to build reaches the dial, not the default");
+    }
+
+    #[test]
+    #[validates(spec::AConfigThatPinsADialledSettingStopsTheRunNamingIt)]
+    fn a_config_that_pins_a_dialled_setting_stops_the_run_naming_it() {
+        let (_dir, project) = fixture::copy("canopy-pinned");
+        let sentence = "the config pins `params`; the dial may not set it";
+        let replay = Replay::serve(vec![SessionScript::new("s2").refusing(Route::Start, 403, sentence)]);
+        let outcome = build(&project, &replay.door("k"), &state(&project, vec![Phase::One]), 5.0);
+        assert_eq!(outcome, Outcome::Stopped(Stop { at: At::Phase(Phase::Two), decisions: strings(&[sentence]) }));
+        assert_eq!(replay.seen().len(), 1, "the refused dial is the only request");
+    }
+
+    #[test]
+    #[validates(spec::AHaltEndsTheRunWithItsReason)]
+    fn a_halt_ends_the_run_with_its_reason() {
+        let (_dir, project) = fixture::copy("canopy-halted");
+        let replay = Replay::serve(vec![SessionScript::new("s2").page(vec![replay::requested(3), replay::halted("max_requests reached")])]);
+        let outcome = build(&project, &replay.door("k"), &state(&project, vec![Phase::One]), 5.0);
+        assert_eq!(outcome, Outcome::Stopped(Stop { at: At::Phase(Phase::Two), decisions: strings(&["max_requests reached"]) }));
+        assert!(replay.stopped("s2"), "the halted session is stopped by the client too");
+    }
+
+    #[test]
+    #[validates(spec::EveryCommittedPhaseIsReviewedBeforeTheNextOpens)]
+    fn every_committed_phase_is_reviewed_before_the_next_opens() {
+        let (dir, project) = fixture::copy("canopy-reviewed");
+        let replay = Replay::serve(vec![reviewing_session("r3", "approved: yes\n")]);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let end = Ok(WorkerEnd::Committed("abc1234".to_string(), strings(&["kept"])));
+        assert_eq!(phase_ended(&run, Phase::Three, Attempt::First, end).expect("approved"), strings(&["kept"]));
+        only_dial_is(&replay, "r3", &dir, "lid-rs-review");
+        mentions(&replay::user_messages(&replay.landed("r3"))[0], &["abc1234"]);
+    }
+
+    #[test]
+    #[validates(spec::AFirstRejectionOpensOneReworkSession, spec::AReworkPromptCarriesTheReviewersFindings)]
+    fn a_first_rejection_opens_one_rework_session_with_the_findings() {
+        let (dir, project) = fixture::copy("canopy-rework");
+        let replay = Replay::serve(vec![stopping_session("w3-rework", "cannot fix without an LLD change")]);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let findings = strings(&["the leaf branches", "a helper sits in phase.rs"]);
+        let stop = phase_judged(&run, Phase::Three, Attempt::First, Ok(Review::Rejected(findings)), vec![]).expect_err("the rework stopped");
+        assert_eq!(stop, Stop { at: At::Phase(Phase::Three), decisions: strings(&["cannot fix without an LLD change"]) });
+        only_dial_is(&replay, "w3-rework", &dir, "lid-rs-phase-3");
+        mentions(&replay::user_messages(&replay.landed("w3-rework"))[0], &["1. the leaf branches", "2. a helper sits in phase.rs"]);
+    }
+
+    #[test]
+    #[validates(spec::ASecondRejectionEndsTheRunWithTheFindings)]
+    fn a_second_rejection_ends_the_run_with_the_findings() {
+        let (_dir, project) = fixture::copy("canopy-rejected-twice");
+        let replay = Replay::serve(vec![reviewing_session("r3-again", "approved: no\n1. still branches\n2. still untraced\n")]);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let end = Ok(WorkerEnd::Committed("def5678".to_string(), vec![]));
+        let stop = phase_ended(&run, Phase::Three, Attempt::Rework, end).expect_err("the second rejection stops the run");
+        assert_eq!(stop, Stop { at: At::Review(Phase::Three), decisions: strings(&["still branches", "still untraced"]) });
+        assert_eq!(replay.opened(), ["r3-again"], "no third session opens");
+    }
+
+    #[test]
+    #[validates(spec::AReworksCommitIsASecondPhaseCommitOnTheBranch, spec::AReworksCommitIsReviewedByAFreshSession, spec::TheCommitNamesItsSessionAsTheAgent, spec::EverySessionIsStoppedWhenItsPhaseEnds)]
+    fn a_reworks_commit_is_a_second_phase_commit_reviewed_by_a_fresh_session() {
+        let (dir, project) = fixture::copy("canopy-rework-commit");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("the rejected skeleton");
+        let rejected = commit_all(&dir, "phase 3: skeleton for hello");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n").expect("the rework's edit");
+        let replay = Replay::serve(vec![committing_session("w3", "phase 3: skeleton for hello\n\nReworked.\n"), reviewing_session("r3", "approved: yes\n")]);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let judged = phase_judged(&run, Phase::Three, Attempt::First, Ok(Review::Rejected(strings(&["greet is not warm"]))), vec![]);
+        assert_eq!(judged.expect("the rework's commit is approved"), Vec::<String>::new());
+        two_phase_three_commits(&log_lines(&dir), &rejected);
+        let body = std::process::Command::new("git").args(["log", "-1", "--format=%B"]).current_dir(&dir).output().expect("git");
+        agent_trailer_between(&String::from_utf8_lossy(&body.stdout), "canopy:w3");
+        assert_eq!(replay.opened(), ["w3", "r3"], "the rework, then a fresh reviewer");
+        mentions(&replay::user_messages(&replay.landed("r3"))[0], &[fixture::head(&dir).as_str()]);
+        assert!(replay.stopped("w3") && replay.stopped("r3"), "the committed rework's session and its reviewer's are both stopped");
+    }
 }

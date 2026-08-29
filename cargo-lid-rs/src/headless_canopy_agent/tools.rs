@@ -521,3 +521,409 @@ pub fn replaceable(count: usize, replace: Replace) -> Result<(), String> {
 pub fn write_tool(path: &Path, args: &WriteArgs) -> Result<(), String> {
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use lid_rs::validates;
+    use serde_json::json;
+
+    use super::super::door::Door;
+    use super::super::ending::WORKER_TOOLS;
+    use super::super::replay::{self, mentions, strings};
+    use super::super::review::REVIEW_TOOLS;
+    use super::*;
+    use crate::phase::Phase;
+    use crate::phase::fixture;
+    use crate::phase::tally::{self, Tally};
+
+    /// A fresh scratch directory.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("lid-rs-canopy-tools").join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// A file under `root`, its directories made.
+    fn file(root: &Path, relative: &str, text: &str) {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().expect("a parent")).expect("dirs");
+        std::fs::write(path, text).expect("write");
+    }
+
+    /// The text of a file under `root`.
+    fn text(root: &Path, relative: &str) -> String {
+        std::fs::read_to_string(root.join(relative)).expect("read")
+    }
+
+    /// A tree to search: files at three depths, plus `target/` and `.git/`.
+    fn search_tree(name: &str) -> PathBuf {
+        let root = scratch(name);
+        file(&root, "a.rs", "fn main() {}\n// TODO one\n");
+        file(&root, "src/z.rs", "// TODO two\nlet todo = 1;\n");
+        file(&root, "sub/b.txt", "plain\nTODO three\n");
+        file(&root, "target/c.rs", "// TODO built\n");
+        file(&root, ".git/d", "TODO object\n");
+        root
+    }
+
+    /// The files the walk yields under `root`, relative to it.
+    fn walked(root: &Path) -> Vec<PathBuf> {
+        files_under(root).expect("walk").iter().map(|f| f.strip_prefix(root).expect("under the root").to_path_buf()).collect()
+    }
+
+    fn grep_args(pattern: &str, path: Option<&str>, glob: Option<&str>) -> GrepArgs {
+        GrepArgs { pattern: pattern.to_string(), path: path.map(str::to_string), glob: glob.map(str::to_string) }
+    }
+
+    fn glob_args(pattern: &str) -> GlobArgs {
+        GlobArgs { pattern: pattern.to_string() }
+    }
+
+    /// `edit`'s arguments, `replace_all` set for [`Replace::All`].
+    fn edit_args(path: &str, old: &str, new: &str, replace: Replace) -> EditArgs {
+        EditArgs { path: path.to_string(), old_string: old.to_string(), new_string: new.to_string(), replace_all: replace == Replace::All }
+    }
+
+    fn read_args(path: &str, offset: Option<usize>, limit: Option<usize>) -> ReadArgs {
+        ReadArgs { path: path.to_string(), offset, limit }
+    }
+
+    /// Each numbered line as `number:text`: the leading digits, then the
+    /// rest past its separator, whatever the separator is.
+    fn numbered(output: &str) -> Vec<String> {
+        output
+            .lines()
+            .map(|line| {
+                let trimmed = line.trim_start();
+                let digits: String = trimmed.chars().take_while(char::is_ascii_digit).collect();
+                format!("{digits}:{}", trimmed[digits.len()..].trim_start_matches([':', '\t', ' ', '|']))
+            })
+            .collect()
+    }
+
+    /// A session over no door, for the tools alone: the tally key is `canopy:<id>`.
+    fn session(id: &str, phase: Phase, tools: &[Tool]) -> Session {
+        replay::session(Door::new("http://127.0.0.1:1", "k"), id, phase, tools.to_vec())
+    }
+
+    #[test]
+    #[validates(spec::AForwardsOpClassifiesToItsToolOrToNone)]
+    fn a_forwards_op_classifies_to_its_tool_or_to_none() {
+        let mapped: Vec<Option<Tool>> = ["read", "grep", "glob", "edit", "write", "bash", "Read", ""].iter().map(|op| Tool::of(op)).collect();
+        assert_eq!(mapped, [Some(Tool::Read), Some(Tool::Grep), Some(Tool::Glob), Some(Tool::Edit), Some(Tool::Write), None, None, None]);
+        let round_trip: Vec<Option<Tool>> = WORKER_TOOLS.iter().map(|tool| Tool::of(tool.op())).collect();
+        assert_eq!(round_trip, WORKER_TOOLS.map(Some));
+    }
+
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn a_path_that_climbs_or_is_absolute_is_refused_as_written() {
+        let root = scratch("confine-written");
+        file(&root, "src/hello.rs", "");
+        assert_eq!(confine(&root, Path::new("src/hello.rs")).expect("inside"), root.join("src/hello.rs"));
+        let absolute = root.join("src/hello.rs").display().to_string();
+        let escaping = ["../etc/passwd", "src/../../x", "/etc/passwd", absolute.as_str()];
+        let refused = escaping.iter().all(|p| confine(&root, Path::new(p)).is_err() && relative_only(Path::new(p)).is_err());
+        assert!(refused, "each of {escaping:?} is refused as written");
+        assert_eq!(relative_only(Path::new("src/hello.rs")).expect("relative"), Path::new("src/hello.rs"));
+    }
+
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn a_path_is_judged_in_its_canonical_form_under_the_root() {
+        let root = scratch("confine-resolved");
+        file(&root, "src/hello.rs", "");
+        let canonical = root.canonicalize().expect("root");
+        assert_eq!(resolved(&root, Path::new("src/hello.rs")).expect("exists"), canonical.join("src/hello.rs"));
+        assert_eq!(resolved(&root, Path::new("src/new.rs")).expect("a file about to be written resolves as its directory does"), canonical.join("src/new.rs"));
+        within(&root, &canonical.join("src/hello.rs")).expect("under the root");
+        assert!(within(&root, &canonical.parent().expect("parent").join("elsewhere.rs")).is_err(), "beside the root");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn a_path_through_a_symlink_out_of_the_root_is_refused() {
+        let root = scratch("confine-symlink");
+        let outside = scratch("confine-symlink-outside");
+        file(&outside, "secret.txt", "s");
+        file(&root, "inside.txt", "i");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("dir link");
+        std::os::unix::fs::symlink(outside.join("secret.txt"), root.join("leak.txt")).expect("file link");
+        std::os::unix::fs::symlink(root.join("inside.txt"), root.join("alias.txt")).expect("inner link");
+        assert!(confine(&root, Path::new("link/secret.txt")).is_err(), "through a linked directory");
+        assert!(confine(&root, Path::new("leak.txt")).is_err(), "a linked file");
+        assert_eq!(confine(&root, Path::new("alias.txt")).expect("a link within the root stays within it"), root.join("alias.txt"));
+    }
+
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn every_tool_refuses_an_escaping_path_before_any_verdict() {
+        let (_dir, project) = fixture::copy("canopy-tools-confine");
+        let session = session("confine", Phase::Three, &WORKER_TOOLS);
+        let calls = [
+            ("read", json!({ "path": "../Cargo.toml" })),
+            ("grep", json!({ "pattern": "x", "path": "/etc" })),
+            ("glob", json!({ "pattern": "../**/*.rs" })),
+            ("edit", json!({ "path": "/etc/hosts", "old_string": "a", "new_string": "b" })),
+            ("write", json!({ "path": "../x.rs", "content": "" })),
+        ];
+        let refused = calls.iter().all(|(op, args)| execute(&project, &session, op, args).is_err());
+        assert!(refused, "every tool refuses");
+        assert_eq!(tally::load(&project, "canopy:confine").expect("tally"), Tally::default(), "no verdict was asked");
+    }
+
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn a_glob_patterns_literal_prefix_is_what_confinement_judges() {
+        assert_eq!(literal_prefix("src/**/*.rs"), Path::new("src"));
+        assert_eq!(literal_prefix("docs/intent/?.md"), Path::new("docs/intent"));
+        assert_eq!((literal_prefix("*.rs"), literal_prefix("[ab].rs"), literal_prefix("Cargo.toml")), (Path::new(""), Path::new(""), Path::new("Cargo.toml")));
+    }
+
+    #[test]
+    #[validates(spec::ReadReturnsNumberedLinesOrADirectorysEntries)]
+    fn read_returns_numbered_lines_from_offset_for_limit() {
+        let root = scratch("read-lines");
+        file(&root, "poem.txt", "alpha\nbeta\ngamma\ndelta\n");
+        let whole = read_tool(&root.join("poem.txt"), &read_args("poem.txt", None, None)).expect("read");
+        assert_eq!(numbered(&whole), strings(&["1:alpha", "2:beta", "3:gamma", "4:delta"]));
+        let window = numbered_lines(&root.join("poem.txt"), Some(2), Some(2)).expect("read");
+        assert_eq!(numbered(&window), strings(&["2:beta", "3:gamma"]));
+        assert!(numbered_lines(&root.join("missing.txt"), None, None).is_err());
+    }
+
+    #[test]
+    #[validates(spec::ReadReturnsNumberedLinesOrADirectorysEntries)]
+    fn read_returns_a_directorys_entries() {
+        let root = scratch("read-dir");
+        file(&root, "src/b.rs", "");
+        file(&root, "src/a.rs", "");
+        file(&root, "src/sub/c.rs", "");
+        let listing = read_tool(&root.join("src"), &read_args("src", None, None)).expect("listed");
+        let entries: Vec<&str> = listing.lines().map(str::trim).collect();
+        assert_eq!(entries.len(), 3, "{listing}");
+        assert!(entries[0].starts_with("a.rs") && entries[1].starts_with("b.rs") && entries[2].starts_with("sub"), "sorted: {listing}");
+        assert_eq!(directory_listing(&root.join("src")).expect("listed"), listing);
+    }
+
+    #[test]
+    #[validates(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
+    fn grep_is_a_literal_case_sensitive_substring_search_skipping_target_and_git() {
+        let root = search_tree("grep-literal");
+        let out = grep_tool(&root, &root, &grep_args("TODO", None, None)).expect("grep");
+        assert_eq!(out.lines().collect::<Vec<_>>(), ["a.rs:2: // TODO one", "src/z.rs:1: // TODO two", "sub/b.txt:2: TODO three"]);
+        assert_eq!(grep_tool(&root, &root, &grep_args("main(", None, None)).expect("grep"), "a.rs:1: fn main() {}", "a metacharacter is literal");
+        assert_eq!(grep_tool(&root, &root, &grep_args("t.do", None, None)).expect("grep"), "", "`.` is no wildcard, and `todo` is not `TODO`");
+    }
+
+    #[test]
+    #[validates(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
+    fn grep_is_narrowed_by_path_and_glob() {
+        let root = search_tree("grep-narrowed");
+        let root_itself = search_dir(None);
+        assert!(root_itself == Path::new("") || root_itself == Path::new("."), "{}", root_itself.display());
+        assert_eq!(search_dir(Some("sub")), Path::new("sub"));
+        let under = grep_tool(&root, &root.join("sub"), &grep_args("TODO", Some("sub"), None)).expect("grep");
+        let by_glob = grep_tool(&root, &root, &grep_args("TODO", None, Some("**/*.rs"))).expect("grep");
+        assert_eq!((under.as_str(), by_glob.lines().collect::<Vec<_>>()), ("sub/b.txt:2: TODO three", vec!["a.rs:2: // TODO one", "src/z.rs:1: // TODO two"]));
+    }
+
+    #[test]
+    #[validates(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
+    fn grep_returns_no_more_than_two_hundred_lines() {
+        let root = scratch("grep-cap");
+        file(&root, "many.txt", &"TODO\n".repeat(350));
+        let out = grep_tool(&root, &root, &grep_args("TODO", None, None)).expect("grep");
+        assert_eq!((GREP_CAP, out.lines().count()), (200, 200));
+        assert_eq!(capped((0..5).map(|i| i.to_string())), strings(&["0", "1", "2", "3", "4"]));
+        assert_eq!(matches_in(&root, &root.join("many.txt"), "TODO").len(), 350, "the file's every match; the cap is the search's");
+    }
+
+    #[test]
+    #[validates(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines, spec::GlobReturnsMatchingPathsSorted)]
+    fn the_walk_skips_target_and_git_alone() {
+        assert_eq!(SKIPPED, ["target", ".git"]);
+        let verdicts: Vec<bool> = ["target", ".git", "src", "targets", ".github", "docs"].iter().map(|c| skipped(OsStr::new(c))).collect();
+        assert_eq!(verdicts, [true, true, false, false, false, false]);
+        let root = search_tree("walk-skipped");
+        assert_eq!(walked(&root), [PathBuf::from("a.rs"), PathBuf::from("src/z.rs"), PathBuf::from("sub/b.txt")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[validates(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines, spec::GlobReturnsMatchingPathsSorted)]
+    fn the_walk_never_enters_a_symlinked_directory_nor_yields_a_symlinked_file() {
+        let root = search_tree("walk-symlinks");
+        let outside = scratch("walk-symlinks-outside");
+        file(&outside, "e.rs", "// TODO outside\n");
+        std::os::unix::fs::symlink(&outside, root.join("link")).expect("dir link");
+        std::os::unix::fs::symlink(outside.join("e.rs"), root.join("f.rs")).expect("file link");
+        assert_eq!(walked(&root), [PathBuf::from("a.rs"), PathBuf::from("src/z.rs"), PathBuf::from("sub/b.txt")]);
+        assert_eq!(grep_tool(&root, &root, &grep_args("outside", None, None)).expect("grep"), "");
+        assert_eq!(glob_tool(&root, &glob_args("**/*.rs")).expect("glob"), "a.rs\nsrc/z.rs");
+    }
+
+    #[test]
+    #[validates(spec::GlobReturnsMatchingPathsSorted)]
+    fn glob_returns_matching_paths_sorted_never_under_target_or_git() {
+        let root = search_tree("glob-sorted");
+        file(&root, "src/a.rs", "");
+        assert_eq!(glob_tool(&root, &glob_args("**/*.rs")).expect("glob"), "a.rs\nsrc/a.rs\nsrc/z.rs");
+        assert_eq!(glob_tool(&root, &glob_args("src/*.rs")).expect("glob"), "src/a.rs\nsrc/z.rs");
+        assert_eq!(relative_sorted(&root, &[root.join("src/z.rs"), root.join("a.rs")]), strings(&["a.rs", "src/z.rs"]));
+    }
+
+    #[test]
+    #[validates(spec::GlobReturnsMatchingPathsSorted)]
+    fn a_glob_that_does_not_parse_is_the_error() {
+        let root = search_tree("glob-parse");
+        assert!(glob_tool(&root, &glob_args("[")).is_err());
+        assert!(narrowed(&root, vec![root.join("a.rs")], Some("[")).is_err());
+        assert_eq!(narrowed(&root, vec![root.join("a.rs"), root.join("sub/b.txt")], None).expect("all"), [root.join("a.rs"), root.join("sub/b.txt")]);
+    }
+
+    #[test]
+    #[validates(spec::AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot)]
+    fn a_glob_pattern_that_is_absolute_or_climbs_is_refused_before_any_verdict() {
+        let refused = ["/etc/*", "*/../../Cargo.toml", "../*.rs", "src/../../*.rs"].iter().all(|p| pattern_components_ok(p).is_err());
+        assert!(refused, "absolute, or a `..` component anywhere");
+        pattern_components_ok("src/**/*.rs").expect("a pattern under the root");
+        pattern_components_ok("*.rs").expect("the root itself");
+        let (_dir, project) = fixture::copy("canopy-glob-confined");
+        let session = session("glob-confined", Phase::Three, &WORKER_TOOLS);
+        execute(&project, &session, "glob", &json!({ "pattern": "*/../../Cargo.toml" })).expect_err("refused before the verdict");
+        assert_eq!(tally::load(&project, "canopy:glob-confined").expect("tally").observations, 0, "no verdict was asked");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[validates(spec::AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot)]
+    fn a_match_that_resolves_outside_the_root_through_a_symlink_is_omitted() {
+        let root = scratch("glob-under-root");
+        let outside = scratch("glob-under-root-outside");
+        file(&outside, "e.rs", "");
+        file(&root, "a.rs", "");
+        std::os::unix::fs::symlink(outside.join("e.rs"), root.join("leak.rs")).expect("file link");
+        assert_eq!(under_root(&root, vec![root.join("leak.rs"), root.join("a.rs")]), [root.join("a.rs")]);
+        assert_eq!(glob_tool(&root, &glob_args("*.rs")).expect("glob"), "a.rs");
+    }
+
+    #[test]
+    #[validates(spec::AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot)]
+    fn matches_under_the_root_are_kept_as_the_walk_yielded_them() {
+        let root = scratch("glob-kept");
+        file(&root, "a.rs", "");
+        file(&root, "src/b.rs", "");
+        assert_eq!(under_root(&root, vec![root.join("src/b.rs"), root.join("a.rs")]), [root.join("src/b.rs"), root.join("a.rs")]);
+    }
+
+    #[test]
+    #[validates(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
+    fn edit_replaces_the_one_occurrence_or_all_on_request() {
+        let root = scratch("edit-replace");
+        file(&root, "f.txt", "one two two three\n");
+        edit_tool(&root.join("f.txt"), &edit_args("f.txt", "one", "1", Replace::One)).expect("one occurrence");
+        assert_eq!(text(&root, "f.txt"), "1 two two three\n");
+        edit_tool(&root.join("f.txt"), &edit_args("f.txt", "two", "2", Replace::All)).expect("all occurrences");
+        assert_eq!(text(&root, "f.txt"), "1 2 2 three\n");
+        let (one, all) = (edit_args("f.txt", "", "", Replace::One), edit_args("f.txt", "", "", Replace::All));
+        assert_eq!((one.replace_all, one.replace(), all.replace_all, all.replace()), (false, Replace::One, true, Replace::All), "the wire's flag classified once");
+    }
+
+    #[test]
+    #[validates(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
+    fn the_edits_leaves_read_replace_and_write_back() {
+        let root = scratch("edit-leaves");
+        file(&root, "f.txt", "abc");
+        assert_eq!(existing_text(&root.join("f.txt")).expect("text"), "abc");
+        mentions(&existing_text(&root.join("nope.txt")).expect_err("missing"), &["nope.txt"]);
+        assert_eq!(replaced("a-b-a", "a", "x"), "x-b-x");
+        written(&root.join("f.txt"), "new").expect("written");
+        assert_eq!(text(&root, "f.txt"), "new");
+    }
+
+    #[test]
+    #[validates(spec::AnAmbiguousOrAbsentOldStringIsAnErrorNamingTheCount)]
+    fn an_ambiguous_or_absent_old_string_is_an_error_naming_the_count() {
+        let root = scratch("edit-count");
+        file(&root, "f.txt", "two two\n");
+        mentions(&edit_tool(&root.join("f.txt"), &edit_args("f.txt", "two", "2", Replace::One)).expect_err("two places"), &["2"]);
+        mentions(&edit_tool(&root.join("f.txt"), &edit_args("f.txt", "zero", "0", Replace::One)).expect_err("no place"), &["0"]);
+        assert_eq!(text(&root, "f.txt"), "two two\n", "nothing changed");
+        let verdicts = (replaceable(1, Replace::One).is_ok(), replaceable(3, Replace::All).is_ok(), replaceable(0, Replace::All).is_err(), replaceable(2, Replace::One).is_err());
+        assert_eq!(verdicts, (true, true, true, true));
+        mentions(&replaceable(2, Replace::One).expect_err("two"), &["2"]);
+    }
+
+    #[test]
+    #[validates(spec::WriteCreatesOrReplacesTheFileWhole)]
+    fn write_creates_or_replaces_the_file_whole() {
+        let root = scratch("write-whole");
+        write_tool(&root.join("new.txt"), &WriteArgs { path: "new.txt".to_string(), content: "created\n".to_string() }).expect("created");
+        assert_eq!(text(&root, "new.txt"), "created\n");
+        file(&root, "old.txt", "a much longer original content\n");
+        write_tool(&root.join("old.txt"), &WriteArgs { path: "old.txt".to_string(), content: "short\n".to_string() }).expect("replaced");
+        assert_eq!(text(&root, "old.txt"), "short\n");
+    }
+
+    #[test]
+    #[validates(spec::ObservationsAreTalliedThroughThePreToolVerdict)]
+    fn observations_are_tallied_through_the_pre_tool_verdict() {
+        assert_eq!(WORKER_TOOLS.map(Tool::hook_name), ["Read", "Grep", "Glob", "Edit", "Write"]);
+        let (_dir, project) = fixture::copy("canopy-tools-observe");
+        let session = session("observe", Phase::Five, &WORKER_TOOLS);
+        mentions(&execute(&project, &session, "read", &json!({ "path": "src/hello.rs" })).expect("read"), &["The hello slice"]);
+        mentions(&execute(&project, &session, "grep", &json!({ "pattern": "fn greet" })).expect("grep"), &["src/hello.rs:"]);
+        mentions(&execute(&project, &session, "glob", &json!({ "pattern": "src/*.rs" })).expect("glob"), &["src/hello.rs"]);
+        let tally = tally::load(&project, "canopy:observe").expect("tally");
+        assert_eq!((tally.observations, tally.edits, tally.policy_refusals), (3, 0, 0));
+        verdict(&project, &session, Tool::Read, None).expect("an observation is never refused");
+        assert_eq!(tally::load(&project, "canopy:observe").expect("tally").observations, 4);
+    }
+
+    #[test]
+    #[validates(spec::ARefusedEditIsTheToolsErrorAndTheFileIsUntouched)]
+    fn a_refused_edit_is_the_tools_error_and_the_file_is_untouched() {
+        let (dir, project) = fixture::copy("canopy-tools-refused");
+        let session = session("refused", Phase::Five, &WORKER_TOOLS);
+        let (manifest, lib) = (text(&dir, "Cargo.toml"), text(&dir, "src/lib.rs"));
+        let edit = execute(&project, &session, "edit", &json!({ "path": "Cargo.toml", "old_string": "[package]", "new_string": "[pkg]" })).expect_err("refused");
+        mentions(&edit, &["Cargo.toml", "Phase 5", "```stop"]);
+        let write = execute(&project, &session, "write", &json!({ "path": "src/lib.rs", "content": "" })).expect_err("lib.rs is not Phase 5's");
+        mentions(&write, &["src/lib.rs", "src/hello.rs"]);
+        assert_eq!((text(&dir, "Cargo.toml"), text(&dir, "src/lib.rs")), (manifest, lib), "untouched");
+        assert_eq!(tally::load(&project, "canopy:refused").expect("tally").policy_refusals, 2);
+        let input = tool_input(&session, Tool::Edit, Some(&dir.join("Cargo.toml")));
+        assert_eq!((input.agent_id.as_str(), input.tool_name.as_deref(), input.tool_path.as_deref()), ("canopy:refused", Some("Edit"), Some(dir.join("Cargo.toml").as_path())));
+    }
+
+    #[test]
+    #[validates(spec::AnAllowedEditReturnsThePostEditVerdictsText)]
+    fn an_allowed_edit_returns_the_post_edit_verdicts_text() {
+        let (dir, project) = fixture::copy("canopy-tools-allowed");
+        let session = session("allowed", Phase::Three, &WORKER_TOOLS);
+        let clean = execute(&project, &session, "edit", &json!({ "path": "src/hello.rs", "old_string": "\"hello\"", "new_string": "\"hello there\"" })).expect("allowed");
+        assert_eq!((clean.as_str(), text(&dir, "src/hello.rs").contains("hello there")), ("cargo clippy: clean", true));
+        let warned_module = "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    let unused = 1;\n    \"hello\"\n}\n";
+        let warned = execute(&project, &session, "write", &json!({ "path": "src/hello.rs", "content": warned_module })).expect("allowed");
+        mentions(&warned, &["unused"]);
+        let tally = tally::load(&project, "canopy:allowed").expect("tally");
+        assert_eq!((tally.edits, tally.post_edit_checks, tally.policy_refusals), (2, 2, 0));
+    }
+
+    #[test]
+    #[validates(spec::AnEditForwardedToTheReviewerIsRefusedHere)]
+    fn an_edit_forwarded_to_the_reviewer_is_refused_here() {
+        let (dir, project) = fixture::copy("canopy-tools-reviewer");
+        let session = session("reviewer", Phase::Three, &REVIEW_TOOLS);
+        let before = text(&dir, "src/hello.rs");
+        let err = execute(&project, &session, "edit", &json!({ "path": "src/hello.rs", "old_string": "\"hello\"", "new_string": "\"hi\"" })).expect_err("refused");
+        mentions(&err, &["edit"]);
+        execute(&project, &session, "write", &json!({ "path": "src/hello.rs", "content": "" })).expect_err("refused");
+        assert_eq!(text(&dir, "src/hello.rs"), before, "untouched");
+        assert_eq!((declared(&session, "read").expect("declared"), declared(&session, "edit").is_err(), declared(&session, "bash").is_err()), (Tool::Read, true, true));
+        assert_eq!(tally::load(&project, "canopy:reviewer").expect("tally"), Tally::default(), "nothing ran, no verdict was asked");
+    }
+}

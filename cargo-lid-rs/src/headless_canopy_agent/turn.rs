@@ -55,12 +55,15 @@ pub struct Session {
 
 impl Session {
     /// Dials a session with `settings` on `door` — its policy is fixed there
-    /// for the session's life — and prints the session's id as it opens, so
-    /// every session a phase opens is printed before anything else the phase
-    /// prints.
+    /// for the session's life — and prints [`opened_line`] for the session's
+    /// id as it opens, so every session a phase opens is printed before
+    /// anything else the phase prints. The session starts at cursor 0 with
+    /// nothing held.
     #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
     pub fn open(door: &Door, settings: &Settings, phase: Phase, tools: Vec<Tool>) -> Result<Self, String> {
-        todo!()
+        let credential = door.start(settings)?;
+        println!("{}", opened_line(&credential.session));
+        Ok(Self { door: door.clone(), credential, cursor: 0, held: Vec::new(), phase, tools })
     }
 
     /// The tally key and the commit's agent: `canopy:<session>`.
@@ -74,6 +77,13 @@ impl Session {
     pub fn stop(self) -> Result<(), String> {
         todo!()
     }
+}
+
+/// What the run prints as a session opens: the session's id — the join to
+/// its sealed log — on one line.
+#[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
+pub fn opened_line(id: &str) -> String {
+    todo!()
 }
 
 /// The body of an `app.invoke.payload`: the requestee and the call's
@@ -512,4 +522,364 @@ pub fn completed_body(pairing: &Pairing, result: &ToolResult) -> Value {
 #[implements(spec::ACompletionsIdempotencyKeyIsTheForwardsCursor)]
 pub fn idempotency_key(forward_cursor: u64) -> String {
     todo!()
+}
+
+#[cfg(test)]
+mod tests {
+    use lid_rs::validates;
+    use serde_json::json;
+
+    use super::super::door::{Envelope, policy_for};
+    use super::super::ending::WORKER_TOOLS;
+    use super::super::replay::{self, REQUESTOR, Replay, Route, Seen, SessionScript, mentions, sha256, strings};
+    use super::super::tools::REQUESTEE;
+    use super::super::{KEY_VARIABLE, PRODUCTION_DOOR};
+    use super::*;
+    use crate::phase::fixture;
+    use crate::phase::tally;
+
+    /// The variable naming the door the end-to-end run dials; the
+    /// production door when unset.
+    const DOOR_VARIABLE: &str = "CANOPY_DOOR";
+
+    /// Canopy's canonical JSON for a `read` of `src/hello.rs` by this program.
+    const READ_HELLO: &str = r#"{"to":"lid-rs","args":{"path":"src/hello.rs"}}"#;
+
+    /// The same for `src/lib.rs`.
+    const READ_LIB: &str = r#"{"to":"lid-rs","args":{"path":"src/lib.rs"}}"#;
+
+    /// A worker's dial.
+    fn settings() -> Settings {
+        Settings { system: "You run Phase 3.".to_string(), policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost: 5.0 }
+    }
+
+    /// A worker session opened on the replay.
+    fn open(replay: &Replay) -> Session {
+        Session::open(&replay.door("k"), &settings(), Phase::Three, WORKER_TOOLS.to_vec()).expect("opened")
+    }
+
+    /// A held `read` payload addressed to `to`.
+    fn held_read(cursor: u64, to: &str, path: &str) -> Held {
+        Held { cursor, producer: REQUESTOR.to_string(), payload: Payload { to: to.to_string(), args: json!({ "path": path }) } }
+    }
+
+    fn forward_body(to: &str, op: &str, digest: &str) -> Forward {
+        Forward { to: to.to_string(), op: op.to_string(), payload_digest: digest.to_string() }
+    }
+
+    fn credential(expires: u64) -> Started {
+        Started { session: "s".to_string(), token: "t".to_string(), expires, stream: "st".to_string() }
+    }
+
+    fn record(cursor: u64) -> Record {
+        Record { cursor, kind: "trellis.attempted".to_string(), producer: "y".to_string(), body: json!({}), envelope: Envelope { stream: "t".to_string(), version: 1, idem: None, size: 2 } }
+    }
+
+    /// The `after` of every tail read the replay saw.
+    fn afters(replay: &Replay) -> Vec<Option<String>> {
+        replay.seen().iter().filter(|s| s.route() == Some(Route::Tail)).map(|s| s.query("after")).collect()
+    }
+
+    #[test]
+    #[validates(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
+    fn open_dials_the_session_and_holds_its_credential() {
+        let line = opened_line("s-open");
+        mentions(&line, &["s-open"]);
+        let replay = Replay::serve(vec![SessionScript::new("s-open")]);
+        let session = Session::open(&replay.door("k"), &settings(), Phase::Four, WORKER_TOOLS.to_vec()).expect("opened");
+        let shape = (session.credential.session.as_str(), session.cursor, session.held.len(), session.phase, session.tools.as_slice());
+        assert_eq!(shape, ("s-open", 0, 0, Phase::Four, WORKER_TOOLS.as_slice()));
+        assert_eq!(session.agent_id(), "canopy:s-open");
+        assert_eq!((replay.opened(), line.lines().count()), (strings(&["s-open"]), 1), "one session opened; what open prints for it is one line");
+    }
+
+    #[test]
+    #[validates(spec::TheCommitNamesItsSessionAsTheAgent)]
+    fn the_agent_id_is_the_session_under_canopy() {
+        let session = replay::session(Door::new("http://127.0.0.1:1", "k"), "3f0c1c9a-6f6e", Phase::Three, vec![]);
+        assert_eq!(session.agent_id(), "canopy:3f0c1c9a-6f6e");
+    }
+
+    #[test]
+    #[validates(spec::EverySessionIsStoppedWhenItsPhaseEnds)]
+    fn stop_seals_the_session_through_the_door() {
+        let replay = Replay::serve(vec![SessionScript::new("s-stop")]);
+        open(&replay).stop().expect("stopped");
+        assert!(replay.stopped("s-stop"));
+        let routes: Vec<Option<Route>> = replay.seen().iter().map(Seen::route).collect();
+        assert_eq!(routes, [Some(Route::Start), Some(Route::Stop)]);
+    }
+
+    #[test]
+    #[validates(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest, spec::ADenialIsCountedAsARefusal, spec::ATurnSettlesOnAResponseWithoutToolUses, spec::AHaltEndsTheRunWithItsReason)]
+    fn a_records_kind_is_classified_once() {
+        let names = ["app.invoke.payload", "app.invoke.forward", "app.invoke.denied", "inference.responded", "app.session.halted", "inference.requested", "app.policy.configured", "trellis.attempted", "app.invoke.completed", "app.client.user_message"];
+        let kinds: Vec<Kind> = names.iter().map(|k| Kind::of(k)).collect();
+        assert_eq!(kinds, [Kind::Payload, Kind::Forward, Kind::Denied, Kind::Responded, Kind::Halted, Kind::Other, Kind::Other, Kind::Other, Kind::Other, Kind::Other]);
+    }
+
+    #[test]
+    #[validates(spec::ThePayloadDigestReproducesCanopysVector)]
+    fn the_payload_digest_reproduces_canopys_vector() {
+        let args = json!({ "b": 1.0, "a": 2, "é": [3.0, "x"], "A": {}, "tie": 75_251_554_695_404.12_f64, "at": 1_756_339_200_123_456_789_i64 });
+        assert_eq!(payload_digest("executor", &args), "0d0f02537b19d987f967216664c91f7a92dc22364cd4c840d825fbaac5448f10");
+        assert_eq!(payload_digest(REQUESTEE, &json!({ "path": "src/hello.rs" })), sha256(READ_HELLO));
+    }
+
+    #[test]
+    #[validates(spec::CanonicalJsonOrdersKeysByByteAndRendersNumbersAsF64)]
+    fn canonical_json_orders_keys_by_byte_at_every_depth_and_renders_numbers_as_f64() {
+        let value = json!({ "b": 1.0, "a": 2, "é": [3.0, "x", { "z": null, "y": true }], "A": {}, "tie": 75_251_554_695_404.12_f64, "at": 1_756_339_200_123_456_789_i64 });
+        assert_eq!(canonical_json(&value), r#"{"A":{},"a":2,"at":1756339200123456800,"b":1,"tie":75251554695404.12,"é":[3,"x",{"y":true,"z":null}]}"#);
+        let numbers: Vec<String> = [json!(1.0), json!(2), json!(-0.5), json!(1_756_339_200_123_456_789_i64), json!(10.0)].iter().map(canonical_json).collect();
+        assert_eq!(numbers, strings(&["1", "2", "-0.5", "1756339200123456800", "10"]));
+        assert_eq!(canonical_number(&serde_json::Number::from_f64(0.1).expect("finite")), "0.1");
+    }
+
+    #[test]
+    #[validates(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest)]
+    fn a_forward_is_paired_with_the_first_held_payload_of_its_digest() {
+        let held = [held_read(5, REQUESTEE, "src/lib.rs"), held_read(7, REQUESTEE, "src/hello.rs"), held_read(9, REQUESTEE, "src/hello.rs")];
+        let pairing = pair(&held, &forward_body(REQUESTEE, "read", &sha256(READ_HELLO))).expect("paired");
+        assert_eq!(pairing, Pairing { index: 1, producer: REQUESTOR.to_string(), digest: sha256(READ_HELLO), args: json!({ "path": "src/hello.rs" }) });
+        assert_eq!(pair(&held, &forward_body(REQUESTEE, "read", &sha256(READ_LIB))).expect("paired").index, 0);
+        assert_eq!(pair(&held, &forward_body(REQUESTEE, "read", "0000")), None, "no held payload of that digest");
+    }
+
+    #[test]
+    #[validates(spec::AForwardToAnotherPrincipalIsNotAnswered)]
+    fn a_forward_or_payload_to_another_principal_pairs_with_nothing() {
+        let ours = [held_read(5, REQUESTEE, "src/hello.rs")];
+        assert_eq!(pair(&ours, &forward_body("mcp.relay", "read", &sha256(READ_HELLO))), None, "the forward is another's");
+        let theirs = [held_read(5, "mcp.relay", "src/hello.rs")];
+        let relay_digest = sha256(r#"{"to":"mcp.relay","args":{"path":"src/hello.rs"}}"#);
+        assert_eq!(pair(&theirs, &forward_body(REQUESTEE, "read", &relay_digest)), None, "the payload is another's");
+        assert_eq!(pair(&theirs, &forward_body("mcp.relay", "read", &relay_digest)), None, "both are another's");
+    }
+
+    #[test]
+    #[validates(spec::AForwardToAnotherPrincipalIsNotAnswered)]
+    fn a_forward_to_another_principal_lands_no_completion() {
+        let (_dir, project) = fixture::copy("canopy-turn-other-principal");
+        let relay = json!({ "path": "src/hello.rs" });
+        let digest = sha256(r#"{"to":"mcp.relay","args":{"path":"src/hello.rs"}}"#);
+        let page = vec![replay::responded_with_tools("Asking the relay.", &[("read", relay.clone())]), replay::payload_to("mcp.relay", relay), replay::forward_to("mcp.relay", "read", &digest)];
+        let replay = Replay::serve(vec![SessionScript::new("s-relay").page(page).page(replay::settling_page("done"))]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "go").expect("settled"), Settled { text: "done".to_string() });
+        assert!(replay::completions(&replay.landed("s-relay")).is_empty(), "not this program's to answer");
+    }
+
+    #[test]
+    #[validates(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest, spec::ACompletionAnswersThePayloadsProducer, spec::ACompletionsIdempotencyKeyIsTheForwardsCursor)]
+    fn a_paired_forward_runs_its_tool_and_lands_the_completion_under_the_forwards_cursor() {
+        let (_dir, project) = fixture::copy("canopy-turn-completion");
+        let digest = sha256(READ_HELLO);
+        let script = SessionScript::new("s-read").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("ok"));
+        let replay = Replay::serve(vec![script]);
+        let mut session = open(&replay);
+        assert_eq!((drive(&project, &mut session, "read hello").expect("settled").text, session.held.len()), ("ok".to_string(), 0));
+        let completion = replay::completions(&replay.landed("s-read")).remove(0);
+        // The door's policy record is 1 and the user message 2; the page's forward is its fifth record: cursor 7.
+        assert_eq!(completion.idem, Some(":7:65534:0".to_string()));
+        let body = &completion.body;
+        assert_eq!((body["to"].as_str(), body["payload_digest"].as_str(), body["outcome"].as_str()), (Some(REQUESTOR), Some(digest.as_str()), Some("success")));
+        mentions(body["result"].as_str().expect("the tool's text"), &["The hello slice"]);
+    }
+
+    #[test]
+    #[validates(spec::ACompletionAnswersThePayloadsProducer)]
+    fn a_completions_body_carries_the_digest_the_producer_and_the_outcome() {
+        let pairing = Pairing { index: 0, producer: REQUESTOR.to_string(), digest: "digest-7".to_string(), args: json!({}) };
+        let success = json!({ "to": "requestor", "payload_digest": "digest-7", "outcome": "success", "result": "1: text" });
+        assert_eq!(completed_body(&pairing, &Ok("1: text".to_string())), success);
+        let error = json!({ "to": "requestor", "payload_digest": "digest-7", "outcome": "error", "error": "tool failed" });
+        assert_eq!(completed_body(&pairing, &Err("tool failed".to_string())), error);
+        let (offered, idem) = completion(12, &pairing, &Ok(String::new()));
+        assert_eq!((offered.kind.as_str(), idem.as_str(), offered.body["outcome"].as_str()), (COMPLETED, ":12:65534:0", Some("success")));
+    }
+
+    #[test]
+    #[validates(spec::ACompletionsIdempotencyKeyIsTheForwardsCursor)]
+    fn a_completions_idempotency_key_is_the_forwards_cursor() {
+        assert_eq!(idempotency_key(6), ":6:65534:0");
+        assert_eq!(idempotency_key(65_535), ":65535:65534:0");
+    }
+
+    #[test]
+    #[validates(spec::ADenialIsCountedAsARefusal)]
+    fn a_denial_runs_nothing_and_counts_as_a_refusal() {
+        let (_dir, project) = fixture::copy("canopy-turn-denied");
+        let args = json!({ "command": "rm -rf /" });
+        let digest = sha256(r#"{"to":"lid-rs","args":{"command":"rm -rf /"}}"#);
+        let page = vec![replay::responded_with_tools("Trying bash.", &[("bash", args.clone())]), replay::payload(args), replay::denied(&digest)];
+        let replay = Replay::serve(vec![SessionScript::new("s-denied").page(page).page(replay::settling_page("fine"))]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "go").expect("settled").text, "fine");
+        assert!(replay::completions(&replay.landed("s-denied")).is_empty(), "nothing executed, nothing answered");
+        assert_eq!(tally::load(&project, "canopy:s-denied").expect("tally").policy_refusals, 1);
+    }
+
+    #[test]
+    #[validates(spec::ATurnSettlesOnAResponseWithoutToolUses)]
+    fn a_response_is_shaped_from_its_text_and_tool_uses() {
+        let asked = replay::responded_with_tools("Let me look.", &[("read", json!({ "path": "a" })), ("grep", json!({ "pattern": "b" }))]);
+        let with_tools = Responded::of(&asked["body"]).expect("shaped");
+        assert_eq!(with_tools, Responded { text: Some("Let me look.".to_string()), tool_uses: strings(&["read", "grep"]), terminal: None });
+        let settled = Responded::of(&replay::responded("Done.")["body"]).expect("shaped");
+        assert_eq!(settled, Responded { text: Some("Done.".to_string()), tool_uses: vec![], terminal: None });
+        assert!(Responded::of(&json!({ "echo": {}, "raw": {} })).is_err(), "neither response nor terminal");
+    }
+
+    #[test]
+    #[validates(spec::ATurnSettlesOnAResponseWithoutToolUses)]
+    fn the_tail_is_followed_on_past_a_response_with_tool_uses() {
+        let (_dir, project) = fixture::copy("canopy-turn-settle");
+        let digest = sha256(READ_HELLO);
+        let script = SessionScript::new("s-settle").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("The file greets."));
+        let replay = Replay::serve(vec![script]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "look").expect("settled"), Settled { text: "The file greets.".to_string() });
+        assert_eq!(replay::user_messages(&replay.landed("s-settle")), strings(&["look"]), "one user message outstanding for the turn");
+        assert!(afters(&replay).len() >= 2, "the tail was followed on past the tool uses");
+    }
+
+    #[test]
+    #[validates(spec::AProviderTerminalIsRetriedOnceThenStopsTheRun)]
+    fn a_provider_terminal_lands_the_message_once_more() {
+        let (_dir, project) = fixture::copy("canopy-turn-terminal-once");
+        let shaped = Responded::of(&replay::terminal(replay::TERMINAL_SENTENCE)["body"]).expect("shaped");
+        assert_eq!(shaped, Responded { text: None, tool_uses: vec![], terminal: Some(replay::TERMINAL_SENTENCE.to_string()) });
+        let first = vec![replay::requested(1), replay::attempted(), replay::terminal(replay::TERMINAL_SENTENCE)];
+        let replay = Replay::serve(vec![SessionScript::new("s-terminal").page(first).page(replay::settling_page("second time lucky"))]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "hello").expect("settled").text, "second time lucky");
+        assert_eq!(replay::user_messages(&replay.landed("s-terminal")), strings(&["hello", "hello"]));
+    }
+
+    #[test]
+    #[validates(spec::AProviderTerminalIsRetriedOnceThenStopsTheRun)]
+    fn a_second_terminal_stops_the_run_naming_the_providers_sentence() {
+        let (_dir, project) = fixture::copy("canopy-turn-terminal-twice");
+        let script = SessionScript::new("s-terminal2").page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]).page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]);
+        let replay = Replay::serve(vec![script]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "hello").expect_err("stopped"), Halt::Terminal(replay::TERMINAL_SENTENCE.to_string()));
+        assert_eq!(replay::user_messages(&replay.landed("s-terminal2")).len(), 2, "landed once more, not twice");
+    }
+
+    #[test]
+    #[validates(spec::AHaltEndsTheRunWithItsReason)]
+    fn a_halt_ends_the_turn_with_its_reason() {
+        let (_dir, project) = fixture::copy("canopy-turn-halted");
+        let replay = Replay::serve(vec![SessionScript::new("s-halt").page(vec![replay::requested(1), replay::halted("context_limit reached")])]);
+        let mut session = open(&replay);
+        assert_eq!(drive(&project, &mut session, "go").expect_err("halted"), Halt::Halted("context_limit reached".to_string()));
+    }
+
+    #[test]
+    #[validates(spec::AQuietTailForFifteenMinutesStopsTheRun)]
+    fn a_quiet_tail_for_fifteen_minutes_stops_the_run() {
+        let long_ago = Instant::now().checked_sub(QUIET_TAIL + Duration::from_secs(1)).expect("an instant fifteen minutes ago");
+        assert_eq!((QUIET_TAIL, quiet_checked(long_ago, vec![]).expect_err("quiet")), (Duration::from_secs(900), Halt::Quiet));
+        let just_now = Instant::now();
+        let (not_yet, delivered) = (quiet_checked(just_now, vec![]).expect("not yet"), quiet_checked(long_ago, vec![record(1)]).expect("a delivery"));
+        assert_eq!((not_yet, delivered), (vec![], vec![record(1)]));
+    }
+
+    #[test]
+    #[validates(spec::AQuietTailForFifteenMinutesStopsTheRun)]
+    fn the_quiet_clock_restarts_on_a_delivery_only() {
+        let long_ago = Instant::now().checked_sub(QUIET_TAIL).expect("an instant fifteen minutes ago");
+        assert_eq!(delivery(long_ago, &[]), long_ago, "an empty page leaves the clock");
+        assert!(delivery(long_ago, &[record(1)]) > long_ago, "a delivery restarts it");
+    }
+
+    #[test]
+    #[validates(spec::TheCredentialIsRefreshedBeforeItExpires)]
+    fn the_credential_is_refreshed_within_five_seconds_of_its_expiry() {
+        let replay = Replay::serve(vec![SessionScript::new("s-fresh")]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings()).expect("dialled");
+        assert_eq!((REFRESH_MARGIN, usable(&door, &started, started.expires - 60).expect("still good")), (5, started.clone()));
+        let refreshed = usable(&door, &started, started.expires - 4).expect("refreshed");
+        assert!(refreshed.session == started.session && refreshed.token != started.token && refreshed.expires > started.expires - 4, "{refreshed:?}");
+        let routes: Vec<Option<Route>> = replay.seen().iter().map(Seen::route).collect();
+        assert_eq!(routes, [Some(Route::Start), Some(Route::Refresh)], "one refresh, for the same session");
+    }
+
+    #[test]
+    #[validates(spec::TheCredentialIsRefreshedBeforeItExpires)]
+    fn a_refresh_mid_turn_keeps_the_session_and_its_cursor() {
+        let (_dir, project) = fixture::copy("canopy-turn-refresh");
+        let replay = Replay::serve(vec![SessionScript::new("s-expiring").expiring_in(3).page(replay::settling_page("ok"))]);
+        let mut session = open(&replay);
+        let first = session.credential.clone();
+        assert_eq!(drive(&project, &mut session, "go").expect("settled").text, "ok");
+        assert!(session.credential.session == first.session && session.credential.token != first.token, "refreshed: {:?}", session.credential);
+        assert_eq!(session.cursor, 4, "the door's policy record, the user message, then the page's two records, read on the refreshed credential");
+    }
+
+    #[test]
+    #[validates(spec::TheTailIsFollowedByParkedReadsWithinTheCredentialsLife)]
+    fn a_read_is_parked_twenty_five_seconds_clamped_to_the_credentials_life() {
+        let waits = (wait_for(&credential(1_000), 900), wait_for(&credential(910), 900), wait_for(&credential(925), 900), wait_for(&credential(900), 900));
+        assert_eq!((TAIL_WAIT, waits), (25, (25, 10, 25, 0)));
+    }
+
+    #[test]
+    #[validates(spec::TheTailIsFollowedByParkedReadsWithinTheCredentialsLife)]
+    fn the_tail_is_followed_from_the_cursor_the_last_page_reached() {
+        let (_dir, project) = fixture::copy("canopy-turn-after");
+        let script = SessionScript::new("s-after").page(vec![replay::requested(1), replay::attempted()]).page(replay::settling_page("ok"));
+        let replay = Replay::serve(vec![script]);
+        let mut session = open(&replay);
+        drive(&project, &mut session, "go").expect("settled");
+        // The door's policy record is 1 and the message 2; the first read returns both; the next two return the pages through 4 and 6.
+        assert_eq!(afters(&replay), [Some("0".to_string()), Some("2".to_string()), Some("4".to_string())]);
+        assert!(replay.seen().iter().filter(|s| s.route() == Some(Route::Tail)).all(|s| s.query("wait") == Some("25".to_string())), "every read parked 25 s");
+    }
+
+    #[test]
+    #[validates(spec::ADoorRefusalStopsTheRunWithItsSentence)]
+    fn a_refused_send_or_read_ends_the_turn_with_the_doors_sentence() {
+        let (_dir, project) = fixture::copy("canopy-turn-refused");
+        let scripts = vec![SessionScript::new("s-nosend").refusing(Route::Send, 409, "the session has stopped"), SessionScript::new("s-notail").refusing(Route::Tail, 429, "shed")];
+        let replay = Replay::serve(scripts);
+        let mut first = open(&replay);
+        assert_eq!(drive(&project, &mut first, "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
+        let mut second = open(&replay);
+        assert_eq!(drive(&project, &mut second, "go").expect_err("refused"), Halt::Refused("shed".to_string()));
+        assert_eq!(land_message(&first, "again").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
+    }
+
+    /// The end-to-end run the LLD's validation strategy names, by hand:
+    /// `cargo test -p cargo-lid-rs --lib -- --ignored end_to_end` with
+    /// `CANOPY_KEY` set, and `CANOPY_DOOR` when the door is not the
+    /// production one. One session with the five-tool policy on the real
+    /// door, one user message asking the model to `read` `README.md`, the
+    /// turn driven, the session stopped. Not a validation: an ignored
+    /// `#[validates]` would count as passing in the red run, and this run
+    /// needs a credential the hermetic suite must never have. Without the
+    /// key it says so and does nothing.
+    #[test]
+    #[ignore = "dials a real door with CANOPY_KEY; run by hand"]
+    fn end_to_end_one_turn_on_a_real_door() {
+        let Ok(key) = std::env::var(KEY_VARIABLE) else {
+            println!("{KEY_VARIABLE} is unset: the end-to-end run is skipped");
+            return;
+        };
+        let url = std::env::var(DOOR_VARIABLE).unwrap_or_else(|_| PRODUCTION_DOOR.to_string());
+        let project = Project::load_graph().expect("this workspace");
+        let system = "You are checking a tool loop. Call the `read` tool on `README.md`, then answer with its first line.".to_string();
+        let settings = Settings { system, policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost: 1.0 };
+        let mut session = Session::open(&Door::new(&url, &key), &settings, Phase::Three, WORKER_TOOLS.to_vec()).expect("dialled");
+        let turn = drive(&project, &mut session, "Read `README.md` with the `read` tool and tell me its first line.");
+        session.stop().expect("stopped");
+        match turn {
+            Ok(settled) => assert!(!settled.text.trim().is_empty(), "the model answered"),
+            Err(Halt::Terminal(sentence) | Halt::Halted(sentence)) => assert!(!sentence.trim().is_empty(), "the provider's or the platform's sentence"),
+            Err(halt @ (Halt::Quiet | Halt::Refused(_))) => panic!("the turn ended without a sentence: {halt:?}"),
+        }
+    }
 }
