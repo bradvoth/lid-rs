@@ -83,6 +83,14 @@ impl Session {
     /// client's own work — a phase's check, Phase 7's gate — happens
     /// between two of them, and a request on a dead credential would end
     /// the run for the one reason that is not the phase's fault.
+    ///
+    /// What it holds is what it returns: a fresh credential replaces the
+    /// old one in the session, so every later request bears that one and
+    /// the door is asked to refresh once per expiry, not once per request.
+    /// The session's id and its cursor are untouched by a refresh — only
+    /// the token and its expiry change — and a door that refuses the
+    /// refresh is [`Halt::Refused`] with the door's own sentence, which
+    /// ends the session as any refusal does.
     #[implements(spec::TheCredentialIsRefreshedBeforeItExpires)]
     pub fn bearer(&mut self) -> Result<&Started, Halt> {
         todo!()

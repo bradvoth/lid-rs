@@ -172,12 +172,15 @@ pub const SHED_ATTEMPTS: u32 = 3;
 pub const SHED_DEFAULT_PAUSE: u64 = 5;
 
 /// Whether this answer is a shed this attempt may wait out, and for how
-/// long: a `429` answered to an attempt before [`SHED_ATTEMPTS`] have been
-/// spent is the door saying *later*, and the pause is the seconds
-/// [`retry_after`] reads from `header` — the `Retry-After` the answer's
-/// headers carry. The fourth `429` is none, a refusal like any other status,
-/// and every status but `429` is none on its first answer, waited out not at
-/// all.
+/// long. `attempt` counts the sheds this request has already waited out —
+/// zero on its first answer, one after the first pause — so a `429` is the
+/// door saying *later* while `attempt` is below [`SHED_ATTEMPTS`], and the
+/// pause is the seconds [`retry_after`] reads from `header`, the
+/// `Retry-After` the answer's headers carry. The request's fourth `429` —
+/// `attempt` having reached [`SHED_ATTEMPTS`] — is none: a refusal like any
+/// other status, waited out no further. Every status but `429` is none on
+/// its first answer, whatever `attempt` holds, so nothing else is ever sent
+/// twice.
 #[implements(
     spec::AShedIsWaitedOutAndTheSameRequestSentAgain,
     spec::TheFourthShedIsARefusalLikeAnyOtherStatus,
@@ -187,9 +190,13 @@ pub fn shed(status: u16, header: Option<&str>, attempt: u32) -> Option<u64> {
     todo!()
 }
 
-/// A shed's pause in seconds: the whole number of seconds its `Retry-After`
-/// header holds, or [`SHED_DEFAULT_PAUSE`] when there is no such header or
-/// it does not hold one.
+/// A shed's pause in seconds: `header` — the `Retry-After` the shed's answer
+/// carries, `None` when it carries none — read whole as a decimal number of
+/// seconds. Anything else the header may hold is unreadable and pauses
+/// [`SHED_DEFAULT_PAUSE`]: an empty value, the HTTP-date form the standard
+/// also allows, a fraction, a negative, or a number with anything around it.
+/// The pause is taken as given; the door's own ceiling is the door's to
+/// impose.
 #[implements(spec::AShedsPauseIsItsRetryAfterSeconds, spec::AMissingOrUnreadableRetryAfterPausesFiveSeconds)]
 pub fn retry_after(header: Option<&str>) -> u64 {
     todo!()
