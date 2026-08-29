@@ -162,8 +162,9 @@ pub struct ReadReturnsNumberedLinesOrADirectorysEntries;
 
 /// When `grep` runs, it shall match its pattern as a literal, case-sensitive
 /// substring in files under `path` (the root by default) narrowed by `glob`,
-/// never entering `target/`, `.git/`, or a symlinked directory, returning
-/// `path:line: text` per match and no more than 200 lines.
+/// never entering `target/`, `.git/`, or a symlinked directory and never
+/// reading a symlinked file, returning `path:line: text` per match and no
+/// more than 200 lines.
 #[derive(Spec)]
 pub struct GrepIsALiteralSubstringSearchCappedAtTwoHundredLines;
 

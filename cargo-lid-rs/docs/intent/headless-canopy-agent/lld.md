@@ -143,7 +143,7 @@ says about a path is asked afterwards, through the phase library.
 | Tool | Arguments | Does | Returns |
 |---|---|---|---|
 | `read` | `path`, optional `offset`, `limit` (lines) | A file's text, or a directory's entries | The text with line numbers, or the listing |
-| `grep` | `pattern`, optional `path` (default the root), `glob` | A literal, case-sensitive substring search over files under `path`, never entering `target/`, `.git/`, or a symlinked directory | `path:line: text` per match, capped at 200 lines |
+| `grep` | `pattern`, optional `path` (default the root), `glob` | A literal, case-sensitive substring search over files under `path`, never entering `target/`, `.git/`, or a symlinked directory, and never reading a symlinked file | `path:line: text` per match, capped at 200 lines |
 | `glob` | `pattern` | Files matching a glob under the root, never under `target/`, `.git/`, or a symlinked directory; the pattern is the path the confinement rule below applies to (absolute, or any `..` component, refused before the verdict), and a match that resolves outside the root through a symlink is omitted from the answer | The paths, sorted |
 | `edit` | `path`, `old_string`, `new_string`, optional `replace_all` | Replaces one exact occurrence (or all) in an existing file; a string that matches zero or more than one place is an error naming the count | Clippy's verdict after the edit |
 | `write` | `path`, `content` | Creates or replaces a file whole | Clippy's verdict after the write |
@@ -365,7 +365,7 @@ What changes is confidentiality, and it changes materially:
 | `execute(project, session, op, args) -> ToolResult` | Dispatch over `Tool`: the pre-tool verdict, the work, the post-edit verdict for edits |
 | `confine(root, path) -> Result<PathBuf, String>` | The workspace boundary every tool applies first |
 | `read_tool`, `grep_tool`, `glob_tool`, `edit_tool`, `write_tool` | The work of each tool, over a confined path |
-| `SKIPPED`, `skipped(component) -> bool` | The two directory names `grep` and `glob` never enter, `target` and `.git`, as one predicate the one walk both tools share asks; that walk never enters a symlinked directory either, since a link out of the root would let `grep` read and transmit what confinement refuses |
+| `SKIPPED`, `skipped(component) -> bool` | The two directory names `grep` and `glob` never enter, `target` and `.git`, as one predicate the one walk both tools share asks; that walk never enters a symlinked directory and yields no symlinked file, since a link out of the root would let `grep` read and transmit what confinement refuses |
 | `literal_prefix(pattern) -> &str`, `pattern_components_ok(pattern) -> Result<(), String>` | A glob pattern's text before its first metacharacter, confined like a path; and the whole pattern's refusal when absolute or carrying a `..` component |
 | `completion(forward_cursor, pairing, result) -> (Offered, String)` | The `app.invoke.completed` record to offer and its idempotency key |
 | `worker_session(project, phase, state, findings, max_cost) -> Result<(Settings, String), String>` | The phase agent's body as `system`, the five tools, the worker prompt |
