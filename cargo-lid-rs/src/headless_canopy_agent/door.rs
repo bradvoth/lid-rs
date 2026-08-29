@@ -340,11 +340,13 @@ pub fn policy_for(tools: &[Tool]) -> Policy {
 
 #[cfg(test)]
 mod tests {
+    use std::time::Instant;
+
     use lid_rs::validates;
     use serde_json::json;
 
     use super::super::ending::WORKER_TOOLS;
-    use super::super::replay::{self, Landed, Replay, Route, Seen, SessionScript, mentions, strings, user};
+    use super::super::replay::{self, Landed, Replay, Route, SHED_SENTENCE, Seen, SessionScript, Shed, mentions, strings, user};
     use super::super::review::REVIEW_TOOLS;
     use super::super::tools::{REQUESTEE, schema_of};
     use super::*;
@@ -357,6 +359,13 @@ mod tests {
     /// The requests the replay saw on one route.
     fn on(replay: &Replay, route: Route) -> Vec<Seen> {
         replay.seen().into_iter().filter(|seen| seen.route() == Some(route)).collect()
+    }
+
+    /// Asserts every request in a run of them is the same request: the same
+    /// method, path, bearer, idempotency key, and body.
+    fn same_request(sent: &[Seen]) {
+        let each: Vec<String> = sent.iter().map(|seen| format!("{} {} {:?} {:?} {:?}", seen.method, seen.path, seen.bearer, seen.idem, seen.body)).collect();
+        assert!(each.windows(2).all(|pair| pair[0] == pair[1]), "the same request, sent again: {sent:?}");
     }
 
     /// A schema's `properties` keys and `required` names, both sorted.
@@ -451,6 +460,88 @@ mod tests {
         ];
         assert_eq!(refusals, ["the session has stopped", "the credential lacks the converse face", "no such key", "shed; retry later"]);
         assert_eq!(door.request("GET", "/nowhere", "key-1", None, None).expect_err("404"), "no such route");
+    }
+
+    #[test]
+    #[validates(spec::AShedIsWaitedOutAndTheSameRequestSentAgain)]
+    fn a_shed_is_waited_out_and_the_same_request_sent_again() {
+        let waited = (shed(429, Some("0"), 0), shed(429, Some("0"), 1), shed(429, Some("0"), 2));
+        assert_eq!(waited, (Some(0), Some(0), Some(0)), "a 429 is the door saying later, for each of the three sheds a request may wait out");
+        let script = SessionScript::new("s-shed").page(vec![replay::requested(1)]);
+        let replay = Replay::shedding(vec![script], vec![Shed::new(Route::Tail, 1, Some("0"))]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings(5.0)).expect("dialled");
+        let page = door.tail(&started, 0, 25).expect("the answer that stands, after the shed was waited out");
+        let reads = on(&replay, Route::Tail);
+        assert_eq!((reads.len(), page.records[0].kind.as_str()), (2, "app.policy.configured"), "shed once and sent again, and what stands is the request's own answer");
+        same_request(&reads);
+    }
+
+    #[test]
+    #[validates(spec::AShedsPauseIsItsRetryAfterSeconds)]
+    fn a_sheds_pause_is_its_retry_after_seconds() {
+        let read = [retry_after(Some("0")), retry_after(Some("1")), retry_after(Some("7")), retry_after(Some("120"))];
+        let judged = (read, shed(429, Some("3"), 0), shed(429, Some("0"), 2));
+        assert_eq!(judged, ([0, 1, 7, 120], Some(3), Some(0)), "the pause is the header's whole seconds, taken as given: no ceiling");
+        let replay = Replay::shedding(vec![SessionScript::new("s-pause")], vec![Shed::new(Route::Send, 1, Some("1"))]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings(5.0)).expect("dialled");
+        let began = Instant::now();
+        door.send(&started, &user("hi"), None).expect("sent again after the shed");
+        let paused = began.elapsed();
+        let its_own = Duration::from_secs(1)..Duration::from_secs(SHED_DEFAULT_PAUSE);
+        assert!(its_own.contains(&paused), "the shed's one second was waited out, and it was that second and not the default five: {paused:?}");
+    }
+
+    #[test]
+    #[validates(spec::AMissingOrUnreadableRetryAfterPausesFiveSeconds)]
+    fn a_missing_or_unreadable_retry_after_pauses_five_seconds() {
+        assert_eq!((SHED_DEFAULT_PAUSE, retry_after(None)), (5, 5), "no header at all pauses five seconds");
+        let unreadable = ["", " ", "Wed, 21 Oct 2015 07:28:00 GMT", "2.5", "-1", "3s", " 3", "3 ", "five"];
+        let pauses: Vec<u64> = unreadable.iter().map(|header| retry_after(Some(header))).collect();
+        assert_eq!(pauses, vec![SHED_DEFAULT_PAUSE; unreadable.len()], "empty, an HTTP-date, a fraction, a negative, or a number with anything around it: {unreadable:?}");
+        assert_eq!((shed(429, None, 0), shed(429, Some("later"), 1)), (Some(SHED_DEFAULT_PAUSE), Some(SHED_DEFAULT_PAUSE)), "a shed the client cannot read a pause from waits five seconds");
+    }
+
+    #[test]
+    #[validates(spec::TheFourthShedIsARefusalLikeAnyOtherStatus)]
+    fn the_fourth_shed_is_a_refusal_like_any_other_status() {
+        let out = (SHED_ATTEMPTS, shed(429, Some("0"), SHED_ATTEMPTS), shed(429, Some("0"), SHED_ATTEMPTS + 1));
+        assert_eq!(out, (3, None, None), "the fourth 429 is waited out no further");
+        let replay = Replay::shedding(vec![SessionScript::new("s-shed-out")], vec![Shed::new(Route::Send, 9, Some("0"))]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings(5.0)).expect("dialled");
+        let refusal = door.send(&started, &user("hi"), None).expect_err("shed out");
+        let stood = (refusal.as_str(), on(&replay, Route::Send).len(), replay.landed("s-shed-out").len());
+        assert_eq!(stood, (SHED_SENTENCE, 4, 0), "the first answer and the three sheds waited out, and then the door's own sentence, as any other refusal");
+    }
+
+    #[test]
+    #[validates(spec::EveryStatusButAShedIsRefusedOnItsFirstAnswer)]
+    fn every_status_but_a_shed_is_refused_on_its_first_answer() {
+        let statuses = [200, 201, 400, 401, 403, 404, 409, 428, 430, 500, 502, 503];
+        let judged: Vec<Option<u64>> = statuses.iter().flat_map(|status| [shed(*status, Some("0"), 0), shed(*status, Some("0"), 2)]).collect();
+        assert_eq!(judged, vec![None; statuses.len() * 2], "nothing but a 429 is a shed, whatever attempt holds: {statuses:?}");
+        let replay = Replay::serve(vec![SessionScript::new("s-once").refusing(Route::Send, 503, "the door is down")]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings(5.0)).expect("dialled");
+        assert_eq!(door.send(&started, &user("hi"), None).expect_err("refused"), "the door is down");
+        assert_eq!(on(&replay, Route::Send).len(), 1, "refused on its first answer: nothing but a shed is ever sent twice");
+    }
+
+    #[test]
+    #[validates(spec::ARetriedSendCarriesTheFirstAttemptsIdempotencyKey)]
+    fn a_retried_send_carries_the_first_attempts_idempotency_key() {
+        let replay = Replay::shedding(vec![SessionScript::new("s-idem")], vec![Shed::new(Route::Send, 1, Some("0"))]);
+        let door = replay.door("key-1");
+        let started = door.start(&settings(5.0)).expect("dialled");
+        let key = ":7:65534:0";
+        let cursor = door.send(&started, &user("hi"), Some(key)).expect("sent again after the shed");
+        let sends = on(&replay, Route::Send);
+        let keys: Vec<Option<String>> = sends.iter().map(|seen| seen.idem.clone()).collect();
+        let both = vec![Some(key.to_string()), Some(key.to_string())];
+        assert_eq!((cursor, keys, replay.landed("s-idem").len()), (2, both, 1), "the retry carries the first attempt's key, so a shed that in fact landed does not land twice");
+        same_request(&sends);
     }
 
     #[test]

@@ -28,6 +28,10 @@ pub const EXHAUSTED: &str = "replay: the script is exhausted";
 /// The producer of `app.policy.configured`, as the production door lands it.
 pub const EXCHANGE: &str = "exchange";
 
+/// The sentence a shed carries, in the `refused` field the door writes it in:
+/// what the client reports when a request is shed out.
+pub const SHED_SENTENCE: &str = "shed; retry later";
+
 /// The producer of `inference.requested` and `app.invoke.payload`.
 pub const REQUESTOR: &str = "requestor";
 
@@ -102,6 +106,27 @@ pub struct Landed {
     pub idem: Option<String>,
 }
 
+/// A route the door sheds before it answers it: `times` answers of `429`,
+/// each carrying `retry_after` as its `Retry-After` header when there is one,
+/// and then the route's own answer. What a shed needs that a refusal cannot
+/// give is an answer that is `429` and then stops being one.
+#[derive(Debug, Clone)]
+pub struct Shed {
+    /// The route shed.
+    pub route: Route,
+    /// How many of its answers are `429`.
+    pub times: u32,
+    /// The `Retry-After` those answers carry, when they carry one.
+    pub retry_after: Option<String>,
+}
+
+impl Shed {
+    /// `times` sheds of `route`, each carrying `retry_after`.
+    pub fn new(route: Route, times: u32, retry_after: Option<&str>) -> Self {
+        Self { route, times, retry_after: retry_after.map(str::to_string) }
+    }
+}
+
 /// What one session does when opened: the pages its tail serves, in order,
 /// and the routes it refuses.
 #[derive(Debug, Clone)]
@@ -112,14 +137,17 @@ pub struct SessionScript {
     pub pages: VecDeque<Vec<Value>>,
     /// The routes refused, with the status and sentence.
     pub refusals: Vec<(Route, u16, String)>,
-    /// How long a credential lives, in seconds.
+    /// How long the credential the dial issues lives, in seconds.
     pub expires_in: u64,
+    /// How long a credential a refresh issues lives; `expires_in` when the
+    /// script names no other.
+    pub refreshed_in: Option<u64>,
 }
 
 impl SessionScript {
     /// A session with no pages and no refusals, its credentials good for an hour.
     pub fn new(id: &str) -> Self {
-        Self { id: id.to_string(), pages: VecDeque::new(), refusals: Vec::new(), expires_in: 3600 }
+        Self { id: id.to_string(), pages: VecDeque::new(), refusals: Vec::new(), expires_in: 3600, refreshed_in: None }
     }
 
     /// One more page the tail serves.
@@ -137,6 +165,14 @@ impl SessionScript {
     /// Credentials that live this many seconds.
     pub fn expiring_in(mut self, seconds: u64) -> Self {
         self.expires_in = seconds;
+        self
+    }
+
+    /// Credentials a refresh issues that live this many seconds, whatever the
+    /// dial's lived: what a session whose first credential is spent needs to
+    /// be asked for a second refresh, or not.
+    pub fn refreshed_in(mut self, seconds: u64) -> Self {
+        self.refreshed_in = Some(seconds);
         self
     }
 
@@ -173,7 +209,13 @@ struct State {
     seen: Vec<Seen>,
     /// The API key, as the first dial presented it.
     key: Option<String>,
+    /// The sheds still to answer, by route.
+    sheds: Vec<Shed>,
 }
+
+/// What the replay answers one request with: the status, the JSON body, and
+/// the `Retry-After` a shed carries.
+type Answer = (u16, Value, Option<String>);
 
 /// The replay door: its URL and what it has seen.
 pub struct Replay {
@@ -184,11 +226,16 @@ pub struct Replay {
 }
 
 impl Replay {
-    /// Serves the scripts on a loopback port.
+    /// Serves the scripts on a loopback port, shedding nothing.
     pub fn serve(scripts: Vec<SessionScript>) -> Self {
+        Self::shedding(scripts, Vec::new())
+    }
+
+    /// The same, shedding each route the sheds name before answering it.
+    pub fn shedding(scripts: Vec<SessionScript>, sheds: Vec<Shed>) -> Self {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
         let url = format!("http://{}", listener.local_addr().expect("the bound address"));
-        let state = Arc::new(Mutex::new(State { scripts: scripts.into(), ..State::default() }));
+        let state = Arc::new(Mutex::new(State { scripts: scripts.into(), sheds, ..State::default() }));
         let shared = Arc::clone(&state);
         std::thread::spawn(move || serve_loop(&listener, &shared));
         Self { url, state }
@@ -383,12 +430,15 @@ fn serve_loop(listener: &TcpListener, state: &Arc<Mutex<State>>) {
     }
 }
 
-/// One connection: one request, one answer, then closed.
+/// One connection: one request, one answer — carrying `Retry-After` when it
+/// is a shed — then closed.
 fn handle(mut stream: TcpStream, state: &Mutex<State>) {
     let Some(request) = read_request(&mut stream) else { return };
-    let (status, body) = state.lock().unwrap_or_else(PoisonError::into_inner).answer(&request);
+    let (status, body, retry_after) = state.lock().unwrap_or_else(PoisonError::into_inner).answer(&request);
     let text = body.to_string();
-    let response = format!("HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{text}", reason(status), text.len());
+    let retry = retry_after.map(|seconds| format!("Retry-After: {seconds}\r\n")).unwrap_or_default();
+    let response =
+        format!("HTTP/1.1 {status} {}\r\nContent-Type: application/json\r\n{retry}Content-Length: {}\r\nConnection: close\r\n\r\n{text}", reason(status), text.len());
     let _ = stream.write_all(response.as_bytes());
     let _ = stream.flush();
 }
@@ -528,15 +578,40 @@ fn refused(status: u16, sentence: &str) -> (u16, Value) {
     (status, json!({ "refused": sentence }))
 }
 
+/// An answer carrying no `Retry-After`, which every answer but a shed is.
+fn plain(answered: (u16, Value)) -> Answer {
+    (answered.0, answered.1, None)
+}
+
 impl State {
-    /// The answer to one request, remembered.
-    fn answer(&mut self, request: &Request) -> (u16, Value) {
+    /// The answer to one request, remembered: a scripted shed of its route
+    /// while that route has one left, else the route's own answer.
+    fn answer(&mut self, request: &Request) -> Answer {
         let seen = request.seen();
         self.seen.push(seen.clone());
+        let shed = self.shed(seen.route());
+        match shed {
+            Some(answer) => answer,
+            None => plain(self.routed(&seen)),
+        }
+    }
+
+    /// One scripted shed of `route`, spent: `429` with the script's
+    /// `Retry-After`, or none when the route has no shed left to answer.
+    fn shed(&mut self, route: Option<Route>) -> Option<Answer> {
+        let shed = self.sheds.iter_mut().find(|shed| Some(shed.route) == route && shed.times > 0)?;
+        shed.times -= 1;
+        let retry_after = shed.retry_after.clone();
+        let (status, body) = refused(429, SHED_SENTENCE);
+        Some((status, body, retry_after))
+    }
+
+    /// The answer the route itself gives.
+    fn routed(&mut self, seen: &Seen) -> (u16, Value) {
         match route_of(&seen.method, &seen.path) {
             None => refused(404, "no such route"),
-            Some((Route::Start, _)) => self.start(&seen),
-            Some((route, id)) => self.on_session(route, &id, &seen),
+            Some((Route::Start, _)) => self.start(seen),
+            Some((route, id)) => self.on_session(route, &id, seen),
         }
     }
 
@@ -574,11 +649,22 @@ impl State {
 }
 
 impl Live {
-    /// A fresh credential for this session.
+    /// A fresh credential for this session, living [`Live::life`] seconds.
     fn issue(&mut self) -> Value {
         let token = format!("tok-{}-{}", self.script.id, self.tokens.len() + 1);
+        let expires = now() + self.life();
         self.tokens.push(token.clone());
-        json!({ "session": self.script.id, "token": token, "expires": now() + self.script.expires_in, "stream": format!("t/{}", self.script.id), "audience": "replay" })
+        json!({ "session": self.script.id, "token": token, "expires": expires, "stream": format!("t/{}", self.script.id), "audience": "replay" })
+    }
+
+    /// How long the next credential lives: the script's `expires_in` for the
+    /// one the dial issues, and its `refreshed_in` — that same lifetime when
+    /// the script names no other — for every one a refresh issues.
+    fn life(&self) -> u64 {
+        match self.tokens.is_empty() {
+            true => self.script.expires_in,
+            false => self.script.refreshed_in.unwrap_or(self.script.expires_in),
+        }
     }
 
     /// The refusal for a bearer that is not one of this session's tokens.

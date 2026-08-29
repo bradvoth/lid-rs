@@ -924,6 +924,31 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::TheCredentialIsRefreshedBeforeItExpires)]
+    fn the_bearer_is_refreshed_once_per_expiry_and_the_session_holds_it() {
+        let replay = Replay::serve(vec![SessionScript::new("s-bearer").expiring_in(REFRESH_MARGIN).refreshed_in(3600)]);
+        let mut session = open(&replay);
+        session.cursor = 4;
+        let dialled = session.credential.clone();
+        let fresh = session.bearer().expect("a credential within five seconds of its expiry is refreshed").clone();
+        let again = session.bearer().expect("the credential the session now holds").clone();
+        let refreshes = replay.seen().iter().filter(|seen| seen.route() == Some(Route::Refresh)).count();
+        let held = (&again, &session.credential, refreshes, session.cursor);
+        assert_eq!(held, (&fresh, &fresh, 1, 4), "the session holds what bearer hands out, so the door is asked once per expiry and not once per request, and the cursor is untouched");
+        assert_eq!((fresh.session.as_str(), fresh.stream.as_str()), (dialled.session.as_str(), dialled.stream.as_str()), "the same session, refreshed");
+        assert_ne!(fresh.token, dialled.token, "a new token in place of the one within five seconds of its expiry");
+    }
+
+    #[test]
+    #[validates(spec::TheCredentialIsRefreshedBeforeItExpires)]
+    fn a_refused_refresh_ends_the_session_with_the_doors_sentence() {
+        let script = SessionScript::new("s-norefresh").expiring_in(1).refusing(Route::Refresh, 401, "the key has expired");
+        let replay = Replay::serve(vec![script]);
+        let mut session = open(&replay);
+        assert_eq!(session.bearer().expect_err("the door refused the refresh"), Halt::Refused("the key has expired".to_string()));
+    }
+
+    #[test]
     #[validates(spec::TheTailIsFollowedByParkedReadsWithinTheCredentialsLife)]
     fn a_read_is_parked_twenty_five_seconds_clamped_to_the_credentials_life() {
         let waits = (wait_for(&credential(1_000), 900), wait_for(&credential(910), 900), wait_for(&credential(925), 900), wait_for(&credential(900), 900));
