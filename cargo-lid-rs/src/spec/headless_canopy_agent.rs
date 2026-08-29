@@ -50,8 +50,10 @@ pub struct PrReadyEndsWithTheBranchAndEveryRecordedDecision;
 #[derive(Spec)]
 pub struct ThePreconditionNeedsTheSliceBranchCheckedOut;
 
-/// When the branch's history holds no `phase 1:` commit, the run shall stop
-/// at the precondition, in the phase LLD's words, before any session opens.
+/// When the branch's own commits — those since it diverged from the default
+/// branch, never the whole ancestry — hold no `phase 1:` commit, the run
+/// shall stop at the precondition, in the phase LLD's words, before any
+/// session opens.
 #[derive(Spec)]
 pub struct ThePreconditionNeedsAPhaseOneCommit;
 
@@ -61,8 +63,9 @@ pub struct ThePreconditionNeedsAPhaseOneCommit;
 pub struct ThePreconditionNeedsACleanTree;
 
 /// When the precondition reads which phases are committed, they shall be
-/// those whose subject `tag_of` recognises, read from git, never from a
-/// model.
+/// those of the branch's own commits — those since it diverged from the
+/// default branch, never the whole ancestry — whose subject `tag_of`
+/// recognises, read from git, never from a model.
 #[derive(Spec)]
 pub struct CommittedPhasesAreReadFromTheSubjectTags;
 
@@ -339,8 +342,8 @@ pub struct EveryCommittedPhaseIsReviewedBeforeTheNextOpens;
 
 /// When the reviewer is dialled, `system` shall be the synced
 /// `lid-rs-review.md` body, and its one user message shall name the phase,
-/// the slice, the commit, the LLD, and the skill's files for that phase,
-/// prompting it to refute.
+/// the slice, the commit, the paths that commit touched, the LLD, and the
+/// skill's files for that phase, prompting it to refute.
 #[derive(Spec)]
 pub struct TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles;
 

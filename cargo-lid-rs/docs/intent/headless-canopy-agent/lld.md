@@ -97,9 +97,15 @@ precondition with the door's own sentence.
 
 Before any session opens, this program reads the branch as the workflow's
 precondition agent did, but with git rather than a model: the branch is
-`lld/<slice>` and checked out; its history holds a `phase 1:` commit; the
-tree is clean; the phases already committed are those whose subject tags
-`phase-check` recognises (`tag_of`); and if the slice's crate is a
+`lld/<slice>` and checked out; **the branch's own commits** — those since
+it diverged from the default branch, `git log <fork-point>..HEAD`, never
+the whole ancestry — hold a `phase 1:` commit; the tree is clean; the
+phases already committed are those of the branch's own commits whose
+subject tags `phase-check` recognises (`tag_of`). Scoping matters in
+both directions: a merged slice leaves its `phase 1:`…`phase 7:` subjects
+in every later branch's ancestry, and reading those would skip every
+phase of a slice that has none of its own and report a run PR-ready
+having opened no session at all; and if the slice's crate is a
 compile-time slice (`execution_class`) the human's acceptance file is
 present (`compile_time_accepted`). Any of those failing is the run's first
 decision, in the phase LLD's words. The run then starts at the first phase
@@ -266,9 +272,13 @@ the session's id as the agent id:
 
 A committed phase is reviewed before the next opens. A fresh session,
 `system` the synced `lid-rs-review.md` body, the three observation tools,
-one user message naming the phase, the slice, the commit, the LLD, and
-the skill's files for that phase; prompted to refute, as the workflow
-prompted it. Its final text must carry one ```` ```review ```` block:
+one user message naming the phase, the slice, the commit, **the paths
+that commit touched**, the LLD, and the skill's files for that phase;
+prompted to refute, as the workflow prompted it. The paths are named
+because the reviewer cannot read a commit: its tools reach the worktree,
+not git's objects, and `grep` and `glob` do not enter `.git`. What it
+reviews is the phase's artifact as the branch now holds it, which the
+commit's paths name. Its final text must carry one ```` ```review ```` block:
 
 ```text
 approved: no
@@ -348,6 +358,7 @@ What changes is confidentiality, and it changes materially:
 |---|---|
 | `headless_canopy_agent::run(args)` | `canopy` entry: parses `--slice`, `--door`, `--max-cost`; reads `CANOPY_KEY`; precondition, then the phases; prints the terminal state |
 | `Precondition`, `precondition(project, slice) -> Result<Precondition, Stop>` | Branch, `phase 1:` commit, clean tree, committed phases (`tag_of`), compile-time acceptance; from git and the phase library, no model |
+| `fork_point(project) -> Result<String, String>`, `log_subjects(project) -> Result<Vec<String>, String>`, `commit_paths(project, commit) -> Result<Vec<String>, String>` | Where the branch left the default branch; the branch's own subjects, newest first; the paths one commit touched |
 | `Outcome::{PrReady{decisions}, Stopped(Stop)}`, `Stop { at: At, decisions }`, `At::{Precondition, Phase(n), Review(n)}` | The two terminal states, and where a run stopped |
 | `build(project, door, state, max_cost) -> Outcome` | Phases 2, 3, 4, 5, 7 in order; skips committed ones; one flow decision per phase result |
 | `Door` | The HTTP client over one door's URL and the API key, stateless: `start(settings) -> Started`, `send(credential, offered, idem) -> cursor`, `tail(credential, after, wait) -> Page`, `refresh(credential) -> Started`, `stop(credential)`; every refusal carries the door's sentence |
@@ -371,7 +382,7 @@ What changes is confidentiality, and it changes materially:
 | `worker_session(project, phase, state, findings, max_cost) -> Result<(Settings, String), String>` | The phase agent's body as `system`, the five tools, the worker prompt |
 | `worker(project, door, phase, state, findings, max_cost) -> Result<WorkerEnd, String>` | Drives the worker: turn → stop verdict → commit, refusal round, or stop block; ends the session |
 | `WorkerEnd::{Committed(hash, decisions), Decisions(Vec<String>), Refused(reason)}` | How a worker session ended |
-| `review_session(project, phase, state, commit, max_cost) -> Result<(Settings, String), String>` | The reviewer's body, the three observation tools, the review prompt |
+| `review_session(project, phase, state, commit, paths, max_cost) -> Result<(Settings, String), String>` | The reviewer's body, the three observation tools, the review prompt |
 | `review(project, door, phase, state, commit, max_cost) -> Result<Review, String>` | Drives the reviewer; parses the block; one re-ask |
 | `Review::{Approved, Rejected(findings)}`, `review_of(text) -> Result<Review, String>` | The review block, parsed |
 | `agent_body(project, name) -> Result<String, String>` | A synced agent file with its frontmatter removed |
