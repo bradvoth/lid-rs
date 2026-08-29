@@ -204,8 +204,14 @@ clamped to the credential's remaining life), and acts on records by kind.
 A session whose tail delivers nothing for fifteen minutes (canopy's own
 invoke-stall window) is stopped by the client and the run ends the same
 way. When the credential is within five seconds of its expiry the client
-refreshes it with the API key before the next read; the session and its
-cursor are unchanged.
+refreshes it with the API key; the session and its cursor are unchanged.
+The check is made before **every** request the credential bears — a read,
+a landed message, a completion, a stop — not before reads alone, because
+the client's own work happens between two of them: a phase's check runs
+after the model has settled and before the next message is landed, and
+Phase 7's gate takes longer than a credential lives. A refusal round that
+landed its reason on a dead credential would end the run for the one
+reason that is not a fault of the phase.
 
 ### The door, on the wire
 
@@ -214,6 +220,15 @@ hears is JSON. A refusal is `{"refused": "<one sentence>"}` with the
 status canopy assigns (401 no credential, 403 the credential's, 409 the
 session has stopped, 429 shed with `Retry-After` in seconds), and that
 sentence is what the client reports.
+
+A `429` is the exception: it is the door saying *later*, not *no*. The
+client waits the `Retry-After` the answer carries — a whole number of
+seconds, or five when the header is missing or unreadable — and sends the
+same request again, up to three times; the fourth `429` is a refusal like
+any other and stops the run with the door's sentence. Every other status
+is refused on its first answer. A retried send carries the same
+idempotency key as the first attempt, so a shed that was in fact landed
+does not land twice.
 
 | Request | Bearer | Body | Answer |
 |---|---|---|---|
@@ -364,6 +379,8 @@ What changes is confidentiality, and it changes materially:
 | `Door` | The HTTP client over one door's URL and the API key, stateless: `start(settings) -> Started`, `send(credential, offered, idem) -> cursor`, `tail(credential, after, wait) -> Page`, `refresh(credential) -> Started`, `stop(credential)`; every refusal carries the door's sentence |
 | `Started`, `Page`, `Record`, `Offered` | The boundary types over the door's JSON: `session`, `token`, `expires`, `stream`; `records`, `through`; a landed record's `cursor`, `kind`, `producer`, `body`, `envelope`; and what the client offers, `kind` and `body` alone |
 | `Door::request(method, path, bearer, body, idem) -> Result<Value, String>`, `refusal_of(status, body) -> String` | The one boundary over the HTTP library every method shares: a `2xx` yields the JSON; anything else yields the door's `refused` sentence (or the status when there is none) as the error |
+| `shed(status, header, attempt) -> Option<u64>`, `retry_after(header) -> u64`, `SHED_ATTEMPTS`, `SHED_DEFAULT_PAUSE` | Whether an answer is a shed this attempt may wait out, and for how long: the `Retry-After` seconds, or five when the header is missing or unreadable; the fourth shed is a refusal. The header map stops at `exchange`, so the decision is handed the one header it reads |
+| `Session::bearer(&mut self) -> Result<&Started, Halt>` | The credential to present, refreshed when it is within five seconds of expiry — asked before every request the session makes, not before reads alone |
 | `Settings`, `policy_for(tools) -> Policy` | The dial: `system`, an inline policy of `allows` and `tools`, empty `params`, and `max_cost` |
 | `Tool::{Read, Grep, Glob, Edit, Write}`, `Tool::of(op) -> Option<Tool>` (its own claim: the five names map to their tools, any other `op` to none), `Tool::hook_name(self) -> &str`, `ReadArgs` … `WriteArgs`, `ToolResult`, `declarations(tools) -> Vec<ToolDecl>` | The closed set; the forward's `op` classified into it (an unknown `op` is none); the name the phase library's verdict knows the tool by (`Read`, `Grep`, `Glob`, `Edit`, `Write`); each tool's typed arguments (the boundary over the payload's `args`); their JSON schemas with descriptions |
 | `Session`, `Session::open(door, settings, phase, tools) -> Result<Session, String>` | One open session: the door, the `Started` credential, the phase, the tools its policy declared, the cursor, held payloads, the tally key `canopy:<id>`; `open` dials and prints `opened_line(id)`, so every session a phase opens is printed as it opens and `build` prints only the ending — and, for a phase already committed, `skipped_line(phase)`; the two rendering leaves are what a test observes |
@@ -377,7 +394,7 @@ What changes is confidentiality, and it changes materially:
 | `confine(root, path) -> Result<PathBuf, String>` | The workspace boundary every tool applies first |
 | `read_tool`, `grep_tool`, `glob_tool`, `edit_tool`, `write_tool` | The work of each tool, over a confined path |
 | `SKIPPED`, `skipped(component) -> bool` | The two directory names `grep` and `glob` never enter, `target` and `.git`, as one predicate the one walk both tools share asks; that walk never enters a symlinked directory and yields no symlinked file, since a link out of the root would let `grep` read and transmit what confinement refuses |
-| `literal_prefix(pattern) -> &str`, `pattern_components_ok(pattern) -> Result<(), String>` | A glob pattern's text before its first metacharacter, confined like a path; and the whole pattern's refusal when absolute or carrying a `..` component |
+| `literal_prefix(pattern) -> &Path`, `pattern_components_ok(pattern) -> Result<(), String>` | A glob pattern's text before its first metacharacter, confined like a path; and the whole pattern's refusal when absolute or carrying a `..` component |
 | `completion(forward_cursor, pairing, result) -> (Offered, String)` | The `app.invoke.completed` record to offer and its idempotency key |
 | `worker_session(project, phase, state, findings, max_cost) -> Result<(Settings, String), String>` | The phase agent's body as `system`, the five tools, the worker prompt |
 | `worker(project, door, phase, state, findings, max_cost) -> Result<WorkerEnd, String>` | Drives the worker: turn → stop verdict → commit, refusal round, or stop block; ends the session |
