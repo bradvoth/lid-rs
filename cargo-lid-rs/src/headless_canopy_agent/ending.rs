@@ -46,25 +46,36 @@ enum Round {
 /// file is an error naming its path.
 #[implements(spec::TheSystemPromptIsTheSyncedAgentBodyWithoutItsFrontmatter)]
 pub fn agent_body(project: &Project, name: &str) -> Result<String, String> {
-    todo!()
+    let path = project.root()?.join(".claude/agents").join(format!("{name}.md"));
+    let text = std::fs::read_to_string(&path).map_err(|e| format!("reading the synced agent {}: {e}", path.display()))?;
+    Ok(without_frontmatter(&text))
 }
 
 /// An agent file's text without its frontmatter: the block between the
 /// leading `---` line and the next; text with no frontmatter is itself.
 #[implements(spec::TheSystemPromptIsTheSyncedAgentBodyWithoutItsFrontmatter)]
 pub fn without_frontmatter(text: &str) -> String {
-    todo!()
+    text.strip_prefix("---\n")
+        .and_then(|rest| rest.split_once("\n---\n"))
+        .map_or_else(|| text.to_string(), |(_, body)| body.to_string())
 }
 
 /// The number a phase is written as in an agent file's name and a commit
 /// subject.
 pub(super) fn number(phase: Phase) -> u8 {
-    todo!()
+    match phase {
+        Phase::One => 1,
+        Phase::Two => 2,
+        Phase::Three => 3,
+        Phase::Four => 4,
+        Phase::Five => 5,
+        Phase::Seven => 7,
+    }
 }
 
 /// The branch's `git log --oneline`, whole.
 fn oneline_log(project: &Project) -> Result<String, String> {
-    todo!()
+    crate::project::capture(project.git()?.args(["log", "--oneline"]))
 }
 
 /// The commit subject a phase must use, as the skill's phase files and the
@@ -73,7 +84,14 @@ fn oneline_log(project: &Project) -> Result<String, String> {
 /// for <slice>`, and for Phase 7 `phase 7: <version>: <what and why>`.
 #[implements(spec::TheWorkerPromptCarriesTheSliceTheLogAndTheSubject)]
 pub fn subject_for(phase: Phase, slice: &str) -> String {
-    todo!()
+    match phase {
+        Phase::One => format!("phase 1: LLD for {slice}"),
+        Phase::Two => format!("phase 2: claims for {slice}"),
+        Phase::Three => format!("phase 3: skeleton for {slice}"),
+        Phase::Four => format!("phase 4: descend for {slice}"),
+        Phase::Five => format!("phase 5: failing tests (red) for {slice}"),
+        Phase::Seven => format!("phase 7: <version>: <what and why> for {slice}"),
+    }
 }
 
 /// The worker's user message: the slice, the branch, the LLD's path
@@ -82,7 +100,16 @@ pub fn subject_for(phase: Phase, slice: &str) -> String {
 /// ([`subject_for`]), and what a rework adds ([`findings_section`]).
 #[implements(spec::TheWorkerPromptCarriesTheSliceTheLogAndTheSubject)]
 pub fn prompt_text(phase: Phase, state: &Precondition, log: &str, findings: Option<&[String]>) -> String {
-    todo!()
+    format!(
+        "Slice: `{slice}`. Branch: `{branch}`, already checked out. LLD: `docs/intent/{slice}/lld.md` in the slice's \
+         crate.\n\nRun Phase {n} on this slice as your definition describes it. The commit subject this phase must use \
+         is `{subject}`.\n\nThe branch's history (`git log --oneline`, newest first):\n\n{log}\n{extra}",
+        slice = state.slice,
+        branch = state.branch,
+        n = number(phase),
+        subject = subject_for(phase, &state.slice),
+        extra = findings_section(findings)
+    )
 }
 
 /// What a rework's prompt adds: the reviewer's findings, numbered, under a
@@ -90,7 +117,10 @@ pub fn prompt_text(phase: Phase, state: &Precondition, log: &str, findings: Opti
 /// it; nothing on a first attempt.
 #[implements(spec::AReworkPromptCarriesTheReviewersFindings)]
 pub fn findings_section(findings: Option<&[String]>) -> String {
-    todo!()
+    findings.map_or_else(String::new, |list| {
+        let numbered: String = list.iter().enumerate().map(|(at, finding)| format!("{}. {finding}\n", at + 1)).collect();
+        format!("\nThis phase's commit was rejected by the review. This session reworks it; answer each finding:\n\n{numbered}")
+    })
 }
 
 /// The worker's dial and prompt: `system` the synced
@@ -160,7 +190,11 @@ pub(super) fn turn(project: &Project, session: &mut Session, message: &str) -> R
     spec::ADoorRefusalStopsTheRunWithItsSentence,
 )]
 pub fn halt_reason(halt: Halt) -> String {
-    todo!()
+    match halt {
+        Halt::Halted(reason) | Halt::Refused(reason) => reason,
+        Halt::Terminal(sentence) => format!("the provider failed the turn twice: {sentence}"),
+        Halt::Quiet => "the session's tail delivered nothing for fifteen minutes".to_string(),
+    }
 }
 
 /// The phase library's input for the stop verdict: the session's agent id
@@ -168,7 +202,7 @@ pub fn halt_reason(halt: Halt) -> String {
 /// and the settled text as the agent's final message.
 #[implements(spec::TheSettledTextGoesToTheStopVerdictAsTheSession, spec::TheCommitNamesItsSessionAsTheAgent)]
 pub fn stop_input(session: &Session, text: &str) -> HookInput {
-    todo!()
+    HookInput { agent_id: session.agent_id(), last_message: text.to_string(), ..HookInput::default() }
 }
 
 /// What an allowed stop ended with: a commit block, and the phase's check
@@ -184,13 +218,18 @@ fn ended(project: &Project, text: &str) -> Result<WorkerEnd, String> {
 
 /// The commit `HEAD` names, from `git rev-parse HEAD`.
 fn head(project: &Project) -> Result<String, String> {
-    todo!()
+    Ok(crate::project::capture(project.git()?.args(["rev-parse", "HEAD"]))?.trim().to_string())
 }
 
 /// The numbered lines of a text — `1. …`, `2. …` — without their numbers:
 /// the decisions a stop block, a commit body, or a review block carries.
 pub fn numbered(text: &str) -> Vec<String> {
-    todo!()
+    text.lines()
+        .map(str::trim)
+        .filter_map(|line| line.split_once(". "))
+        .filter(|(number, _)| !number.is_empty() && number.chars().all(|c| c.is_ascii_digit()))
+        .map(|(_, decision)| decision.to_string())
+        .collect()
 }
 
 #[cfg(test)]

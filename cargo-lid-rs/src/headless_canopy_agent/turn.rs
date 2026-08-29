@@ -5,16 +5,18 @@
 //! choreography: pairing a forward with its held payload by digest, and
 //! answering it.
 
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use lid_rs::implements;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 
 use super::door::{Door, Offered, Record, Settings, Started};
-use super::tools::{Tool, ToolResult, execute};
+use super::tools::{REQUESTEE, Tool, ToolResult, execute};
 use crate::phase::Phase;
+use crate::phase::tally::{self, Event};
 use crate::project::Project;
 use crate::spec;
 
@@ -69,13 +71,13 @@ impl Session {
     /// The tally key and the commit's agent: `canopy:<session>`.
     #[implements(spec::TheCommitNamesItsSessionAsTheAgent)]
     pub fn agent_id(&self) -> String {
-        todo!()
+        format!("canopy:{}", self.credential.session)
     }
 
     /// Stops the session through the door; its log is sealed.
     #[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds)]
     pub fn stop(self) -> Result<(), String> {
-        todo!()
+        self.door.stop(&self.credential)
     }
 }
 
@@ -83,7 +85,7 @@ impl Session {
 /// its sealed log — on one line.
 #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
 pub fn opened_line(id: &str) -> String {
-    todo!()
+    format!("opened canopy session {id}")
 }
 
 /// The body of an `app.invoke.payload`: the requestee and the call's
@@ -133,7 +135,14 @@ impl Responded {
     /// neither is the error.
     #[implements(spec::ATurnSettlesOnAResponseWithoutToolUses, spec::AProviderTerminalIsRetriedOnceThenStopsTheRun)]
     pub fn of(body: &Value) -> Result<Responded, String> {
-        todo!()
+        let landed: RespondedBody = serde_json::from_value(body.clone()).map_err(|e| format!("an inference.responded body: {e}"))?;
+        match (landed.terminal, landed.response) {
+            (Some(sentence), Some(_) | None) => Ok(Responded { text: None, tool_uses: Vec::new(), terminal: Some(sentence) }),
+            (None, Some(answer)) => {
+                Ok(Responded { text: answer.text, tool_uses: answer.tool_uses.into_iter().map(|use_of| use_of.op).collect(), terminal: None })
+            }
+            (None, None) => Err("an inference.responded body carries neither a response nor a terminal".to_string()),
+        }
     }
 }
 
@@ -245,7 +254,14 @@ impl Kind {
         spec::AHaltEndsTheRunWithItsReason,
     )]
     pub fn of(kind: &str) -> Kind {
-        todo!()
+        match kind {
+            "app.invoke.payload" => Kind::Payload,
+            "app.invoke.forward" => Kind::Forward,
+            "app.invoke.denied" => Kind::Denied,
+            "inference.responded" => Kind::Responded,
+            "app.session.halted" => Kind::Halted,
+            _ => Kind::Other,
+        }
     }
 }
 
@@ -296,19 +312,19 @@ pub fn drive(project: &Project, session: &mut Session, message: &str) -> Result<
 
 /// The user message to offer: `app.client.user_message` with `text`.
 pub fn user_message(text: &str) -> Offered {
-    todo!()
+    Offered { kind: USER_MESSAGE.to_string(), body: json!({ "text": text }) }
 }
 
 /// Lands one user message; the door's refusal ends the session with its
 /// sentence.
 #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
 pub fn land_message(session: &Session, text: &str) -> Result<u64, Halt> {
-    todo!()
+    session.door.send(&session.credential, &user_message(text), None).map_err(Halt::Refused)
 }
 
 /// Seconds since the epoch, as the door writes `expires`.
 pub fn now() -> u64 {
-    todo!()
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
 /// The credential to read with: this one while it has more than five
@@ -316,14 +332,18 @@ pub fn now() -> u64 {
 /// session; the door's refusal ends the session with its sentence.
 #[implements(spec::TheCredentialIsRefreshedBeforeItExpires)]
 pub fn usable(door: &Door, credential: &Started, now: u64) -> Result<Started, Halt> {
-    todo!()
+    if credential.expires.saturating_sub(now) > REFRESH_MARGIN {
+        Ok(credential.clone())
+    } else {
+        door.refresh(credential).map_err(Halt::Refused)
+    }
 }
 
 /// How long to park the next read: 25 s, the door's ceiling, clamped to the
 /// credential's remaining life at `now`.
 #[implements(spec::TheTailIsFollowedByParkedReadsWithinTheCredentialsLife)]
 pub fn wait_for(credential: &Started, now: u64) -> u64 {
-    todo!()
+    TAIL_WAIT.min(credential.expires.saturating_sub(now))
 }
 
 /// When the tail last delivered — the quiet clock's one decision: now if
@@ -331,14 +351,14 @@ pub fn wait_for(credential: &Started, now: u64) -> u64 {
 /// fifteen minutes from the last delivery and not from the last read.
 #[implements(spec::AQuietTailForFifteenMinutesStopsTheRun)]
 pub fn delivery(previous: Instant, records: &[Record]) -> Instant {
-    todo!()
+    if records.is_empty() { previous } else { Instant::now() }
 }
 
 /// The page's records to act on; an empty page fifteen minutes after the
 /// tail last delivered ends the session as quiet.
 #[implements(spec::AQuietTailForFifteenMinutesStopsTheRun)]
 pub fn quiet_checked(delivered: Instant, records: Vec<Record>) -> Result<Vec<Record>, Halt> {
-    todo!()
+    if records.is_empty() && delivered.elapsed() >= QUIET_TAIL { Err(Halt::Quiet) } else { Ok(records) }
 }
 
 /// The next page of the tail: the credential refreshed within five seconds
@@ -380,20 +400,22 @@ fn acted(project: &Project, session: &mut Session, turn: &mut Turn, record: &Rec
 /// A record's body as the type its kind promises; one that does not decode
 /// is the door's answer failing ([`undecodable`]).
 pub fn body_of<T: DeserializeOwned>(record: &Record) -> Result<T, Halt> {
-    todo!()
+    serde_json::from_value(record.body.clone()).map_err(|e| undecodable(record, &e.to_string()))
 }
 
 /// A record whose body is not what its kind promises: the halt naming the
 /// record and what failed.
 pub fn undecodable(record: &Record, what: &str) -> Halt {
-    todo!()
+    Halt::Refused(format!("the `{}` record at cursor {} could not be read: {what}", record.kind, record.cursor))
 }
 
 /// An `app.invoke.payload` held — its cursor, its producer, its body — until
 /// its forward arrives.
 #[implements(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest)]
 fn held(session: &mut Session, record: &Record) -> Result<Progress, Halt> {
-    todo!()
+    let payload: Payload = body_of(record)?;
+    session.held.push(Held { cursor: record.cursor, producer: record.producer.clone(), payload });
+    Ok(Progress::Continue)
 }
 
 /// An `app.invoke.forward`: paired with the held payload of its digest and
@@ -424,7 +446,8 @@ fn completed(project: &Project, session: &mut Session, forward_cursor: u64, forw
 /// in the session's tally ([`crate::phase::tally::record`]).
 #[implements(spec::ADenialIsCountedAsARefusal)]
 fn denied(project: &Project, session: &Session) -> Result<Progress, Halt> {
-    todo!()
+    tally::record(project, &session.agent_id(), Event::PolicyRefusal).map_err(Halt::Refused)?;
+    Ok(Progress::Continue)
 }
 
 /// An `inference.responded`, shaped by [`Responded::of`]: a terminal lands
@@ -454,7 +477,8 @@ fn retried(session: &mut Session, turn: &mut Turn) -> Result<Progress, Halt> {
 /// An `app.session.halted`: the session is over, with the halt's reason.
 #[implements(spec::AHaltEndsTheRunWithItsReason)]
 fn halted(record: &Record) -> Result<Progress, Halt> {
-    todo!()
+    let body: Halted = body_of(record)?;
+    Err(Halt::Halted(body.reason))
 }
 
 /// A forward matched to its payload: which held payload, who produced it
@@ -477,14 +501,24 @@ pub struct Pairing {
 /// principal's to answer.
 #[implements(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest, spec::AForwardToAnotherPrincipalIsNotAnswered)]
 pub fn pair(held: &[Held], forward: &Forward) -> Option<Pairing> {
-    todo!()
+    let ours = |waiting: &&Held| forward.to == REQUESTEE && waiting.payload.to == REQUESTEE;
+    held.iter()
+        .enumerate()
+        .find(|(_, waiting)| ours(waiting) && payload_digest(&waiting.payload.to, &waiting.payload.args) == forward.payload_digest)
+        .map(|(index, waiting)| Pairing {
+            index,
+            producer: waiting.producer.clone(),
+            digest: forward.payload_digest.clone(),
+            args: waiting.payload.args.clone(),
+        })
 }
 
 /// `sha256` of the canonical JSON of `{"to", "args"}`, hex; reproduces
 /// canopy's published vector.
 #[implements(spec::ThePayloadDigestReproducesCanopysVector)]
 pub fn payload_digest(to: &str, args: &Value) -> String {
-    todo!()
+    let canonical = format!(r#"{{"to":{},"args":{}}}"#, canonical_json(&Value::String(to.to_string())), canonical_json(args));
+    Sha256::digest(canonical.as_bytes()).iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 /// Canopy's canonical JSON: object keys in byte order at every depth,
@@ -492,14 +526,46 @@ pub fn payload_digest(to: &str, args: &Value) -> String {
 /// JSON writes them, no whitespace.
 #[implements(spec::CanonicalJsonOrdersKeysByByteAndRendersNumbersAsF64)]
 pub fn canonical_json(value: &Value) -> String {
-    todo!()
+    match value {
+        Value::Object(fields) => {
+            let mut keys: Vec<&String> = fields.keys().collect();
+            keys.sort_by(|left, right| left.as_bytes().cmp(right.as_bytes()));
+            let pairs: Vec<String> = keys.iter().map(|key| format!("{}:{}", Value::String((*key).clone()), canonical_json(&fields[*key]))).collect();
+            format!("{{{}}}", pairs.join(","))
+        }
+        Value::Array(items) => format!("[{}]", items.iter().map(canonical_json).collect::<Vec<String>>().join(",")),
+        Value::Number(number) => canonical_number(number),
+        Value::String(_) | Value::Bool(_) | Value::Null => value.to_string(),
+    }
 }
 
 /// A number as canopy's canonical JSON writes it: as the `f64` it is
-/// nearest to, in the shortest form that reads back to the same `f64`.
+/// nearest to, in the shortest digits that read back to the same `f64` —
+/// `serde_json`'s own rendering of that `f64`, whose ties go to the even
+/// digit as canopy's do, where the standard library's go away from zero —
+/// with a whole number's trailing `.0` dropped and a positive exponent
+/// written out as the digits it stands for (`written_out`), since canopy
+/// writes `1756339200123456800` where `serde_json` would write
+/// `1.7563392001234568e18`. The one decision here is whether the rendering
+/// carries such an exponent.
 #[implements(spec::CanonicalJsonOrdersKeysByByteAndRendersNumbersAsF64)]
 pub fn canonical_number(number: &serde_json::Number) -> String {
-    todo!()
+    let shortest = Value::from(number.as_f64().unwrap_or(f64::NAN)).to_string();
+    let whole = shortest.strip_suffix(".0").unwrap_or(&shortest);
+    match whole.split_once('e').and_then(|(mantissa, exponent)| exponent.parse::<u32>().ok().map(|power| (mantissa, power))) {
+        None => whole.to_string(),
+        Some((mantissa, power)) => written_out(mantissa, power),
+    }
+}
+
+/// A mantissa and a positive power as the digits they stand for: the
+/// mantissa's digits, its sign kept, padded with zeros to the `power + 1`
+/// places the exponent puts before the decimal point — `1.7563392001234568`
+/// at power 18 is `1756339200123456800`.
+fn written_out(mantissa: &str, power: u32) -> String {
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let zeros = "0".repeat((power as usize + 1).saturating_sub(digits.len()));
+    format!("{}{digits}{zeros}", &mantissa[..usize::from(mantissa.starts_with('-'))])
 }
 
 /// The `app.invoke.completed` record to offer in answer to a paired forward
@@ -514,14 +580,20 @@ pub fn completion(forward_cursor: u64, pairing: &Pairing, result: &ToolResult) -
 /// `error` with `error`, as the tool answered.
 #[implements(spec::ACompletionAnswersThePayloadsProducer)]
 pub fn completed_body(pairing: &Pairing, result: &ToolResult) -> Value {
-    todo!()
+    let (outcome, field, text) = match result {
+        Ok(answer) => ("success", "result", answer),
+        Err(error) => ("error", "error", error),
+    };
+    let mut body = json!({ "to": pairing.producer, "payload_digest": pairing.digest, "outcome": outcome });
+    body[field] = Value::String(text.clone());
+    body
 }
 
 /// A completion's idempotency key, `:<forward cursor>:65534:0`, so a retried
 /// append lands once.
 #[implements(spec::ACompletionsIdempotencyKeyIsTheForwardsCursor)]
 pub fn idempotency_key(forward_cursor: u64) -> String {
-    todo!()
+    format!(":{forward_cursor}:65534:0")
 }
 
 #[cfg(test)]

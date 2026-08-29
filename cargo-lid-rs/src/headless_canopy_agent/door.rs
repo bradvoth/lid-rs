@@ -7,9 +7,9 @@
 use lid_rs::implements;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use super::tools::Tool;
+use super::tools::{REQUESTEE, Tool, declarations};
 use crate::spec;
 
 /// The client over one door: its URL and the API key, which is presented on
@@ -56,7 +56,20 @@ impl Door {
     /// `Body::read_to_string`, whatever the status, since the agent turns
     /// no status into an error. Failing to reach the door is the error.
     fn exchange(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, String), String> {
-        todo!()
+        let headed = ureq::http::Request::builder()
+            .method(method)
+            .uri(format!("{}{path}", self.url))
+            .header("Authorization", format!("Bearer {bearer}"))
+            .header("Content-Type", "application/json");
+        let request = idem
+            .iter()
+            .fold(headed, |builder, key| builder.header("Idempotency-Key", *key))
+            .body(body.map(Value::to_string).unwrap_or_default())
+            .map_err(|e| format!("building {method} {path}: {e}"))?;
+        let mut answer = self.agent.run(request).map_err(|e| format!("reaching the door at {}{path}: {e}", self.url))?;
+        let status = answer.status().as_u16();
+        let text = answer.body_mut().read_to_string().map_err(|e| format!("reading the answer to {method} {path}: {e}"))?;
+        Ok((status, text))
     }
 
     /// `POST /sessions`: dials a session with the four settings, presenting
@@ -68,7 +81,7 @@ impl Door {
         spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces,
     )]
     pub fn start(&self, settings: &Settings) -> Result<Started, String> {
-        todo!()
+        decoded("the dial", self.request("POST", "/sessions", &self.key, Some(&json!({ "settings": settings })), None)?)
     }
 
     /// `POST /sessions/{id}/events`: lands what the client offers — `kind`
@@ -78,7 +91,8 @@ impl Door {
     /// `app.policy.configured`.
     #[implements(spec::NoPolicyRecordIsLandedAfterTheDial, spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn send(&self, credential: &Started, offered: &Offered, idem: Option<&str>) -> Result<u64, String> {
-        todo!()
+        let path = format!("/sessions/{}/events", credential.session);
+        cursor_of(&self.request("POST", &path, &credential.token, Some(&json!(offered)), idem)?)
     }
 
     /// `GET /sessions/{id}/tail?after=&wait=&envelope=true`: the records
@@ -86,45 +100,51 @@ impl Door {
     /// when there are none yet.
     #[implements(spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn tail(&self, credential: &Started, after: u64, wait: u64) -> Result<Page, String> {
-        todo!()
+        let path = format!("/sessions/{}/tail?after={after}&wait={wait}&envelope=true", credential.session);
+        decoded("a tail read", self.request("GET", &path, &credential.token, None, None)?)
     }
 
     /// `POST /sessions/{id}/refresh`: a fresh credential for the same
     /// session, presenting the API key.
     #[implements(spec::TheKeyIsPresentedOnlyToTheDoor, spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn refresh(&self, credential: &Started) -> Result<Started, String> {
-        todo!()
+        let path = format!("/sessions/{}/refresh", credential.session);
+        decoded("a refresh", self.request("POST", &path, &self.key, None, None)?)
     }
 
     /// `POST /sessions/{id}/stop`: ends the session; its log is sealed.
     #[implements(spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn stop(&self, credential: &Started) -> Result<(), String> {
-        todo!()
+        let path = format!("/sessions/{}/stop", credential.session);
+        cursor_of(&self.request("POST", &path, &credential.token, None, None)?).map(|_| ())
     }
 }
 
 /// A `2xx` answer's text as JSON; one that is not is the error naming the
 /// request it answered.
 pub fn answer_json(method: &str, path: &str, text: &str) -> Result<Value, String> {
-    todo!()
+    serde_json::from_str(text).map_err(|e| format!("the answer to {method} {path} is not JSON: {e}"))
 }
 
 /// A non-`2xx` answer's sentence: the `refused` field of its JSON body, or
 /// the status when the body carries none.
 #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
 pub fn refusal_of(status: u16, body: &str) -> String {
-    todo!()
+    serde_json::from_str::<Value>(body)
+        .ok()
+        .and_then(|doc| doc["refused"].as_str().map(str::to_string))
+        .unwrap_or_else(|| format!("the door answered {status}"))
 }
 
 /// A `2xx` answer as the boundary type it should be — `what` names the
 /// answer in the error when it is not.
 pub fn decoded<T: DeserializeOwned>(what: &str, answer: Value) -> Result<T, String> {
-    todo!()
+    serde_json::from_value(answer).map_err(|e| format!("{what} answered something this client cannot use: {e}"))
 }
 
 /// The `cursor` of an answer to a send or a stop.
 pub fn cursor_of(answer: &Value) -> Result<u64, String> {
-    todo!()
+    answer["cursor"].as_u64().ok_or_else(|| format!("the door's answer carries no cursor: {answer}"))
 }
 
 /// What the door returns from a dial or a refresh: the session's id, the
@@ -227,9 +247,13 @@ pub struct Allow {
     pub op: String,
 }
 
-/// One tool as the policy declares it to the model.
+/// One tool as the policy declares it to the model: the name it is shown
+/// by, the principal that executes it, the `op` a forward names, and the
+/// schema its description lives in.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolDecl {
+    /// The name the model sees and calls the tool by.
+    pub name: String,
     /// The principal that executes it: `lid-rs`.
     pub requestee: String,
     /// The tool's name.
@@ -244,7 +268,8 @@ pub struct ToolDecl {
 /// ([`super::tools::declarations`]), and nothing else.
 #[implements(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn policy_for(tools: &[Tool]) -> Policy {
-    todo!()
+    let allows = tools.iter().map(|tool| Allow { requestee: REQUESTEE.to_string(), op: tool.op().to_string() }).collect();
+    Policy { allows, tools: declarations(tools) }
 }
 
 #[cfg(test)]
@@ -289,6 +314,14 @@ mod tests {
         replay.door("key-1").start(&settings(5.0)).expect("dialled");
         let body = on(&replay, Route::Start).remove(0).body.expect("json");
         assert_eq!(body, json!({ "settings": value }), "the dial's body is `settings` alone: the four keys, `params` empty");
+        let declared: Vec<(String, String)> = body["settings"]["policy"]["tools"]
+            .as_array()
+            .expect("the declarations")
+            .iter()
+            .map(|tool| (tool["name"].as_str().expect("a name on the wire").to_string(), tool["op"].as_str().expect("an op").to_string()))
+            .collect();
+        let named: Vec<(String, String)> = strings(&["read", "grep", "glob", "edit", "write"]).into_iter().map(|op| (op.clone(), op)).collect();
+        assert_eq!(declared, named, "the policy the model is shown carries each tool's name beside its op");
     }
 
     #[test]
@@ -390,8 +423,9 @@ mod tests {
         let policy = policy_for(&WORKER_TOOLS);
         let allows: Vec<(&str, &str)> = policy.allows.iter().map(|a| (a.requestee.as_str(), a.op.as_str())).collect();
         assert_eq!(allows, [("lid-rs", "read"), ("lid-rs", "grep"), ("lid-rs", "glob"), ("lid-rs", "edit"), ("lid-rs", "write")]);
-        let tools: Vec<(&str, &str)> = policy.tools.iter().map(|t| (t.requestee.as_str(), t.op.as_str())).collect();
-        assert_eq!(tools, allows, "the declarations are the same five pairs");
+        let tools: Vec<(&str, &str, &str)> = policy.tools.iter().map(|t| (t.name.as_str(), t.requestee.as_str(), t.op.as_str())).collect();
+        let declared = [("read", "lid-rs", "read"), ("grep", "lid-rs", "grep"), ("glob", "lid-rs", "glob"), ("edit", "lid-rs", "edit"), ("write", "lid-rs", "write")];
+        assert_eq!(tools, declared, "the declarations are the same five pairs, each carrying the name the model calls it by");
         let described = policy.tools.iter().all(|t| t.schema["description"].as_str().is_some_and(|d| !d.is_empty()) && t.schema["type"] == json!("object"));
         assert!(described, "each schema is an object carrying its description: {:?}", policy.tools);
     }

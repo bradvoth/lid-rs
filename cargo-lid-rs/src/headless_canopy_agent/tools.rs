@@ -4,16 +4,17 @@
 //! phase library's verdicts around the work, and the work itself.
 
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
+use glob::Pattern;
 use lid_rs::implements;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use super::door::ToolDecl;
 use super::turn::Session;
-use crate::phase::HookInput;
+use crate::phase::{HookInput, HookVerdict, hook_post_edit, hook_pre_tool};
 use crate::project::Project;
 use crate::spec;
 
@@ -44,14 +45,27 @@ impl Tool {
     /// classified into the closed set; an unknown `op` is none.
     #[implements(spec::AForwardsOpClassifiesToItsToolOrToNone)]
     pub fn of(op: &str) -> Option<Tool> {
-        todo!()
+        match op {
+            "read" => Some(Tool::Read),
+            "grep" => Some(Tool::Grep),
+            "glob" => Some(Tool::Glob),
+            "edit" => Some(Tool::Edit),
+            "write" => Some(Tool::Write),
+            _ => None,
+        }
     }
 
     /// The tool's `op` on the wire — `read`, `grep`, `glob`, `edit`,
     /// `write` — the name [`Tool::of`] classifies from.
     #[implements(spec::AForwardsOpClassifiesToItsToolOrToNone)]
     pub fn op(self) -> &'static str {
-        todo!()
+        match self {
+            Tool::Read => "read",
+            Tool::Grep => "grep",
+            Tool::Glob => "glob",
+            Tool::Edit => "edit",
+            Tool::Write => "write",
+        }
     }
 
     /// The name the phase library's verdict knows the tool by — `Read`,
@@ -59,7 +73,13 @@ impl Tool {
     /// recognises it.
     #[implements(spec::ObservationsAreTalliedThroughThePreToolVerdict)]
     pub fn hook_name(self) -> &'static str {
-        todo!()
+        match self {
+            Tool::Read => "Read",
+            Tool::Grep => "Grep",
+            Tool::Glob => "Glob",
+            Tool::Edit => "Edit",
+            Tool::Write => "Write",
+        }
     }
 }
 
@@ -125,7 +145,7 @@ impl EditArgs {
     /// [`Replace::All`] when set, else [`Replace::One`].
     #[implements(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
     pub fn replace(&self) -> Replace {
-        todo!()
+        if self.replace_all { Replace::All } else { Replace::One }
     }
 }
 
@@ -145,11 +165,13 @@ pub fn declarations(tools: &[Tool]) -> Vec<ToolDecl> {
     tools.iter().map(|tool| declaration(*tool)).collect()
 }
 
-/// One tool as the policy declares it: the requestee `lid-rs`, its `op`,
-/// and the JSON schema of its arguments ([`schema_of`]).
+/// One tool as the policy declares it: its name — which the model sees and
+/// calls it by, and which here is the tool's own `op` — the requestee
+/// `lid-rs`, that `op`, and the JSON schema of its arguments
+/// ([`schema_of`]).
 #[implements(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn declaration(tool: Tool) -> ToolDecl {
-    todo!()
+    ToolDecl { name: tool.op().to_string(), requestee: REQUESTEE.to_string(), op: tool.op().to_string(), schema: schema_of(tool) }
 }
 
 /// The JSON schema of a tool's arguments, the tool's description in the
@@ -158,7 +180,15 @@ pub fn declaration(tool: Tool) -> ToolDecl {
 /// `old_string`, `new_string`, optional `replace_all`; `path`, `content`.
 #[implements(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn schema_of(tool: Tool) -> Value {
-    todo!()
+    let string = json!({ "type": "string" });
+    let count = json!({ "type": "integer" });
+    match tool {
+        Tool::Read => json!({ "type": "object", "description": "Read a file's text with line numbers, or list a directory's entries. Every path is relative to the workspace root.", "properties": { "path": string, "offset": count.clone(), "limit": count }, "required": ["path"] }),
+        Tool::Grep => json!({ "type": "object", "description": "Search files for a literal, case-sensitive substring, one `path:line: text` per match, at most 200 lines.", "properties": { "pattern": string.clone(), "path": string.clone(), "glob": string }, "required": ["pattern"] }),
+        Tool::Glob => json!({ "type": "object", "description": "List the paths under the workspace root matching a glob, sorted.", "properties": { "pattern": string }, "required": ["pattern"] }),
+        Tool::Edit => json!({ "type": "object", "description": "Replace one exact occurrence of `old_string` in an existing file, or every occurrence when `replace_all` is set. Returns clippy's verdict.", "properties": { "path": string.clone(), "old_string": string.clone(), "new_string": string, "replace_all": json!({ "type": "boolean" }) }, "required": ["path", "old_string", "new_string"] }),
+        Tool::Write => json!({ "type": "object", "description": "Create a file, or replace its content whole. Returns clippy's verdict.", "properties": { "path": string.clone(), "content": string }, "required": ["path", "content"] }),
+    }
 }
 
 /// The workspace boundary every tool applies before any verdict is asked.
@@ -183,7 +213,10 @@ pub fn confine(root: &Path, path: &Path) -> Result<PathBuf, String> {
 /// or one with a `..` component is the refusal.
 #[implements(spec::EveryToolConfinesItsPathToTheWorkspace)]
 pub fn relative_only(path: &Path) -> Result<&Path, String> {
-    todo!()
+    let climbs = path.components().any(|component| component == Component::ParentDir);
+    (!path.is_absolute() && !climbs)
+        .then_some(path)
+        .ok_or_else(|| format!("`{}` is outside the workspace: a path is relative to the workspace root and may not climb", path.display()))
 }
 
 /// A relative path in its canonical form under the root, symlinks
@@ -193,9 +226,22 @@ pub fn relative_only(path: &Path) -> Result<&Path, String> {
 /// to where it points. `root` is the caller's, in any form; the answer is
 /// canonical (`/private/var/…` for `/var/…` on macOS) and is for
 /// [`within`] to judge, never for a tool to open or a verdict to strip.
+///
+/// The deepest ancestor is the deepest that exists *as an entry*, which is
+/// what `symlink_metadata` answers and `Path::exists` does not: `exists`
+/// follows the link and calls a dangling one absent, so `root/x.rs`
+/// pointing at `/outside/new.rs` would resolve as a file not yet written
+/// under the root and `write` would create it where it points. Asked about
+/// the entry, that link is the deepest ancestor, and a link that leads
+/// nowhere cannot be canonicalised: it is the refusal, while a link with a
+/// target resolves to it and is judged there.
 #[implements(spec::EveryToolConfinesItsPathToTheWorkspace)]
 pub fn resolved(root: &Path, relative: &Path) -> Result<PathBuf, String> {
-    todo!()
+    let full = root.join(relative);
+    let deepest = full.ancestors().find(|ancestor| ancestor.symlink_metadata().is_ok()).ok_or_else(|| format!("`{}` has no ancestor that exists", full.display()))?;
+    let rest = full.strip_prefix(deepest).map_err(|_| format!("`{}` is not under `{}`", full.display(), deepest.display()))?;
+    let canonical = deepest.canonicalize().map_err(|e| format!("`{}` does not resolve ({e}): a link that leads nowhere may lead out of the workspace root", deepest.display()))?;
+    Ok(canonical.join(rest))
 }
 
 /// The judgment, and nothing else: `resolved`, in the canonical form
@@ -205,7 +251,11 @@ pub fn resolved(root: &Path, relative: &Path) -> Result<PathBuf, String> {
 /// and the caller keeps the path it already holds on its own root.
 #[implements(spec::EveryToolConfinesItsPathToTheWorkspace)]
 pub fn within(root: &Path, resolved: &Path) -> Result<(), String> {
-    todo!()
+    let canonical = root.canonicalize().map_err(|e| format!("resolving the workspace root `{}`: {e}", root.display()))?;
+    resolved
+        .starts_with(&canonical)
+        .then_some(())
+        .ok_or_else(|| format!("`{}` resolves outside the workspace root `{}`", resolved.display(), canonical.display()))
 }
 
 /// One forwarded call: the `op` must be a tool the session declared
@@ -232,13 +282,15 @@ pub fn execute(project: &Project, session: &Session, op: &str, args: &Value) -> 
 /// forwarded to the reviewer — is the refusal, and nothing runs.
 #[implements(spec::AnEditForwardedToTheReviewerIsRefusedHere)]
 pub fn declared(session: &Session, op: &str) -> Result<Tool, String> {
-    todo!()
+    Tool::of(op)
+        .filter(|tool| session.tools.contains(tool))
+        .ok_or_else(|| format!("`{op}` is not a tool this session's policy declared"))
 }
 
 /// A payload's `args` as a tool's typed arguments; what does not fit is
 /// the error.
 pub fn arguments<T: DeserializeOwned>(args: &Value) -> Result<T, String> {
-    todo!()
+    serde_json::from_value(args.clone()).map_err(|e| format!("the call's arguments do not fit the tool: {e}"))
 }
 
 /// The phase library's input for one call: the session's agent id
@@ -247,7 +299,12 @@ pub fn arguments<T: DeserializeOwned>(args: &Value) -> Result<T, String> {
 /// [`confine`] returns it, since that is the root the policy strips it
 /// against.
 pub fn tool_input(session: &Session, tool: Tool, path: Option<&Path>) -> HookInput {
-    todo!()
+    HookInput {
+        agent_id: session.agent_id(),
+        tool_name: Some(tool.hook_name().to_string()),
+        tool_path: path.map(Path::to_path_buf),
+        ..HookInput::default()
+    }
 }
 
 /// The pre-tool verdict for one call, asked as
@@ -257,7 +314,10 @@ pub fn tool_input(session: &Session, tool: Tool, path: Option<&Path>) -> HookInp
 /// touched.
 #[implements(spec::ObservationsAreTalliedThroughThePreToolVerdict, spec::ARefusedEditIsTheToolsErrorAndTheFileIsUntouched)]
 pub fn verdict(project: &Project, session: &Session, tool: Tool, path: Option<&Path>) -> Result<(), String> {
-    todo!()
+    match hook_pre_tool(project, session.phase, &tool_input(session, tool, path))? {
+        HookVerdict::Allow => Ok(()),
+        HookVerdict::Refuse(reason) | HookVerdict::Context(reason) => Err(reason),
+    }
 }
 
 /// The post-edit verdict after an allowed edit or write, asked as
@@ -265,7 +325,10 @@ pub fn verdict(project: &Project, session: &Session, tool: Tool, path: Option<&P
 /// — clippy's diagnostics, or "clean" — is the tool's result.
 #[implements(spec::AnAllowedEditReturnsThePostEditVerdictsText)]
 pub fn checked(project: &Project, session: &Session, tool: Tool, path: &Path) -> ToolResult {
-    todo!()
+    match hook_post_edit(project, &tool_input(session, tool, Some(path)))? {
+        HookVerdict::Allow => Ok(String::new()),
+        HookVerdict::Refuse(text) | HookVerdict::Context(text) => Ok(text),
+    }
 }
 
 /// `read` as forwarded: its arguments, the path confined, the verdict as
@@ -293,7 +356,7 @@ fn grep_call(project: &Project, session: &Session, root: &Path, args: &Value) ->
 /// itself, for [`confine`] to take like any other.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
 pub fn search_dir(path: Option<&str>) -> &Path {
-    todo!()
+    Path::new(path.unwrap_or(""))
 }
 
 /// `glob` as forwarded: its arguments; the whole pattern judged as the path
@@ -320,7 +383,11 @@ fn glob_call(project: &Project, session: &Session, root: &Path, args: &Value) ->
 /// past what its prefix says — is the refusal.
 #[implements(spec::AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot)]
 pub fn pattern_components_ok(pattern: &str) -> Result<(), String> {
-    todo!()
+    let whole = Path::new(pattern);
+    let climbs = whole.components().any(|component| component == Component::ParentDir);
+    (!whole.is_absolute() && !climbs)
+        .then_some(())
+        .ok_or_else(|| format!("`{pattern}` is outside the workspace: a glob is relative to the workspace root and may not climb"))
 }
 
 /// The path a glob pattern names literally: its text before the first
@@ -329,7 +396,7 @@ pub fn pattern_components_ok(pattern: &str) -> Result<(), String> {
 /// metacharacter has an empty prefix: the root itself.
 #[implements(spec::EveryToolConfinesItsPathToTheWorkspace)]
 pub fn literal_prefix(pattern: &str) -> &Path {
-    todo!()
+    Path::new(pattern.split(['*', '?', '[']).next().unwrap_or(pattern))
 }
 
 /// `edit` as forwarded: its arguments, the path confined, the verdict as
@@ -368,7 +435,10 @@ pub fn read_tool(path: &Path, args: &ReadArgs) -> ToolResult {
 /// cannot be read is the error.
 #[implements(spec::ReadReturnsNumberedLinesOrADirectorysEntries)]
 pub fn directory_listing(path: &Path) -> ToolResult {
-    todo!()
+    let listed = std::fs::read_dir(path).map_err(|e| format!("listing `{}`: {e}", path.display()))?;
+    let mut names: Vec<String> = listed.filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    names.sort();
+    Ok(names.join("\n"))
 }
 
 /// A file's lines, each prefixed with its number counted from 1, from
@@ -376,7 +446,10 @@ pub fn directory_listing(path: &Path) -> ToolResult {
 /// them when absent); a file that cannot be read as text is the error.
 #[implements(spec::ReadReturnsNumberedLinesOrADirectorysEntries)]
 pub fn numbered_lines(path: &Path, offset: Option<usize>, limit: Option<usize>) -> ToolResult {
-    todo!()
+    let text = std::fs::read_to_string(path).map_err(|e| format!("reading `{}` as text: {e}", path.display()))?;
+    let from = offset.unwrap_or(1).max(1);
+    let window = text.lines().enumerate().skip(from - 1).take(limit.unwrap_or(usize::MAX));
+    Ok(window.map(|(at, line)| format!("{}\t{line}", at + 1)).collect::<Vec<String>>().join("\n"))
 }
 
 /// At most this many `path:line: text` lines from one `grep`.
@@ -399,7 +472,7 @@ pub fn grep_tool(root: &Path, under: &Path, args: &GrepArgs) -> ToolResult {
 /// cap is not read further.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
 pub fn capped(matches: impl Iterator<Item = String>) -> Vec<String> {
-    todo!()
+    matches.take(GREP_CAP).collect()
 }
 
 /// The two directory names neither `grep` nor `glob` ever enters: build
@@ -411,7 +484,7 @@ pub const SKIPPED: [&str; 2] = ["target", ".git"];
 /// directory before descending into it.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines, spec::GlobReturnsMatchingPathsSorted)]
 pub fn skipped(component: &OsStr) -> bool {
-    todo!()
+    SKIPPED.iter().any(|name| component == OsStr::new(name))
 }
 
 /// Every file under a directory, at any depth, in path order, never
@@ -423,7 +496,17 @@ pub fn skipped(component: &OsStr) -> bool {
 /// own form.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines, spec::GlobReturnsMatchingPathsSorted)]
 pub fn files_under(dir: &Path) -> Result<Vec<PathBuf>, String> {
-    todo!()
+    let mut pending = vec![dir.to_path_buf()];
+    let mut files = Vec::new();
+    while let Some(next) = pending.pop() {
+        let listed = std::fs::read_dir(&next).map_err(|e| format!("walking `{}`: {e}", next.display()))?;
+        let entries: Vec<(PathBuf, std::fs::FileType)> =
+            listed.filter_map(Result::ok).filter_map(|entry| entry.file_type().ok().map(|kind| (entry.path(), kind))).collect();
+        pending.extend(entries.iter().filter(|(path, kind)| kind.is_dir() && !path.file_name().is_some_and(skipped)).map(|(path, _)| path.clone()));
+        files.extend(entries.iter().filter(|(_, kind)| kind.is_file()).map(|(path, _)| path.clone()));
+    }
+    files.sort();
+    Ok(files)
 }
 
 /// The files whose path relative to `root` matches the glob — all of them
@@ -432,7 +515,11 @@ pub fn files_under(dir: &Path) -> Result<Vec<PathBuf>, String> {
 /// walk.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines, spec::GlobReturnsMatchingPathsSorted)]
 pub fn narrowed(root: &Path, files: Vec<PathBuf>, glob: Option<&str>) -> Result<Vec<PathBuf>, String> {
-    todo!()
+    let pattern = glob.map(Pattern::new).transpose().map_err(|e| format!("`{}` is not a glob: {e}", glob.unwrap_or_default()))?;
+    let kept = files.into_iter().filter(|file| {
+        pattern.as_ref().is_none_or(|glob| file.strip_prefix(root).is_ok_and(|relative| glob.matches_path(relative)))
+    });
+    Ok(kept.collect())
 }
 
 /// The lines of one file that contain the pattern as a literal,
@@ -442,7 +529,11 @@ pub fn narrowed(root: &Path, files: Vec<PathBuf>, glob: Option<&str>) -> Result<
 /// a file that is not text yields none.
 #[implements(spec::GrepIsALiteralSubstringSearchCappedAtTwoHundredLines)]
 pub fn matches_in(root: &Path, file: &Path, pattern: &str) -> Vec<String> {
-    todo!()
+    let shown = file.strip_prefix(root).unwrap_or(file).display().to_string();
+    let found = |text: String| -> Vec<String> {
+        text.lines().enumerate().filter(|(_, line)| line.contains(pattern)).map(|(at, line)| format!("{shown}:{}: {line}", at + 1)).collect()
+    };
+    std::fs::read_to_string(file).map(found).unwrap_or_default()
 }
 
 /// `glob` under the root, whose pattern [`glob_call`] has already judged
@@ -465,13 +556,20 @@ pub fn glob_tool(root: &Path, args: &GlobArgs) -> ToolResult {
 /// symlink is omitted from the answer, not an error.
 #[implements(spec::AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot)]
 pub fn under_root(root: &Path, matches: Vec<PathBuf>) -> Vec<PathBuf> {
-    todo!()
+    matches
+        .into_iter()
+        .filter(|path| {
+            path.strip_prefix(root).is_ok_and(|relative| resolved(root, relative).and_then(|full| within(root, &full)).is_ok())
+        })
+        .collect()
 }
 
 /// The paths relative to the root, as `glob` answers them, sorted.
 #[implements(spec::GlobReturnsMatchingPathsSorted)]
 pub fn relative_sorted(root: &Path, paths: &[PathBuf]) -> Vec<String> {
-    todo!()
+    let mut shown: Vec<String> = paths.iter().map(|path| path.strip_prefix(root).unwrap_or(path).display().to_string()).collect();
+    shown.sort();
+    shown
 }
 
 /// `edit` over a confined existing file: its text read
@@ -490,21 +588,21 @@ pub fn edit_tool(path: &Path, args: &EditArgs) -> Result<(), String> {
 /// not text, is the error naming the path.
 #[implements(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
 pub fn existing_text(path: &Path) -> Result<String, String> {
-    todo!()
+    std::fs::read_to_string(path).map_err(|e| format!("`{}` cannot be edited: {e}", path.display()))
 }
 
 /// The text with every occurrence of `old` replaced by `new` — the one
 /// occurrence there is, or all of them, as [`replaceable`] has admitted.
 #[implements(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
 pub fn replaced(text: &str, old: &str, new: &str) -> String {
-    todo!()
+    text.replace(old, new)
 }
 
 /// The edited text written back over the file; a write that fails is the
 /// error naming the path.
 #[implements(spec::EditReplacesTheOneOccurrenceOrAllOnRequest)]
 pub fn written(path: &Path, text: &str) -> Result<(), String> {
-    todo!()
+    std::fs::write(path, text).map_err(|e| format!("writing `{}`: {e}", path.display()))
 }
 
 /// Whether the occurrences found may be replaced: exactly one for
@@ -512,14 +610,19 @@ pub fn written(path: &Path, text: &str) -> Result<(), String> {
 /// more than one for [`Replace::One`], is the error naming the count.
 #[implements(spec::AnAmbiguousOrAbsentOldStringIsAnErrorNamingTheCount)]
 pub fn replaceable(count: usize, replace: Replace) -> Result<(), String> {
-    todo!()
+    match (count, replace) {
+        (1, Replace::One) => Ok(()),
+        (0, Replace::One | Replace::All) => Err("`old_string` matches 0 places in the file; nothing was changed".to_string()),
+        (_, Replace::All) => Ok(()),
+        (_, Replace::One) => Err(format!("`old_string` matches {count} places in the file; give a longer string, or set replace_all")),
+    }
 }
 
 /// `write` over a confined path: the file created, or its content replaced
 /// whole.
 #[implements(spec::WriteCreatesOrReplacesTheFileWhole)]
 pub fn write_tool(path: &Path, args: &WriteArgs) -> Result<(), String> {
-    todo!()
+    std::fs::write(path, &args.content).map_err(|e| format!("writing `{}` whole: {e}", path.display()))
 }
 
 #[cfg(test)]
@@ -655,6 +758,22 @@ mod tests {
         assert!(confine(&root, Path::new("link/secret.txt")).is_err(), "through a linked directory");
         assert!(confine(&root, Path::new("leak.txt")).is_err(), "a linked file");
         assert_eq!(confine(&root, Path::new("alias.txt")).expect("a link within the root stays within it"), root.join("alias.txt"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[validates(spec::EveryToolConfinesItsPathToTheWorkspace)]
+    fn a_dangling_symlink_out_of_the_root_is_refused_and_creates_nothing_outside() {
+        let (dir, project) = fixture::copy("canopy-tools-dangling");
+        let outside = scratch("canopy-tools-dangling-outside");
+        let target = outside.join("new.rs");
+        std::os::unix::fs::symlink(&target, dir.join("src/leak.rs")).expect("a link to a file that does not exist yet");
+        assert!(confine(&dir, Path::new("src/leak.rs")).is_err(), "a link that leads nowhere is no file about to be written under the root");
+        let session = session("dangling", Phase::Three, &WORKER_TOOLS);
+        let refused = execute(&project, &session, "write", &json!({ "path": "src/leak.rs", "content": "//! written through the link\n" })).expect_err("refused");
+        mentions(&refused, &["src/leak.rs"]);
+        assert!(!target.exists(), "nothing is created outside the root at {}", target.display());
+        assert_eq!(tally::load(&project, "canopy:dangling").expect("tally"), Tally::default(), "no verdict was asked");
     }
 
     #[test]

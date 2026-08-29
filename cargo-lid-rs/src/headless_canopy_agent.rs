@@ -12,11 +12,11 @@ pub mod tools;
 pub mod turn;
 
 use door::Door;
-use ending::{WorkerEnd, worker};
+use ending::{WorkerEnd, number, worker};
 use review::{Review, review};
 
-use crate::phase::Phase;
-use crate::phase::policy::{ExecutionClass, execution_class, slice_crate};
+use crate::phase::policy::{ExecutionClass, compile_time_accepted, execution_class, slice_crate};
+use crate::phase::{Phase, Tag};
 use crate::project::Project;
 use crate::spec;
 
@@ -49,7 +49,7 @@ impl Default for Flags {
     /// flags say when none is given.
     #[implements(spec::CanopyTakesSliceDoorAndMaxCostAsItsFlags, spec::MaxCostIsTheFlagsAmountOrFive)]
     fn default() -> Self {
-        todo!()
+        Self { slice: None, door: PRODUCTION_DOOR.to_string(), max_cost: DEFAULT_MAX_COST }
     }
 }
 
@@ -93,21 +93,28 @@ fn flag_applied(flags: Flags, pair: &[String]) -> Result<Flags, String> {
 /// value is rejected by name.
 #[implements(spec::CanopyTakesSliceDoorAndMaxCostAsItsFlags)]
 fn flag_pair(pair: &[String]) -> Result<(&str, &str), String> {
-    todo!()
+    match pair {
+        [flag, value] => Ok((flag.as_str(), value.as_str())),
+        [flag] => Err(format!("the flag `{flag}` for canopy needs a value")),
+        [] | [_, _, _, ..] => Err("canopy takes its flags as `--flag value` pairs".to_string()),
+    }
 }
 
 /// `--max-cost`'s value as an amount in the provider's currency; one that
 /// is not a number is rejected, quoting it.
 #[implements(spec::MaxCostIsTheFlagsAmountOrFive)]
 fn amount(value: &str) -> Result<f64, String> {
-    todo!()
+    value.parse::<f64>().map_err(|_| format!("`{value}` is not an amount for --max-cost, in the provider's currency"))
 }
 
 /// The API key as `CANOPY_KEY` holds it; unset, the precondition stop
 /// naming the variable — before any session opens.
 #[implements(spec::TheKeyComesFromCanopyKeyOrTheRunStopsFirst)]
 pub fn api_key(found: Option<String>) -> Result<String, Stop> {
-    todo!()
+    found.ok_or_else(|| Stop {
+        at: At::Precondition,
+        decisions: vec![format!("{KEY_VARIABLE} is unset: set it to an API key bound to the canopy config this run is to use")],
+    })
 }
 
 /// What the precondition established, from git and the phase library: the
@@ -121,8 +128,8 @@ pub struct Precondition {
     pub branch: String,
     /// The workspace package holding the slice's LLD.
     pub crate_root: PathBuf,
-    /// The phases with a `phase N:` commit in the branch's history, by
-    /// `tag_of`.
+    /// The phases with a `phase N:` commit among the branch's own commits,
+    /// by `tag_of`.
     pub committed: Vec<Phase>,
 }
 
@@ -149,11 +156,12 @@ pub struct Stop {
 /// The precondition, read with git and the phase library and no model,
 /// before any session opens, each check in turn and the first failure the
 /// run's first decision: the checked-out branch is `lld/<slice>` for the
-/// slice given or the branch's own ([`slice_of`]); the history holds a
-/// `phase 1:` commit ([`phase_one_present`]); the tree is clean
+/// slice given or the branch's own ([`slice_of`]); the branch's own commits
+/// — those since it diverged from the default branch ([`log_subjects`]) —
+/// hold a `phase 1:` commit ([`phase_one_present`]); the tree is clean
 /// ([`clean_tree`]); the slice has a crate; a compile-time slice has the
 /// human's acceptance file ([`acceptance`]). The committed phases are read
-/// from the same log's subjects ([`committed_phases`]).
+/// from those same subjects ([`committed_phases`]).
 pub fn precondition(project: &Project, slice: Option<&str>) -> Result<Precondition, Stop> {
     let branch = current_branch(project).map_err(at_precondition)?;
     let slice = slice_of(&branch, slice)?;
@@ -167,13 +175,18 @@ pub fn precondition(project: &Project, slice: Option<&str>) -> Result<Preconditi
 
 /// A failure to read the repository at the precondition, as the stop it is.
 fn at_precondition(reason: String) -> Stop {
-    todo!()
+    Stop { at: At::Precondition, decisions: vec![reason] }
 }
 
 /// The checked-out branch, from `git symbolic-ref --short HEAD`; a detached
 /// `HEAD` is on no branch and is the error.
 fn current_branch(project: &Project) -> Result<String, String> {
-    todo!()
+    let output = project.git()?.args(["symbolic-ref", "--quiet", "--short", "HEAD"]).output().map_err(|e| format!("running git symbolic-ref: {e}"))?;
+    output
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&output.stdout).trim().to_string())
+        .ok_or_else(|| "`HEAD` is detached: the run needs the slice's branch checked out".to_string())
 }
 
 /// The slice the branch is for: the branch must be `lld/<slice>`, for the
@@ -182,42 +195,113 @@ fn current_branch(project: &Project) -> Result<String, String> {
 /// other branch stops the run naming it.
 #[implements(spec::ThePreconditionNeedsTheSliceBranchCheckedOut)]
 pub fn slice_of(branch: &str, given: Option<&str>) -> Result<String, Stop> {
-    todo!()
+    let wanted = given.unwrap_or("<slice>");
+    match crate::phase::slice_of_branch(branch) {
+        Some(slice) if given.is_none_or(|name| name == slice) => Ok(slice),
+        Some(_) | None => Err(Stop {
+            at: At::Precondition,
+            decisions: vec![format!("the checked-out branch is `{branch}`, not `lld/{wanted}`: the run needs the slice's branch checked out")],
+        }),
+    }
 }
 
-/// The subjects of the branch's history, newest first, from
-/// `git log --format=%s`.
+/// The branch a slice's branch is taken from when the repository names no
+/// default: git's own default name.
+const DEFAULT_BRANCH: &str = "main";
+
+/// The default branch this branch left: the target of
+/// `refs/remotes/origin/HEAD` when the remote names one — `origin/main` and
+/// the like — and [`DEFAULT_BRANCH`] when it does not, a repository with no
+/// remote naming none.
+fn default_branch(project: &Project) -> Result<String, String> {
+    let output = project.git()?.args(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"]).output().map_err(|e| format!("running git symbolic-ref: {e}"))?;
+    let named = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Ok(output.status.success().then_some(named).filter(|name| !name.is_empty()).unwrap_or_else(|| DEFAULT_BRANCH.to_string()))
+}
+
+/// Where the branch left the default branch ([`default_branch`]): the merge
+/// base of the two, from `git merge-base <default> HEAD`, or the empty
+/// string when there is none — a branch sharing no commit with the default
+/// branch, a fresh repository's first among them, has its whole history to
+/// itself.
+#[implements(spec::CommittedPhasesAreReadFromTheSubjectTags, spec::ThePreconditionNeedsAPhaseOneCommit)]
+pub fn fork_point(project: &Project) -> Result<String, String> {
+    let default = default_branch(project)?;
+    let output = project.git()?.args(["merge-base", &default, "HEAD"]).output().map_err(|e| format!("running git merge-base: {e}"))?;
+    let base = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if output.status.success() { Ok(base) } else { Ok(String::new()) }
+}
+
+/// The commits `git log` is asked for — the one decision over the fork
+/// point: those after it, which are the branch's own, or the whole history
+/// when there is none, which is then the branch's own.
 #[implements(spec::CommittedPhasesAreReadFromTheSubjectTags)]
-fn log_subjects(project: &Project) -> Result<Vec<String>, String> {
-    todo!()
+pub fn own_commits(fork_point: &str) -> String {
+    if fork_point.is_empty() { "HEAD".to_string() } else { format!("{fork_point}..HEAD") }
 }
 
-/// The history must hold a `phase 1:` commit; without one the run stops in
-/// the phase LLD's words: no `phase 1:` commit means the run stops before
-/// doing anything — the LLD is the human's.
+/// The subjects of the branch's own commits — those since it diverged from
+/// the default branch ([`fork_point`], [`own_commits`]), never the whole
+/// ancestry, since a merged slice leaves its `phase 1:`…`phase 7:` subjects
+/// in every later branch's ancestry — newest first, from
+/// `git log --format=%s`.
+#[implements(spec::CommittedPhasesAreReadFromTheSubjectTags, spec::ThePreconditionNeedsAPhaseOneCommit)]
+pub fn log_subjects(project: &Project) -> Result<Vec<String>, String> {
+    let range = own_commits(&fork_point(project)?);
+    let log = crate::project::capture(project.git()?.args(["log", "--format=%s", &range]))?;
+    Ok(log.lines().map(str::to_string).collect())
+}
+
+/// The paths one commit touched, from `git show --name-only --format=`:
+/// what the reviewer is told to read, since its tools reach the worktree
+/// and not git's objects.
+#[implements(spec::TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles)]
+pub fn commit_paths(project: &Project, commit: &str) -> Result<Vec<String>, String> {
+    let shown = crate::project::capture(project.git()?.args(["show", "--name-only", "--format=", commit]))?;
+    Ok(shown.lines().filter(|line| !line.is_empty()).map(str::to_string).collect())
+}
+
+/// The branch's own commits must hold a `phase 1:` commit; without one the
+/// run stops in the phase LLD's words: no `phase 1:` commit means the run
+/// stops before doing anything — the LLD is the human's. The ancestry a
+/// merged slice left behind is not this branch's work and says nothing
+/// about it.
 #[implements(spec::ThePreconditionNeedsAPhaseOneCommit)]
 pub fn phase_one_present(subjects: &[String]) -> Result<(), Stop> {
-    todo!()
+    subjects.iter().any(|subject| subject.starts_with("phase 1:")).then_some(()).ok_or_else(|| Stop {
+        at: At::Precondition,
+        decisions: vec!["the branch has no `phase 1:` commit: the LLD is the human's, and the run stops before doing anything".to_string()],
+    })
 }
 
 /// The paths `git status --porcelain` reports: changed, staged, or
 /// untracked.
 fn dirty_paths(project: &Project) -> Result<Vec<String>, String> {
-    todo!()
+    let status = crate::project::capture(project.git()?.args(["status", "--porcelain"]))?;
+    Ok(status.lines().filter_map(|line| line.get(3..)).map(str::to_string).collect())
 }
 
 /// The tree must be clean; a dirty one stops the run naming the paths.
 #[implements(spec::ThePreconditionNeedsACleanTree)]
 pub fn clean_tree(dirty: &[String]) -> Result<(), Stop> {
-    todo!()
+    dirty.is_empty().then_some(()).ok_or_else(|| Stop {
+        at: At::Precondition,
+        decisions: vec![format!("the working tree is not clean; commit or discard {} first", dirty.join(", "))],
+    })
 }
 
-/// The phases the subjects commit: those whose tag
+/// The phases the branch's own subjects commit: those whose tag
 /// [`crate::phase::tag_of`] recognises as a phase with a check, in the
 /// subjects' order.
 #[implements(spec::CommittedPhasesAreReadFromTheSubjectTags)]
 pub fn committed_phases(subjects: &[String]) -> Vec<Phase> {
-    todo!()
+    subjects
+        .iter()
+        .filter_map(|subject| match crate::phase::tag_of(subject) {
+            Tag::Checked(phase) => Some(phase),
+            Tag::Untagged | Tag::Unchecked(_) => None,
+        })
+        .collect()
 }
 
 /// The one decision over the slice's execution class
@@ -237,7 +321,13 @@ pub fn acceptance(project: &Project, crate_root: &Path, slice: &str) -> Result<(
 /// slice's crate.
 #[implements(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
 pub fn accepted(crate_root: &Path, slice: &str) -> Result<(), Stop> {
-    todo!()
+    compile_time_accepted(crate_root, slice).then_some(()).ok_or_else(|| Stop {
+        at: At::Precondition,
+        decisions: vec![format!(
+            "`{slice}` is a compile-time slice: editing it executes the model's code after every edit. Commit \
+             docs/intent/{slice}/compile-time-accepted in the slice's crate to accept that, or run another slice."
+        )],
+    })
 }
 
 /// The two terminal states; there is no third and no waiver.
@@ -311,7 +401,7 @@ pub fn skipped(phase: Phase) -> Vec<String> {
 /// naming the phase.
 #[implements(spec::CommittedPhasesAreSkippedAndSaidSo)]
 pub fn skipped_line(phase: Phase) -> String {
-    todo!()
+    format!("phase {}: already committed on this branch; skipped", number(phase))
 }
 
 /// One worker session of a phase: the worker driven to its end, that
@@ -379,14 +469,25 @@ fn phase_judged(run: &Run, phase: Phase, which: Attempt, verdict: Result<Review,
 /// model's doing.
 #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
 pub fn ending_line(phase: Phase, end: &Result<WorkerEnd, String>) -> String {
-    todo!()
+    let n = number(phase);
+    match end {
+        Ok(WorkerEnd::Committed(hash, _)) => format!("phase {n}: committed {hash}"),
+        Ok(WorkerEnd::Decisions(decisions)) => format!("phase {n}: stopped, uncommitted, with the decisions: {}", decisions.join("; ")),
+        Ok(WorkerEnd::Refused(reason)) => format!("phase {n}: refused a ninth time, the tree left uncommitted: {reason}"),
+        Err(reason) => format!("phase {n}: ended without a commit: {reason}"),
+    }
 }
 
 /// A review's verdict as the run prints it: approved, rejected with its
 /// findings, or the reason outside the model's doing.
 #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
 pub fn verdict_line(phase: Phase, verdict: &Result<Review, String>) -> String {
-    todo!()
+    let n = number(phase);
+    match verdict {
+        Ok(Review::Approved) => format!("phase {n}: the review approved the commit"),
+        Ok(Review::Rejected(findings)) => format!("phase {n}: the review rejected the commit: {}", findings.join("; ")),
+        Err(reason) => format!("phase {n}: the review ended without a verdict: {reason}"),
+    }
 }
 
 /// The terminal state as the run's last line: *PR-ready* is `Ok` with the
@@ -404,14 +505,21 @@ pub fn terminal(branch: &str, outcome: Outcome) -> Result<String, String> {
 /// branch, on the last line with the state.
 #[implements(spec::PrReadyEndsWithTheBranchAndEveryRecordedDecision, spec::TheLastLineIsTheTerminalStateAndTheExitStatusFollowsIt)]
 pub fn pr_ready(branch: &str, decisions: &[String]) -> String {
-    todo!()
+    let listed: String = decisions.iter().enumerate().map(|(at, decision)| format!("{}. {decision}\n", at + 1)).collect();
+    format!("{listed}PR-ready: every phase is committed on {branch} and the gate passed")
 }
 
 /// *Stopped*, rendered: the numbered decisions, then where it stopped, on
 /// the last line with the state.
 #[implements(spec::TheLastLineIsTheTerminalStateAndTheExitStatusFollowsIt)]
 pub fn stopped(stop: &Stop) -> String {
-    todo!()
+    let listed: String = stop.decisions.iter().enumerate().map(|(at, decision)| format!("{}. {decision}\n", at + 1)).collect();
+    let where_at = match stop.at {
+        At::Precondition => "the precondition".to_string(),
+        At::Phase(phase) => format!("phase {}", number(phase)),
+        At::Review(phase) => format!("the review of phase {}", number(phase)),
+    };
+    format!("{listed}stopped at {where_at}")
 }
 
 #[cfg(test)]
@@ -573,17 +681,34 @@ mod tests {
         mentions(&decisions, &["needs a claim", "and a row"]);
         mentions(&ending_line(Phase::Two, &Ok(WorkerEnd::Refused("phase 2 is not clean".to_string()))), &["phase 2 is not clean"]);
         mentions(&ending_line(Phase::Two, &Err("max_requests reached".to_string())), &["max_requests reached"]);
+        let (_dir, project) = fixture::copy("canopy-ending-reported");
+        let blocked = "Blocked.\n\n```stop\n1. the gate needs a claim\n2. and an LLD row\n```\n";
+        let replay = Replay::serve(vec![SessionScript::new("w7").page(replay::settling_page(blocked))]);
+        let before_seven = state(&project, vec![Phase::Two, Phase::Three, Phase::Four, Phase::Five]);
+        let stopped_at_seven = Stop { at: At::Phase(Phase::Seven), decisions: strings(&["the gate needs a claim", "and an LLD row"]) };
+        let outcome = build(&project, &replay.door("k"), &before_seven, 5.0);
+        assert_eq!(outcome, Outcome::Stopped(stopped_at_seven), "the ending the run reports is the worker's own, decision for decision");
+        assert_eq!(replay.opened(), ["w7"], "and the session it names is the one that phase opened");
     }
 
     #[test]
     #[validates(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
     fn every_phase_prints_its_review_verdict() {
-        let approved = verdict_line(Phase::Three, &Ok(Review::Approved));
-        assert!(approved.contains('3') && approved.to_lowercase().contains("approved"), "{approved}");
-        let rejected = verdict_line(Phase::Three, &Ok(Review::Rejected(strings(&["the leaf branches", "a helper sits in phase.rs"]))));
-        assert!(rejected.contains("the leaf branches") && rejected.contains("a helper sits in phase.rs"), "{rejected}");
-        let failed = verdict_line(Phase::Three, &Err("the session halted: budget".to_string()));
-        assert!(failed.contains("the session halted: budget"), "{failed}");
+        let findings = strings(&["the leaf branches", "a helper sits in phase.rs"]);
+        mentions(&verdict_line(Phase::Three, &Ok(Review::Approved)).to_lowercase(), &["3", "approved"]);
+        mentions(&verdict_line(Phase::Three, &Ok(Review::Rejected(findings.clone()))), &["the leaf branches", "a helper sits in phase.rs"]);
+        mentions(&verdict_line(Phase::Three, &Err("the session halted: budget".to_string())), &["the session halted: budget"]);
+        let (dir, project) = fixture::copy("canopy-verdict-reported");
+        let judgements = vec![reviewing_session("r3-yes", "approved: yes\n"), reviewing_session("r3-no", "approved: no\n1. the leaf branches\n2. a helper sits in phase.rs\n")];
+        let replay = Replay::serve(judgements);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let (commit, recorded) = (fixture::head(&dir), strings(&["kept the enum"]));
+        let carried = reviewed(&run, Phase::Three, Attempt::First, &commit, recorded.clone()).expect("the approval");
+        let stop = reviewed(&run, Phase::Three, Attempt::Rework, &commit, recorded.clone()).expect_err("the rework's rejection");
+        let rejected = Stop { at: At::Review(Phase::Three), decisions: findings };
+        assert_eq!((carried, stop), (recorded, rejected), "an approval carries the commit's own decisions out; a rejection reports the reviewer's own findings");
+        assert_eq!(replay.opened(), ["r3-yes", "r3-no"], "each verdict from the session that reached it");
     }
 
     #[test]
@@ -604,10 +729,18 @@ mod tests {
     #[validates(spec::PrReadyEndsWithTheBranchAndEveryRecordedDecision)]
     fn pr_ready_ends_with_the_branch_and_every_recorded_decision() {
         let text = pr_ready("lld/hello", &strings(&["a decision", "another"]));
-        assert!(text.contains("1. a decision") && text.contains("2. another"), "{text}");
-        assert!(last_line(&text).contains("lld/hello") && last_line(&text).contains("PR-ready"), "{text}");
-        let none = pr_ready("lld/hello", &[]);
-        assert!(last_line(&none).contains("lld/hello") && last_line(&none).contains("PR-ready"), "{none}");
+        mentions(&text, &["1. a decision", "2. another"]);
+        mentions(last_line(&text), &["lld/hello", "PR-ready"]);
+        mentions(last_line(&pr_ready("lld/hello", &[])), &["lld/hello", "PR-ready"]);
+        let (dir, project) = fixture::copy("canopy-pr-ready");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n").expect("the phase's edit");
+        let message = "phase 3: skeleton for hello\n\nThe skeleton.\n\n1. kept `greet` returning a static string\n";
+        let replay = Replay::serve(vec![committing_session("w3", message), reviewing_session("r3", "approved: yes\n")]);
+        let only_three = state(&project, vec![Phase::Two, Phase::Four, Phase::Five, Phase::Seven]);
+        let outcome = build(&project, &replay.door("k"), &only_three, 5.0);
+        let ready = Outcome::PrReady { decisions: strings(&["kept `greet` returning a static string"]) };
+        assert_eq!((outcome.clone(), replay.opened()), (ready, strings(&["w3", "r3"])), "the phase's worker and its reviewer, and the decisions that commit recorded");
+        mentions(&terminal(&only_three.branch, outcome).expect("PR-ready is Ok"), &["1. kept `greet` returning a static string", "lld/hello"]);
     }
 
     #[test]
@@ -624,6 +757,7 @@ mod tests {
     #[validates(spec::ThePreconditionNeedsTheSliceBranchCheckedOut)]
     fn the_precondition_reads_the_branch_with_git() {
         let (dir, project) = fixture::copy("canopy-precondition-branch");
+        commit_all(&dir, "phase 1: LLD for hello");
         let state = precondition(&project, None).expect("lld/hello is checked out");
         assert_eq!((state.slice.as_str(), state.branch.as_str()), ("hello", "lld/hello"));
         assert_eq!(state.crate_root.canonicalize().expect("crate"), dir.canonicalize().expect("dir"));
@@ -644,6 +778,30 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::ThePreconditionNeedsAPhaseOneCommit, spec::CommittedPhasesAreReadFromTheSubjectTags)]
+    fn a_phase_one_commit_in_the_ancestry_is_not_this_branchs() {
+        let (dir, project) = fixture::copy("canopy-precondition-ancestry");
+        assert_eq!(log_subjects(&project).expect("subjects"), Vec::<String>::new(), "the fixture's `phase 1:` sits on `main`, behind the branch point");
+        stop_says(&precondition(&project, None).expect_err("a merged slice's tags are not this branch's work"), At::Precondition, &["phase 1:"]);
+        commit_all(&dir, "phase 1: LLD for hello");
+        assert_eq!(log_subjects(&project).expect("subjects"), strings(&["phase 1: LLD for hello"]), "the branch's own commit, and only it");
+        assert_eq!(precondition(&project, None).expect("its own phase 1").committed, [Phase::One]);
+    }
+
+    #[test]
+    #[validates(spec::CommittedPhasesAreReadFromTheSubjectTags)]
+    fn the_branch_left_the_default_branch_the_remote_names() {
+        let (dir, project) = fixture::copy("canopy-precondition-default-branch");
+        commit_all(&dir, "phase 1: LLD for hello");
+        let own = fixture::head(&dir);
+        fixture::git(&dir, &["update-ref", "refs/remotes/origin/trunk", &own]);
+        fixture::git(&dir, &["symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/trunk"]);
+        assert_eq!(log_subjects(&project).expect("subjects"), Vec::<String>::new(), "the fork point is the remote's default branch, not `main`");
+        commit_all(&dir, "phase 2: claims for hello");
+        assert_eq!(log_subjects(&project).expect("subjects"), strings(&["phase 2: claims for hello"]), "what the branch added after it");
+    }
+
+    #[test]
     #[validates(spec::ThePreconditionNeedsACleanTree)]
     fn the_precondition_needs_a_clean_tree() {
         clean_tree(&[]).expect("clean");
@@ -651,6 +809,7 @@ mod tests {
         assert_eq!(stop.at, At::Precondition);
         assert!(stop.decisions[0].contains("src/hello.rs") && stop.decisions[0].contains("notes.md"), "{stop:?}");
         let (dir, project) = fixture::copy("canopy-precondition-dirty");
+        commit_all(&dir, "phase 1: LLD for hello");
         std::fs::write(dir.join("src/hello.rs"), "//! changed\n").expect("write");
         let stop = precondition(&project, None).expect_err("a modified file");
         assert!(stop.decisions[0].contains("src/hello.rs"), "{stop:?}");
@@ -662,6 +821,7 @@ mod tests {
         let subjects = strings(&["phase 6: leaves", "docs: the phase 3: tag in a body", "phase 3: skeleton for hello", "phase 2: claims for hello", "phase 1: LLD for hello"]);
         assert_eq!(committed_phases(&subjects), [Phase::Three, Phase::Two, Phase::One]);
         let (dir, project) = fixture::copy("canopy-precondition-committed");
+        commit_all(&dir, "phase 1: LLD for hello");
         assert_eq!(precondition(&project, None).expect("state").committed, [Phase::One]);
         commit_all(&dir, "phase 2: claims for hello");
         commit_all(&dir, "phase 3: skeleton for hello");
@@ -753,10 +913,11 @@ mod tests {
         let replay = Replay::serve(vec![reviewing_session("r3", "approved: yes\n")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
         let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
-        let end = Ok(WorkerEnd::Committed("abc1234".to_string(), strings(&["kept"])));
+        let commit = fixture::head(&dir);
+        let end = Ok(WorkerEnd::Committed(commit.clone(), strings(&["kept"])));
         assert_eq!(phase_ended(&run, Phase::Three, Attempt::First, end).expect("approved"), strings(&["kept"]));
         only_dial_is(&replay, "r3", &dir, "lid-rs-review");
-        mentions(&replay::user_messages(&replay.landed("r3"))[0], &["abc1234"]);
+        mentions(&replay::user_messages(&replay.landed("r3"))[0], &[commit.as_str(), "src/hello.rs"]);
     }
 
     #[test]
@@ -776,11 +937,11 @@ mod tests {
     #[test]
     #[validates(spec::ASecondRejectionEndsTheRunWithTheFindings)]
     fn a_second_rejection_ends_the_run_with_the_findings() {
-        let (_dir, project) = fixture::copy("canopy-rejected-twice");
+        let (dir, project) = fixture::copy("canopy-rejected-twice");
         let replay = Replay::serve(vec![reviewing_session("r3-again", "approved: no\n1. still branches\n2. still untraced\n")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
         let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
-        let end = Ok(WorkerEnd::Committed("def5678".to_string(), vec![]));
+        let end = Ok(WorkerEnd::Committed(fixture::head(&dir), vec![]));
         let stop = phase_ended(&run, Phase::Three, Attempt::Rework, end).expect_err("the second rejection stops the run");
         assert_eq!(stop, Stop { at: At::Review(Phase::Three), decisions: strings(&["still branches", "still untraced"]) });
         assert_eq!(replay.opened(), ["r3-again"], "no third session opens");
