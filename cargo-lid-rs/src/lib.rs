@@ -1,5 +1,7 @@
 #![doc = include_str!("../docs/intent/cargo-lid-rs/lld.md")]
 
+#[doc = include_str!("../docs/intent/headless-canopy-agent/lld.md")]
+pub mod headless_canopy_agent;
 #[doc = include_str!("../docs/intent/init/lld.md")]
 pub mod init;
 pub mod mapping;

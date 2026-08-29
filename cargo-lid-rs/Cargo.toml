@@ -12,8 +12,12 @@ keywords = ["lid", "cargo-subcommand", "mutation-testing", "traceability", "test
 categories = ["development-tools::cargo-plugins", "development-tools::testing"]
 
 [dependencies]
+glob = "0.3.4"
 lid-rs = { path = "../lid-rs", version = "0.2.1" }
+serde = { version = "1.0.229", features = ["derive"] }
 serde_json.workspace = true
+sha2 = "0.11.0"
+ureq = { version = "3.4.0", features = ["json"] }
 
 [lints]
 workspace = true
