@@ -5,6 +5,7 @@
 //! over the door's JSON. Everything past these types takes domain values.
 
 use lid_rs::implements;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -13,74 +14,116 @@ use crate::spec;
 
 /// The client over one door: its URL and the API key, which is presented on
 /// the dial and the refresh and nowhere else. Stateless: every method is one
-/// request through [`Door::request`].
+/// request through [`Door::request`], over one ureq agent that hands every
+/// status back as a response.
 #[derive(Clone)]
 pub struct Door {
     /// The door's base URL.
     url: String,
     /// The API key, bound to the human's config.
     key: String,
+    /// The HTTP agent, configured to answer every status rather than turn
+    /// `4xx` and `5xx` into errors, so the refusal's body reaches
+    /// [`refusal_of`].
+    agent: ureq::Agent,
 }
 
 impl Door {
     /// A client over the door at `url`, presenting `key`.
     pub fn new(url: &str, key: &str) -> Self {
-        Self { url: url.to_string(), key: key.to_string() }
+        let agent = ureq::Agent::new_with_config(ureq::Agent::config_builder().http_status_as_error(false).build());
+        Self { url: url.to_string(), key: key.to_string(), agent }
     }
 
-    /// The one boundary over the HTTP library every method shares: `method`
-    /// and `path` under the door's URL, `bearer` as the credential, `body`
-    /// as JSON when there is one, `idem` as the `Idempotency-Key` header
-    /// when there is one. A `2xx` yields the answer's JSON; anything else
-    /// yields the door's `refused` sentence — or the status when there is
-    /// none — as the error, which stops the run. The paths this client
-    /// passes are `/sessions`, `/events`, `/tail`, `/refresh`, and `/stop`:
-    /// the `converse`, `execute`, and `stop` faces, never `configure`.
-    #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence, spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
+    /// The one boundary over the HTTP library every method shares: the
+    /// request goes through [`Door::exchange`], and its status is the one
+    /// decision here — a `2xx` yields the answer's JSON ([`answer_json`]);
+    /// anything else yields the door's `refused` sentence, or the status
+    /// when there is none ([`refusal_of`]), as the error, which stops the
+    /// run.
+    #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
     pub fn request(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<Value, String> {
+        let (status, text) = self.exchange(method, path, bearer, body, idem)?;
+        if (200..300).contains(&status) { answer_json(method, path, &text) } else { Err(refusal_of(status, &text)) }
+    }
+
+    /// The pass-through over ureq, deciding nothing: an `http::Request`
+    /// built for `method` at the door's URL joined with `path`, with
+    /// `Authorization: Bearer <bearer>`, `Content-Type: application/json`
+    /// and the body's JSON when there is one, and `Idempotency-Key` when
+    /// there is one, run by `Agent::run`; the answer is its
+    /// `status().as_u16()` and its body read whole by
+    /// `Body::read_to_string`, whatever the status, since the agent turns
+    /// no status into an error. Failing to reach the door is the error.
+    fn exchange(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, String), String> {
         todo!()
     }
 
-    /// `POST /sessions`: dials a session with the four settings; the
-    /// credential the door issues, or the door's sentence — which names the
-    /// setting when the config pins one.
-    #[implements(spec::TheKeyIsPresentedOnlyToTheDoor, spec::AConfigThatPinsADialledSettingStopsTheRunNamingIt)]
+    /// `POST /sessions`: dials a session with the four settings, presenting
+    /// the API key; the credential the door issues, or the door's sentence —
+    /// which names the setting when the config pins one.
+    #[implements(
+        spec::TheKeyIsPresentedOnlyToTheDoor,
+        spec::AConfigThatPinsADialledSettingStopsTheRunNamingIt,
+        spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces,
+    )]
     pub fn start(&self, settings: &Settings) -> Result<Started, String> {
         todo!()
     }
 
-    /// `POST /events`: lands what the client offers — `kind` and `body`
-    /// alone — under an idempotency key when there is one; the cursor it
-    /// landed at. The kinds this client lands are `app.client.user_message`
-    /// and `app.invoke.completed` — never `app.policy.configured`.
-    #[implements(spec::NoPolicyRecordIsLandedAfterTheDial)]
+    /// `POST /sessions/{id}/events`: lands what the client offers — `kind`
+    /// and `body` alone — under an idempotency key when there is one; the
+    /// cursor it landed at. The kinds this client lands are
+    /// `app.client.user_message` and `app.invoke.completed` — never
+    /// `app.policy.configured`.
+    #[implements(spec::NoPolicyRecordIsLandedAfterTheDial, spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn send(&self, credential: &Started, offered: &Offered, idem: Option<&str>) -> Result<u64, String> {
         todo!()
     }
 
-    /// `GET /tail`: the records after a cursor, with their envelopes, parked
-    /// for up to `wait` seconds when there are none yet.
+    /// `GET /sessions/{id}/tail?after=&wait=&envelope=true`: the records
+    /// after a cursor, with their envelopes, parked for up to `wait` seconds
+    /// when there are none yet.
+    #[implements(spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn tail(&self, credential: &Started, after: u64, wait: u64) -> Result<Page, String> {
         todo!()
     }
 
-    /// `POST /refresh`: a fresh credential for the same session, presenting
-    /// the API key.
-    #[implements(spec::TheKeyIsPresentedOnlyToTheDoor)]
+    /// `POST /sessions/{id}/refresh`: a fresh credential for the same
+    /// session, presenting the API key.
+    #[implements(spec::TheKeyIsPresentedOnlyToTheDoor, spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn refresh(&self, credential: &Started) -> Result<Started, String> {
         todo!()
     }
 
-    /// `POST /stop`: ends the session; its log is sealed.
+    /// `POST /sessions/{id}/stop`: ends the session; its log is sealed.
+    #[implements(spec::TheClientCallsOnlyTheConverseExecuteAndStopFaces)]
     pub fn stop(&self, credential: &Started) -> Result<(), String> {
         todo!()
     }
+}
+
+/// A `2xx` answer's text as JSON; one that is not is the error naming the
+/// request it answered.
+pub fn answer_json(method: &str, path: &str, text: &str) -> Result<Value, String> {
+    todo!()
 }
 
 /// A non-`2xx` answer's sentence: the `refused` field of its JSON body, or
 /// the status when the body carries none.
 #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
 pub fn refusal_of(status: u16, body: &str) -> String {
+    todo!()
+}
+
+/// A `2xx` answer as the boundary type it should be — `what` names the
+/// answer in the error when it is not.
+pub fn decoded<T: DeserializeOwned>(what: &str, answer: Value) -> Result<T, String> {
+    todo!()
+}
+
+/// The `cursor` of an answer to a send or a stop.
+pub fn cursor_of(answer: &Value) -> Result<u64, String> {
     todo!()
 }
 
@@ -197,8 +240,8 @@ pub struct ToolDecl {
 }
 
 /// The inline policy admitting exactly `tools` for the requestee `lid-rs`:
-/// `allows` lists their pairs and `tools` their declarations, and nothing
-/// else.
+/// `allows` lists their pairs and `tools` their declarations
+/// ([`super::tools::declarations`]), and nothing else.
 #[implements(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn policy_for(tools: &[Tool]) -> Policy {
     todo!()
