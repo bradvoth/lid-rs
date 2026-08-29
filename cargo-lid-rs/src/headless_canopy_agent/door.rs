@@ -4,6 +4,8 @@
 //! the one boundary over the HTTP library they share, and the boundary types
 //! over the door's JSON. Everything past these types takes domain values.
 
+use std::time::Duration;
+
 use lid_rs::implements;
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
@@ -36,15 +38,34 @@ impl Door {
     }
 
     /// The one boundary over the HTTP library every method shares: the
-    /// request goes through [`Door::exchange`], and its status is the one
-    /// decision here — a `2xx` yields the answer's JSON ([`answer_json`]);
+    /// request is sent, and sent again while the door sheds it — up to
+    /// [`SHED_ATTEMPTS`] times ([`Door::sent`]) — and the status of the
+    /// answer that stands is the one decision here: a `2xx` yields the
+    /// answer's JSON ([`answer_json`]);
     /// anything else yields the door's `refused` sentence, or the status
     /// when there is none ([`refusal_of`]), as the error, which stops the
     /// run.
     #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
     pub fn request(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<Value, String> {
-        let (status, text) = self.exchange(method, path, bearer, body, idem)?;
+        let (status, text) = self.sent(method, path, bearer, body, idem)?;
         if (200..300).contains(&status) { answer_json(method, path, &text) } else { Err(refusal_of(status, &text)) }
+    }
+
+    /// The same request until an answer stands: each attempt goes through
+    /// [`Door::exchange`], and [`shed`] is the one decision — a `429` this
+    /// attempt may wait out yields the pause, which is slept before the
+    /// same request is sent again, under the same idempotency key, so a
+    /// shed that in fact landed does not land twice; anything else is the
+    /// answer [`Door::request`] then judges.
+    #[implements(spec::AShedIsWaitedOutAndTheSameRequestSentAgain, spec::ARetriedSendCarriesTheFirstAttemptsIdempotencyKey)]
+    fn sent(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, String), String> {
+        let mut attempt = 0;
+        loop {
+            let (status, header, text) = self.exchange(method, path, bearer, body, idem)?;
+            let Some(pause) = shed(status, header.as_deref(), attempt) else { return Ok((status, text)) };
+            attempt += 1;
+            std::thread::sleep(Duration::from_secs(pause));
+        }
     }
 
     /// The pass-through over ureq, deciding nothing: an `http::Request`
@@ -52,10 +73,12 @@ impl Door {
     /// `Authorization: Bearer <bearer>`, `Content-Type: application/json`
     /// and the body's JSON when there is one, and `Idempotency-Key` when
     /// there is one, run by `Agent::run`; the answer is its
-    /// `status().as_u16()` and its body read whole by
+    /// `status().as_u16()`, the `Retry-After` its headers carry — the one
+    /// header a shed is waited out by, which nothing past this boundary
+    /// reads from the library's header map — and its body read whole by
     /// `Body::read_to_string`, whatever the status, since the agent turns
     /// no status into an error. Failing to reach the door is the error.
-    fn exchange(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, String), String> {
+    fn exchange(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, Option<String>, String), String> {
         let headed = ureq::http::Request::builder()
             .method(method)
             .uri(format!("{}{path}", self.url))
@@ -68,8 +91,9 @@ impl Door {
             .map_err(|e| format!("building {method} {path}: {e}"))?;
         let mut answer = self.agent.run(request).map_err(|e| format!("reaching the door at {}{path}: {e}", self.url))?;
         let status = answer.status().as_u16();
+        let header = answer.headers().get(RETRY_AFTER).and_then(|value| value.to_str().ok()).map(str::to_string);
         let text = answer.body_mut().read_to_string().map_err(|e| format!("reading the answer to {method} {path}: {e}"))?;
-        Ok((status, text))
+        Ok((status, header, text))
     }
 
     /// `POST /sessions`: dials a session with the four settings, presenting
@@ -134,6 +158,41 @@ pub fn refusal_of(status: u16, body: &str) -> String {
         .ok()
         .and_then(|doc| doc["refused"].as_str().map(str::to_string))
         .unwrap_or_else(|| format!("the door answered {status}"))
+}
+
+/// The header a shed's pause is read from; the one header this client reads.
+const RETRY_AFTER: &str = "Retry-After";
+
+/// How many times a shed request is sent again before its answer stands: the
+/// fourth `429` is a refusal like any other status.
+pub const SHED_ATTEMPTS: u32 = 3;
+
+/// The pause, in seconds, a shed is waited out for when its `Retry-After` is
+/// missing or is not a whole number of seconds.
+pub const SHED_DEFAULT_PAUSE: u64 = 5;
+
+/// Whether this answer is a shed this attempt may wait out, and for how
+/// long: a `429` answered to an attempt before [`SHED_ATTEMPTS`] have been
+/// spent is the door saying *later*, and the pause is the seconds
+/// [`retry_after`] reads from `header` — the `Retry-After` the answer's
+/// headers carry. The fourth `429` is none, a refusal like any other status,
+/// and every status but `429` is none on its first answer, waited out not at
+/// all.
+#[implements(
+    spec::AShedIsWaitedOutAndTheSameRequestSentAgain,
+    spec::TheFourthShedIsARefusalLikeAnyOtherStatus,
+    spec::EveryStatusButAShedIsRefusedOnItsFirstAnswer,
+)]
+pub fn shed(status: u16, header: Option<&str>, attempt: u32) -> Option<u64> {
+    todo!()
+}
+
+/// A shed's pause in seconds: the whole number of seconds its `Retry-After`
+/// header holds, or [`SHED_DEFAULT_PAUSE`] when there is no such header or
+/// it does not hold one.
+#[implements(spec::AShedsPauseIsItsRetryAfterSeconds, spec::AMissingOrUnreadableRetryAfterPausesFiveSeconds)]
+pub fn retry_after(header: Option<&str>) -> u64 {
+    todo!()
 }
 
 /// A `2xx` answer as the boundary type it should be — `what` names the

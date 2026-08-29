@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::Precondition;
 use super::door::{Door, Settings, policy_for};
-use super::ending::{agent_body, number, numbered, turn};
+use super::ending::{agent_body, halt_reason, number, numbered, turn};
 use super::tools::Tool;
 use super::turn::Session;
 use crate::phase::Phase;
@@ -122,7 +122,7 @@ pub fn review(project: &Project, door: &Door, phase: Phase, state: &Precondition
     let (settings, prompt) = review_session(project, phase, state, commit, &paths, max_cost)?;
     let mut session = Session::open(door, &settings, phase, REVIEW_TOOLS.to_vec())?;
     let verdict = verdicts(project, &mut session, &prompt);
-    let sealed = session.stop();
+    let sealed = session.stop().map_err(halt_reason);
     verdict.and_then(|review| sealed.map(|()| review))
 }
 

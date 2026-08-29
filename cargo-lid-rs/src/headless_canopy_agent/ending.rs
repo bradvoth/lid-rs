@@ -143,7 +143,7 @@ pub fn worker(project: &Project, door: &Door, phase: Phase, state: &Precondition
     let (settings, prompt) = worker_session(project, phase, state, findings, max_cost)?;
     let mut session = Session::open(door, &settings, phase, WORKER_TOOLS.to_vec())?;
     let end = rounds(project, &mut session, prompt);
-    let sealed = session.stop();
+    let sealed = session.stop().map_err(halt_reason);
     end.and_then(|ended| sealed.map(|()| ended))
 }
 

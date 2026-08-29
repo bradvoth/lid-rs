@@ -74,10 +74,26 @@ impl Session {
         format!("canopy:{}", self.credential.session)
     }
 
-    /// Stops the session through the door; its log is sealed.
+    /// The credential to present on the next request the session makes —
+    /// a tail read, a landed message, a completion, a stop alike: the one it
+    /// holds while that one has more than [`REFRESH_MARGIN`] seconds of life
+    /// at [`now`], else a fresh one from the door for the same session,
+    /// which the session then holds ([`usable`]). Asked before **every**
+    /// request the credential bears, not before reads alone, because the
+    /// client's own work — a phase's check, Phase 7's gate — happens
+    /// between two of them, and a request on a dead credential would end
+    /// the run for the one reason that is not the phase's fault.
+    #[implements(spec::TheCredentialIsRefreshedBeforeItExpires)]
+    pub fn bearer(&mut self) -> Result<&Started, Halt> {
+        todo!()
+    }
+
+    /// Stops the session through the door, on the credential the stop bears
+    /// ([`Session::bearer`]); its log is sealed.
     #[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds)]
-    pub fn stop(self) -> Result<(), String> {
-        self.door.stop(&self.credential)
+    pub fn stop(mut self) -> Result<(), Halt> {
+        let credential = self.bearer()?.clone();
+        self.door.stop(&credential).map_err(Halt::Refused)
     }
 }
 
@@ -315,11 +331,14 @@ pub fn user_message(text: &str) -> Offered {
     Offered { kind: USER_MESSAGE.to_string(), body: json!({ "text": text }) }
 }
 
-/// Lands one user message; the door's refusal ends the session with its
+/// Lands one user message, on the credential the send bears
+/// ([`Session::bearer`]); the door's refusal ends the session with its
 /// sentence.
 #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
-pub fn land_message(session: &Session, text: &str) -> Result<u64, Halt> {
-    session.door.send(&session.credential, &user_message(text), None).map_err(Halt::Refused)
+pub fn land_message(session: &mut Session, text: &str) -> Result<u64, Halt> {
+    let offered = user_message(text);
+    let credential = session.bearer()?.clone();
+    session.door.send(&credential, &offered, None).map_err(Halt::Refused)
 }
 
 /// Seconds since the epoch, as the door writes `expires`.
@@ -327,9 +346,12 @@ pub fn now() -> u64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_secs())
 }
 
-/// The credential to read with: this one while it has more than five
+/// The credential to present, decided: this one while it has more than five
 /// seconds of life at `now`, else a fresh one from the door for the same
-/// session; the door's refusal ends the session with its sentence.
+/// session; the door's refusal ends the session with its sentence. This is
+/// the decision [`Session::bearer`] wraps — `bearer` asks it with the clock
+/// and holds what it answers, so that every request the session makes takes
+/// its credential from one place.
 #[implements(spec::TheCredentialIsRefreshedBeforeItExpires)]
 pub fn usable(door: &Door, credential: &Started, now: u64) -> Result<Started, Halt> {
     if credential.expires.saturating_sub(now) > REFRESH_MARGIN {
@@ -361,16 +383,15 @@ pub fn quiet_checked(delivered: Instant, records: Vec<Record>) -> Result<Vec<Rec
     if records.is_empty() && delivered.elapsed() >= QUIET_TAIL { Err(Halt::Quiet) } else { Ok(records) }
 }
 
-/// The next page of the tail: the credential refreshed within five seconds
-/// of its expiry, the read parked for 25 s clamped to the credential's
-/// life, the cursor advanced to where the page reached, the quiet clock
-/// restarted by any delivery, and the records — or the halt: fifteen quiet
-/// minutes, or the door's refusal of the read or the refresh.
+/// The next page of the tail: the credential the read bears
+/// ([`Session::bearer`]), the read parked for 25 s clamped to that
+/// credential's life, the cursor advanced to where the page reached, the
+/// quiet clock restarted by any delivery, and the records — or the halt:
+/// fifteen quiet minutes, or the door's refusal of the read or the refresh.
 #[implements(spec::TheTailIsFollowedByParkedReadsWithinTheCredentialsLife, spec::ADoorRefusalStopsTheRunWithItsSentence)]
 fn next_page(session: &mut Session, turn: &mut Turn) -> Result<Vec<Record>, Halt> {
-    let now = now();
-    session.credential = usable(&session.door, &session.credential, now)?;
-    let page = session.door.tail(&session.credential, session.cursor, wait_for(&session.credential, now)).map_err(Halt::Refused)?;
+    let credential = session.bearer()?.clone();
+    let page = session.door.tail(&credential, session.cursor, wait_for(&credential, now())).map_err(Halt::Refused)?;
     session.cursor = page.through;
     turn.delivered = delivery(turn.delivered, &page.records);
     quiet_checked(turn.delivered, page.records)
@@ -430,14 +451,16 @@ fn answered(project: &Project, session: &mut Session, record: &Record) -> Result
     }
 }
 
-/// A paired forward answered: its tool run, the completion landed under the
-/// forward's idempotency key — the door's refusal ends the session with its
-/// sentence — and the payload released.
+/// A paired forward answered: its tool run, the completion landed on the
+/// credential the send bears ([`Session::bearer`]) and under the forward's
+/// idempotency key — the door's refusal ends the session with its sentence —
+/// and the payload released.
 #[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
 fn completed(project: &Project, session: &mut Session, forward_cursor: u64, forward: &Forward, pairing: &Pairing) -> Result<Progress, Halt> {
     let result = execute(project, session, &forward.op, &pairing.args);
     let (offered, idem) = completion(forward_cursor, pairing, &result);
-    session.door.send(&session.credential, &offered, Some(&idem)).map_err(Halt::Refused)?;
+    let credential = session.bearer()?.clone();
+    session.door.send(&credential, &offered, Some(&idem)).map_err(Halt::Refused)?;
     session.held.remove(pairing.index);
     Ok(Progress::Continue)
 }
@@ -922,7 +945,7 @@ mod tests {
         assert_eq!(drive(&project, &mut first, "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
         let mut second = open(&replay);
         assert_eq!(drive(&project, &mut second, "go").expect_err("refused"), Halt::Refused("shed".to_string()));
-        assert_eq!(land_message(&first, "again").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
+        assert_eq!(land_message(&mut first, "again").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
     }
 
     /// The end-to-end run the LLD's validation strategy names, by hand:
