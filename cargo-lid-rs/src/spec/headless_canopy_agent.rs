@@ -172,6 +172,12 @@ pub struct GrepIsALiteralSubstringSearchCappedAtTwoHundredLines;
 #[derive(Spec)]
 pub struct GlobReturnsMatchingPathsSorted;
 
+/// When `glob` is given a pattern that is absolute or has a `..` component,
+/// it shall refuse before any verdict is asked; when a match resolves outside
+/// the root through a symlink, it shall be omitted from the answer.
+#[derive(Spec)]
+pub struct AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot;
+
 /// When `edit` finds `old_string` exactly once, or `replace_all` is set and
 /// it finds it at all, it shall replace every such occurrence in the
 /// existing file.

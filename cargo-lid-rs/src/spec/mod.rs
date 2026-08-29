@@ -53,7 +53,7 @@ pub use headless_canopy_agent::{
     EveryToolConfinesItsPathToTheWorkspace,
     ReadReturnsNumberedLinesOrADirectorysEntries,
     GrepIsALiteralSubstringSearchCappedAtTwoHundredLines,
-    GlobReturnsMatchingPathsSorted,
+    GlobReturnsMatchingPathsSorted, AGlobPatternIsConfinedAndItsMatchesStayUnderTheRoot,
     EditReplacesTheOneOccurrenceOrAllOnRequest,
     AnAmbiguousOrAbsentOldStringIsAnErrorNamingTheCount,
     WriteCreatesOrReplacesTheFileWhole,
