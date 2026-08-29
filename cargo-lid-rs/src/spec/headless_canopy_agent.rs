@@ -293,16 +293,52 @@ pub struct AHaltEndsTheRunWithItsReason;
 #[derive(Spec)]
 pub struct AQuietTailForFifteenMinutesStopsTheRun;
 
-/// When the credential is within five seconds of its expiry, the client
-/// shall refresh it with the API key before the next read, keeping the
-/// session and its cursor.
+/// When the credential a request is about to bear — a read, a landed
+/// message, a completion, or a stop alike — is within five seconds of its
+/// expiry, the client shall refresh it with the API key before making that
+/// request, keeping the session and its cursor.
 #[derive(Spec)]
 pub struct TheCredentialIsRefreshedBeforeItExpires;
+
+// ---- the door, on the wire -----------------------------------------------------
 
 /// When the door refuses any request — the dial, a send, a tail, a refresh,
 /// or a stop — the run shall stop with the door's own sentence.
 #[derive(Spec)]
 pub struct ADoorRefusalStopsTheRunWithItsSentence;
+
+/// When the door answers `429` and this request has been shed fewer than
+/// three times, the client shall pause for the shed's seconds and send the
+/// same request again.
+#[derive(Spec)]
+pub struct AShedIsWaitedOutAndTheSameRequestSentAgain;
+
+/// When a `429` answer carries a `Retry-After` header holding a whole number
+/// of seconds, the pause before the next attempt shall be that many seconds.
+#[derive(Spec)]
+pub struct AShedsPauseIsItsRetryAfterSeconds;
+
+/// When a `429` answer carries no `Retry-After` header, or one that is not a
+/// whole number of seconds, the pause before the next attempt shall be five
+/// seconds.
+#[derive(Spec)]
+pub struct AMissingOrUnreadableRetryAfterPausesFiveSeconds;
+
+/// When a request's fourth answer is `429`, the client shall wait no longer
+/// and shall treat that answer as a refusal, like any other status.
+#[derive(Spec)]
+pub struct TheFourthShedIsARefusalLikeAnyOtherStatus;
+
+/// When the door answers a status other than `429`, the client shall wait
+/// out nothing and refuse on that first answer.
+#[derive(Spec)]
+pub struct EveryStatusButAShedIsRefusedOnItsFirstAnswer;
+
+/// When a request is sent again after a shed, it shall carry the same
+/// idempotency key as its first attempt, so a shed that in fact landed does
+/// not land twice.
+#[derive(Spec)]
+pub struct ARetriedSendCarriesTheFirstAttemptsIdempotencyKey;
 
 // ---- the ending ----------------------------------------------------------------
 
