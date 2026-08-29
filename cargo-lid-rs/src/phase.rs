@@ -277,7 +277,7 @@ fn block_json(reason: &str) -> String {
 /// `hook pre-tool <n>`: an editing tool's target must be in the phase's
 /// allowed set; every call is tallied.
 #[implements(spec::ReadsAreNeverRefused, spec::EveryToolCallIsTallied)]
-fn hook_pre_tool(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+pub fn hook_pre_tool(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
     let kind = kind_of(input.tool_name.as_deref().unwrap_or(""));
     tally::record(project, &input.agent_id, Event::Tool(kind))?;
     match kind {
@@ -336,7 +336,7 @@ fn refuse_edit(project: &Project, phase: Phase, slice: &str, target: &Path, why:
 
 /// `hook post-edit <n>`: clippy, its output as context.
 #[implements(spec::EveryEditIsFollowedByClippy)]
-fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, String> {
+pub fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, String> {
     tally::record(project, &input.agent_id, Event::PostEditCheck)?;
     Ok(HookVerdict::Context(clippy_output(project)?))
 }
@@ -345,7 +345,7 @@ fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdict, S
 /// ends the phase uncommitted; a `commit` block runs the check and, with
 /// integrity intact, commits the phase's paths.
 #[implements(spec::AStopBlockEndsThePhaseWithoutACommit, spec::ACommitBlockRunsThePhasesCheck)]
-fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
+pub fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
     match ending_of(&input.last_message) {
         Err(format) => refuse_stop(project, input, format),
         Ok(Ending::Stop(_)) => Ok(HookVerdict::Allow),
@@ -443,7 +443,7 @@ fn checkout_command() -> std::process::Command {
 
 /// The commit itself, with the tally's trailers.
 fn commit_now(project: &Project, phase: Phase, input: &HookInput, message: &str, changed: &[PathBuf]) -> Result<String, String> {
-    let trailers = tally::trailers(&tally::load(project, &input.agent_id)?, phase);
+    let trailers = tally::trailers(&tally::load(project, &input.agent_id)?, phase, &input.agent_id);
     let paths: Vec<&Path> = changed.iter().map(PathBuf::as_path).collect();
     stage_and_commit(project, &paths, message, &trailers)
 }

@@ -163,6 +163,12 @@ phase's file, the slice's LLD, and `git log` on the branch; do that phase;
 end with either a commit message or numbered decisions (the stop protocol
 below). Nothing in it is a rule the hooks do not also enforce.
 
+The three hooks are functions the binary exposes, and Claude Code's hook
+events are one host for them: the canopy client
+(`docs/intent/headless-canopy-agent/lld.md`) calls the same three with a
+`HookInput` it builds from a session's records, so a phase run there is
+gated by the same verdicts and committed with the same trailers.
+
 ### `hook pre-tool <n>` — the path policy
 
 Runs before every tool call the phase agent makes; reads Claude Code's
@@ -264,8 +270,8 @@ message must carry exactly one of two fenced blocks:
   <what> for <slice>` (Phase 7: `phase 7: <version>: <what and why>`). The
   hook runs `phase-check <n>`; on success it stages the phase's allowed
   paths — exactly the policy's set, nothing else — commits the message with
-  the tally appended as trailers (`Lid-Rs-Phase`, `Lid-Rs-Tools`,
-  `Lid-Rs-Checks`, `Lid-Rs-Refusals`), and allows the stop. Nothing staged
+  the tally appended as trailers (`Lid-Rs-Phase`, `Lid-Rs-Agent`,
+  `Lid-Rs-Tools`, `Lid-Rs-Checks`, `Lid-Rs-Refusals`), and allows the stop. Nothing staged
   is a refusal ("no change to commit"). A subject whose tag is not this
   agent's phase is a refusal.
 - ```` ```stop ```` — the numbered decisions that block the phase. The hook
@@ -393,12 +399,15 @@ Every phase commit ends with trailers the stop hook writes from the tally:
 
 ```text
 Lid-Rs-Phase: 6
+Lid-Rs-Agent: agent-7f3a
 Lid-Rs-Tools: 14 edits, 9 observations, 0 commands
 Lid-Rs-Checks: 14 post-edit, 1 stop
 Lid-Rs-Refusals: 1 policy, 0 stop
 ```
 
-The ratio of deterministic steps to agent-chosen ones is then in git for
+`Lid-Rs-Agent` is the id the tally was kept under — the subagent's id on
+Claude Code, the session's on the canopy client — so a commit names the
+record of how it was made. The ratio of deterministic steps to agent-chosen ones is then in git for
 every phase of every slice — `commands` is structurally zero and the tally
 proves it — and refusals per phase is the quality signal: a phase whose
 refusals rise is a phase whose skill file or policy is teaching the wrong

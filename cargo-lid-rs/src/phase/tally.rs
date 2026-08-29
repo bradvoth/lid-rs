@@ -106,11 +106,12 @@ pub fn apply(tally: Tally, event: Event) -> Tally {
     next
 }
 
-/// The `Lid-Rs-*` trailers for a phase commit.
+/// The `Lid-Rs-*` trailers for a phase commit: the phase, the agent the
+/// tally was kept for, then the counts.
 #[implements(spec::TheTallyIsWrittenAsTrailers)]
-pub fn trailers(tally: &Tally, phase: Phase) -> String {
+pub fn trailers(tally: &Tally, phase: Phase, agent_id: &str) -> String {
     format!(
-        "Lid-Rs-Phase: {}\nLid-Rs-Tools: {} edits, {} observations, {} commands\nLid-Rs-Checks: {} post-edit, {} stop\nLid-Rs-Refusals: {} policy, {} stop\n",
+        "Lid-Rs-Phase: {}\nLid-Rs-Agent: {agent_id}\nLid-Rs-Tools: {} edits, {} observations, {} commands\nLid-Rs-Checks: {} post-edit, {} stop\nLid-Rs-Refusals: {} policy, {} stop\n",
         super::policy::number_of(phase),
         tally.edits,
         tally.observations,
@@ -162,8 +163,8 @@ mod tests {
     fn the_tally_is_written_as_trailers() {
         let tally = Tally { edits: 14, observations: 9, commands: 0, post_edit_checks: 14, stop_checks: 1, policy_refusals: 1, stop_refusals: 0 };
         assert_eq!(
-            trailers(&tally, Phase::Seven),
-            "Lid-Rs-Phase: 7\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\n"
+            trailers(&tally, Phase::Seven, "canopy:3f0c1c9a"),
+            "Lid-Rs-Phase: 7\nLid-Rs-Agent: canopy:3f0c1c9a\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\n"
         );
     }
 }

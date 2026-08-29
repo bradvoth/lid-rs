@@ -219,8 +219,9 @@ pub struct OnlyThePoliciesPathsAreStaged;
 pub struct NothingToCommitIsARefusal;
 
 /// When a phase commit is made, its message shall end with the
-/// `Lid-Rs-Phase`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, and `Lid-Rs-Refusals`
-/// trailers rendered from the agent's tally.
+/// `Lid-Rs-Phase`, `Lid-Rs-Agent`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, and
+/// `Lid-Rs-Refusals` trailers rendered from the agent's tally, the agent
+/// being the id the tally was kept under.
 #[derive(Spec)]
 pub struct TheTallyIsWrittenAsTrailers;
 
