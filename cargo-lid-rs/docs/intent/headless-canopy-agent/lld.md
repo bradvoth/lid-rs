@@ -441,7 +441,13 @@ which is a documentation slice of its own (phase LLD, Deferred 4).
 4. The documentation cascade (skill, README §8) if the POC is promoted.
 5. A second executor on the session (canopy's MCP relay) is out of scope;
    the addressee check is what would make it safe.
-6. For the phase slice: a claim added after the skeleton has no phase
+6. A door refusal that names a missing face: landing
+   `app.invoke.completed` on a key without the `execute` face is answered
+   `403` with a body carrying no `refused` sentence, so the run stops with
+   "the door answered 403" and the human must know that the faces are the
+   cause. Naming the likely face for a `403` on a completion would be a
+   claim of its own.
+7. For the phase slice: a claim added after the skeleton has no phase
    whose check it passes — Phase 2's lint runs over the whole crate, and
    a layer-0 skeleton's `todo!()` parameters are warnings — so a Phase 3
    review that asks for a claim is committed by hand today. Either Phase
