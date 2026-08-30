@@ -15,10 +15,17 @@ pub struct PhasesWithoutACommitHaveNoCheck;
 #[derive(Spec)]
 pub struct PhaseOneChecksTheDocs;
 
-/// When phase 2 is checked, the tool shall run `cargo check --all-targets`,
-/// then clippy with warnings denied except `deprecated`, in that order.
+/// When phase 2 is checked, the tool shall run `cargo check --all-targets`
+/// and nothing else.
 #[derive(Spec)]
-pub struct PhaseTwoChecksTheClaimsBuildAndLint;
+pub struct PhaseTwoChecksTheClaimsBuild;
+
+/// When the workspace builds with warnings and no error — a skeleton's
+/// `todo!()`, a citation of a claim name this phase retired — phase 2's
+/// check shall pass, so a claim the design turns out to need is committable
+/// while the rest of the slice stands.
+#[derive(Spec)]
+pub struct WarningsDoNotFailPhaseTwosCheck;
 
 /// When phase 3 or 4 is checked, the tool shall run `cargo check
 /// --all-targets` and nothing else.

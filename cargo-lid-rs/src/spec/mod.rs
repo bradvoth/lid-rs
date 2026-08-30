@@ -40,7 +40,8 @@ pub use init::{
 pub use phase::{
     PhasesWithoutACommitHaveNoCheck,
     PhaseOneChecksTheDocs,
-    PhaseTwoChecksTheClaimsBuildAndLint,
+    PhaseTwoChecksTheClaimsBuild,
+    WarningsDoNotFailPhaseTwosCheck,
     PhasesThreeAndFourCheckTheSkeletonTypeChecks,
     PhaseSevenRunsTheGateInOrder,
     ACheckStopsAtTheFirstFailingStep,
@@ -77,6 +78,13 @@ pub use phase::{
     ACompileTimeSliceIsDisclosed, ACompileTimeSliceNeedsTheHumansAcceptance,
     SyncMirrorsEveryArtifactTheDependencyShips,
 };
+
+/// The name [`PhaseTwoChecksTheClaimsBuild`] carried while phase 2's check
+/// also linted. The alias registers no claim, so the graph sees only the
+/// claim it points at; every citation of this name warns with its
+/// replacement, and those citations are the later phases' work list.
+#[deprecated = "replaced by PhaseTwoChecksTheClaimsBuild"]
+pub type PhaseTwoChecksTheClaimsBuildAndLint = phase::PhaseTwoChecksTheClaimsBuild;
 
 pub use sync::{
     TheSkillComesFromTheResolvedLidRsDependency,
