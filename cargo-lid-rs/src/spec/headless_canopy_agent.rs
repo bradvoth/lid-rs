@@ -389,26 +389,38 @@ pub struct TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles;
 #[derive(Spec)]
 pub struct TheReviewBlockParsesToApprovedOrFindings;
 
-/// When the reviewer rejects a phase for the first time, one rework session
-/// of that phase's worker shall open with the findings.
+/// When the reviewer rejects a phase and the run's budget has a rework
+/// left, that rework shall be spent to open another session of that phase's
+/// worker with the findings.
 #[derive(Spec)]
-pub struct AFirstRejectionOpensOneReworkSession;
+pub struct ARejectionWithAReworkLeftOpensAnotherWorkerSession;
 
-/// When a rework session's check passes, its commit shall be a second
+/// When a rework is spent, it shall come from the run's one pool of six,
+/// shared by every phase, so the reworks a phase may spend are those the
+/// phases before it did not.
+#[derive(Spec)]
+pub struct TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase;
+
+/// When a rework session's check passes, its commit shall be another
 /// `phase <n>:` commit on the branch, the rejected commit left in history
 /// unamended.
 #[derive(Spec)]
-pub struct AReworksCommitIsASecondPhaseCommitOnTheBranch;
+pub struct AReworksCommitIsAnotherPhaseCommitOnTheBranch;
 
-/// When a rework session commits, a second reviewer session shall review
+/// When a rework session commits, a fresh reviewer session shall review
 /// that commit before the next phase opens.
 #[derive(Spec)]
 pub struct AReworksCommitIsReviewedByAFreshSession;
 
-/// When the reviewer rejects a phase a second time, the run shall stop with
-/// the findings as its decisions.
+/// When the reviewer rejects a phase and no rework remains, the run shall
+/// stop with the findings as its decisions.
 #[derive(Spec)]
-pub struct ASecondRejectionEndsTheRunWithTheFindings;
+pub struct ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings;
+
+/// When a rejection stops the run because no rework remains, the stop shall
+/// say that the rework budget is what ended it.
+#[derive(Spec)]
+pub struct AnExhaustedBudgetIsSaidToBeWhatStoppedTheRun;
 
 /// When the reviewer's text carries no well-formed `review` block, the
 /// format shall be landed once more as the next user message.
