@@ -343,7 +343,8 @@ pub enum Outcome {
     Stopped(Stop),
 }
 
-/// What every phase's sessions share.
+/// What every phase's sessions share, the rework budget among them: it is
+/// the run's, not a phase's, and every phase spends from the same pool.
 struct Run<'a> {
     /// The workspace.
     project: &'a Project,
@@ -353,28 +354,58 @@ struct Run<'a> {
     state: &'a Precondition,
     /// Each session's cost ceiling.
     max_cost: f64,
+    /// The reworks the run has left to spend.
+    budget: Budget,
 }
 
-/// Which attempt of a phase is running.
+/// The reworks one run may spend, over every phase together: a slice's
+/// difficulty is not spread evenly, so the pool is not an allowance each. A
+/// constant of the run — not a flag, not an argument, not a setting a prompt
+/// can carry — for the reason no waiver is offered.
+pub const REWORK_BUDGET: usize = 6;
+
+/// The run's rework budget: the one pool of [`REWORK_BUDGET`] every phase
+/// draws on, so the reworks a phase may spend are those the phases before it
+/// did not.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Attempt {
-    /// The phase's first worker session.
-    First,
-    /// The one rework session a rejection opens.
-    Rework,
+pub struct Budget {
+    /// The reworks not yet spent.
+    pub remaining: usize,
+}
+
+impl Default for Budget {
+    /// A run starts with the whole pool of [`REWORK_BUDGET`].
+    #[implements(spec::TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase)]
+    fn default() -> Self {
+        Self { remaining: REWORK_BUDGET }
+    }
+}
+
+impl Budget {
+    /// Spends one rework: true when one remained — so this rejection may
+    /// reopen the phase's worker — and false when the pool is spent, which
+    /// it stays.
+    #[implements(spec::TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase)]
+    pub fn spend(&mut self) -> bool {
+        let left = self.remaining > 0;
+        self.remaining = self.remaining.saturating_sub(1);
+        left
+    }
 }
 
 /// Phases 2, 3, 4, 5, and 7 in order, each through [`phase_outcome`]: a
 /// phase that ends well adds its decisions to the run's; the first that
-/// stops ends the run there. The phase's sessions are printed as
-/// [`Session::open`](turn::Session::open) opens them, and its ending as
+/// stops ends the run there. The run carries the [`Budget`] the phases share
+/// — one pool of [`REWORK_BUDGET`], started whole here and spent by
+/// whichever phases their reviewers reject. The phase's sessions are printed
+/// as [`Session::open`](turn::Session::open) opens them, and its ending as
 /// [`attempt`] and [`reviewed`] learn it.
-#[implements(spec::ThePhasesAreOneSessionEachInOrder)]
+#[implements(spec::ThePhasesAreOneSessionEachInOrder, spec::TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase)]
 pub fn build(project: &Project, door: &Door, state: &Precondition, max_cost: f64) -> Outcome {
-    let run = Run { project, door, state, max_cost };
+    let mut run = Run { project, door, state, max_cost, budget: Budget::default() };
     let mut decisions = Vec::new();
     for phase in PHASES {
-        match phase_outcome(&run, phase) {
+        match phase_outcome(&mut run, phase) {
             Ok(recorded) => decisions.extend(recorded),
             Err(stop) => return Outcome::Stopped(stop),
         }
@@ -383,10 +414,10 @@ pub fn build(project: &Project, door: &Door, state: &Precondition, max_cost: f64
 }
 
 /// One phase: skipped, and said so, when the branch already has its commit;
-/// otherwise its first attempt.
+/// otherwise a worker session with no findings behind it.
 #[implements(spec::CommittedPhasesAreSkippedAndSaidSo)]
-fn phase_outcome(run: &Run, phase: Phase) -> Result<Vec<String>, Stop> {
-    if run.state.committed.contains(&phase) { Ok(skipped(phase)) } else { attempt(run, phase, Attempt::First, None) }
+fn phase_outcome(run: &mut Run, phase: Phase) -> Result<Vec<String>, Stop> {
+    if run.state.committed.contains(&phase) { Ok(skipped(phase)) } else { attempt(run, phase, None) }
 }
 
 /// Says the phase is already committed and skipped ([`skipped_line`]); a
@@ -408,14 +439,14 @@ pub fn skipped_line(phase: Phase) -> String {
 /// ending printed ([`ending_line`]), then what it means for the run
 /// ([`phase_ended`]).
 #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
-fn attempt(run: &Run, phase: Phase, which: Attempt, findings: Option<&[String]>) -> Result<Vec<String>, Stop> {
+fn attempt(run: &mut Run, phase: Phase, findings: Option<&[String]>) -> Result<Vec<String>, Stop> {
     let end = worker(run.project, run.door, phase, run.state, findings, run.max_cost);
     println!("{}", ending_line(phase, &end));
-    phase_ended(run, phase, which, end)
+    phase_ended(run, phase, end)
 }
 
 /// The one decision over how a worker session ended: a commit goes to
-/// review ([`reviewed`]), on the first attempt and on the rework alike; a
+/// review ([`reviewed`]), a first attempt's and a rework's alike; a
 /// `stop` block's decisions, the ninth refusal's reason, or a reason
 /// outside the model's doing stops the run at the phase.
 #[implements(
@@ -424,11 +455,11 @@ fn attempt(run: &Run, phase: Phase, which: Attempt, findings: Option<&[String]>)
     spec::AWorkersStopBlockEndsTheRunWithItsDecisions,
     spec::TheNinthConsecutiveRefusalEndsTheRun,
 )]
-fn phase_ended(run: &Run, phase: Phase, which: Attempt, end: Result<WorkerEnd, String>) -> Result<Vec<String>, Stop> {
+fn phase_ended(run: &mut Run, phase: Phase, end: Result<WorkerEnd, String>) -> Result<Vec<String>, Stop> {
     match end {
         Err(reason) | Ok(WorkerEnd::Refused(reason)) => Err(Stop { at: At::Phase(phase), decisions: vec![reason] }),
         Ok(WorkerEnd::Decisions(decisions)) => Err(Stop { at: At::Phase(phase), decisions }),
-        Ok(WorkerEnd::Committed(hash, decisions)) => reviewed(run, phase, which, &hash, decisions),
+        Ok(WorkerEnd::Committed(hash, decisions)) => reviewed(run, phase, &hash, decisions),
     }
 }
 
@@ -437,31 +468,52 @@ fn phase_ended(run: &Run, phase: Phase, which: Attempt, end: Result<WorkerEnd, S
 /// ([`phase_judged`]) — `decisions` being the commit's, yielded on
 /// approval.
 #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
-fn reviewed(run: &Run, phase: Phase, which: Attempt, commit: &str, decisions: Vec<String>) -> Result<Vec<String>, Stop> {
+fn reviewed(run: &mut Run, phase: Phase, commit: &str, decisions: Vec<String>) -> Result<Vec<String>, Stop> {
     let verdict = review(run.project, run.door, phase, run.state, commit, run.max_cost);
     println!("{}", verdict_line(phase, &verdict));
-    phase_judged(run, phase, which, verdict, decisions)
+    phase_judged(run, phase, verdict, decisions)
 }
 
-/// The one decision over a review's verdict and which attempt it judged:
-/// approval yields the phase's decisions; a first rejection opens the one
-/// rework session with the findings ([`attempt`]), whose commit is a second
-/// `phase <n>:` commit on the branch reviewed the same way; a second
-/// rejection stops the run with the findings, and a reason outside the
-/// model's doing stops it too.
-#[implements(
-    spec::EveryCommittedPhaseIsReviewedBeforeTheNextOpens,
-    spec::AFirstRejectionOpensOneReworkSession,
-    spec::AReworksCommitIsASecondPhaseCommitOnTheBranch,
-    spec::ASecondRejectionEndsTheRunWithTheFindings,
-)]
-fn phase_judged(run: &Run, phase: Phase, which: Attempt, verdict: Result<Review, String>, decisions: Vec<String>) -> Result<Vec<String>, Stop> {
-    match (verdict, which) {
-        (Err(reason), Attempt::First | Attempt::Rework) => Err(Stop { at: At::Review(phase), decisions: vec![reason] }),
-        (Ok(Review::Approved), Attempt::First | Attempt::Rework) => Ok(decisions),
-        (Ok(Review::Rejected(findings)), Attempt::First) => attempt(run, phase, Attempt::Rework, Some(findings.as_slice())),
-        (Ok(Review::Rejected(findings)), Attempt::Rework) => Err(Stop { at: At::Review(phase), decisions: findings }),
+/// The one decision over a review's verdict: approval yields the phase's
+/// decisions, whichever attempt earned it; a rejection goes to the budget
+/// ([`rejected`]); a reason outside the model's doing stops the run at the
+/// review.
+#[implements(spec::EveryCommittedPhaseIsReviewedBeforeTheNextOpens)]
+fn phase_judged(run: &mut Run, phase: Phase, verdict: Result<Review, String>, decisions: Vec<String>) -> Result<Vec<String>, Stop> {
+    match verdict {
+        Err(reason) => Err(Stop { at: At::Review(phase), decisions: vec![reason] }),
+        Ok(Review::Approved) => Ok(decisions),
+        Ok(Review::Rejected(findings)) => rejected(run, phase, findings),
     }
+}
+
+/// The one decision a rejection turns on — whether the run's [`Budget`] has
+/// a rework left to spend on it: it does, and one is spent to open another
+/// worker session of this phase with the findings ([`attempt`]), whose
+/// commit is another `phase <n>:` commit on the branch, since only a passing
+/// check commits and nothing amends what the rejected attempt left; it does
+/// not, and the run ends at this review ([`exhausted`]).
+#[implements(
+    spec::ARejectionWithAReworkLeftOpensAnotherWorkerSession,
+    spec::TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase,
+    spec::AReworksCommitIsAnotherPhaseCommitOnTheBranch,
+)]
+fn rejected(run: &mut Run, phase: Phase, findings: Vec<String>) -> Result<Vec<String>, Stop> {
+    if run.budget.spend() { attempt(run, phase, Some(findings.as_slice())) } else { Err(exhausted(phase, findings)) }
+}
+
+/// The stop a rejection makes when no rework remains: the reviewer's
+/// findings are the decisions, and the last of them says that the run's pool
+/// of [`REWORK_BUDGET`] reworks is what ended it — so a reader of the
+/// terminal state ([`stopped`]) can tell a phase nobody could fix from a
+/// phase nobody was left to try.
+#[implements(
+    spec::ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings,
+    spec::AnExhaustedBudgetIsSaidToBeWhatStoppedTheRun,
+)]
+fn exhausted(phase: Phase, findings: Vec<String>) -> Stop {
+    let spent = format!("the run's {REWORK_BUDGET} reworks are spent, so this rejection of phase {} ends it rather than opening another session", number(phase));
+    Stop { at: At::Review(phase), decisions: findings.into_iter().chain([spent]).collect() }
 }
 
 /// A phase's ending as the run prints it: the commit it made, the decisions
@@ -702,12 +754,13 @@ mod tests {
         let judgements = vec![reviewing_session("r3-yes", "approved: yes\n"), reviewing_session("r3-no", "approved: no\n1. the leaf branches\n2. a helper sits in phase.rs\n")];
         let replay = Replay::serve(judgements);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
-        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget::default() };
         let (commit, recorded) = (fixture::head(&dir), strings(&["kept the enum"]));
-        let carried = reviewed(&run, Phase::Three, Attempt::First, &commit, recorded.clone()).expect("the approval");
-        let stop = reviewed(&run, Phase::Three, Attempt::Rework, &commit, recorded.clone()).expect_err("the rework's rejection");
-        let rejected = Stop { at: At::Review(Phase::Three), decisions: findings };
-        assert_eq!((carried, stop), (recorded, rejected), "an approval carries the commit's own decisions out; a rejection reports the reviewer's own findings");
+        let carried = reviewed(&mut run, Phase::Three, &commit, recorded.clone()).expect("the approval");
+        run.budget = Budget { remaining: 0 };
+        let stop = reviewed(&mut run, Phase::Three, &commit, recorded.clone()).expect_err("the rejection, with no rework left to open a session for");
+        assert_eq!(carried, recorded, "an approval carries the commit's own decisions out");
+        stop_says(&stop, At::Review(Phase::Three), &["the leaf branches", "a helper sits in phase.rs"]);
         assert_eq!(replay.opened(), ["r3-yes", "r3-no"], "each verdict from the session that reached it");
     }
 
@@ -912,52 +965,53 @@ mod tests {
         let (dir, project) = fixture::copy("canopy-reviewed");
         let replay = Replay::serve(vec![reviewing_session("r3", "approved: yes\n")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
-        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget::default() };
         let commit = fixture::head(&dir);
         let end = Ok(WorkerEnd::Committed(commit.clone(), strings(&["kept"])));
-        assert_eq!(phase_ended(&run, Phase::Three, Attempt::First, end).expect("approved"), strings(&["kept"]));
+        assert_eq!(phase_ended(&mut run, Phase::Three, end).expect("approved"), strings(&["kept"]));
         only_dial_is(&replay, "r3", &dir, "lid-rs-review");
         mentions(&replay::user_messages(&replay.landed("r3"))[0], &[commit.as_str(), "src/hello.rs"]);
     }
 
     #[test]
-    #[validates(spec::AFirstRejectionOpensOneReworkSession, spec::AReworkPromptCarriesTheReviewersFindings)]
-    fn a_first_rejection_opens_one_rework_session_with_the_findings() {
+    #[validates(spec::ARejectionWithAReworkLeftOpensAnotherWorkerSession, spec::AReworkPromptCarriesTheReviewersFindings)]
+    fn a_rejection_with_a_rework_left_opens_another_worker_session() {
         let (dir, project) = fixture::copy("canopy-rework");
         let replay = Replay::serve(vec![stopping_session("w3-rework", "cannot fix without an LLD change")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
-        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget::default() };
         let findings = strings(&["the leaf branches", "a helper sits in phase.rs"]);
-        let stop = phase_judged(&run, Phase::Three, Attempt::First, Ok(Review::Rejected(findings)), vec![]).expect_err("the rework stopped");
+        let stop = phase_judged(&mut run, Phase::Three, Ok(Review::Rejected(findings)), vec![]).expect_err("the rework stopped");
         assert_eq!(stop, Stop { at: At::Phase(Phase::Three), decisions: strings(&["cannot fix without an LLD change"]) });
+        assert_eq!(run.budget, Budget { remaining: REWORK_BUDGET - 1 }, "the session the rejection opened was paid for out of the run's pool");
         only_dial_is(&replay, "w3-rework", &dir, "lid-rs-phase-3");
         mentions(&replay::user_messages(&replay.landed("w3-rework"))[0], &["1. the leaf branches", "2. a helper sits in phase.rs"]);
     }
 
     #[test]
-    #[validates(spec::ASecondRejectionEndsTheRunWithTheFindings)]
-    fn a_second_rejection_ends_the_run_with_the_findings() {
-        let (dir, project) = fixture::copy("canopy-rejected-twice");
+    #[validates(spec::ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings)]
+    fn a_rejection_with_the_budget_spent_ends_the_run_with_the_findings() {
+        let (dir, project) = fixture::copy("canopy-rejected-spent");
         let replay = Replay::serve(vec![reviewing_session("r3-again", "approved: no\n1. still branches\n2. still untraced\n")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
-        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget { remaining: 0 } };
         let end = Ok(WorkerEnd::Committed(fixture::head(&dir), vec![]));
-        let stop = phase_ended(&run, Phase::Three, Attempt::Rework, end).expect_err("the second rejection stops the run");
-        assert_eq!(stop, Stop { at: At::Review(Phase::Three), decisions: strings(&["still branches", "still untraced"]) });
-        assert_eq!(replay.opened(), ["r3-again"], "no third session opens");
+        let stop = phase_ended(&mut run, Phase::Three, end).expect_err("a rejection with nothing left to spend stops the run");
+        stop_says(&stop, At::Review(Phase::Three), &["still branches", "still untraced"]);
+        assert_eq!(replay.opened(), ["r3-again"], "no further session opens");
     }
 
     #[test]
-    #[validates(spec::AReworksCommitIsASecondPhaseCommitOnTheBranch, spec::AReworksCommitIsReviewedByAFreshSession, spec::TheCommitNamesItsSessionAsTheAgent, spec::EverySessionIsStoppedWhenItsPhaseEnds)]
-    fn a_reworks_commit_is_a_second_phase_commit_reviewed_by_a_fresh_session() {
+    #[validates(spec::AReworksCommitIsAnotherPhaseCommitOnTheBranch, spec::AReworksCommitIsReviewedByAFreshSession, spec::TheCommitNamesItsSessionAsTheAgent, spec::EverySessionIsStoppedWhenItsPhaseEnds)]
+    fn a_reworks_commit_is_another_phase_commit_reviewed_by_a_fresh_session() {
         let (dir, project) = fixture::copy("canopy-rework-commit");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("the rejected skeleton");
         let rejected = commit_all(&dir, "phase 3: skeleton for hello");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n").expect("the rework's edit");
         let replay = Replay::serve(vec![committing_session("w3", "phase 3: skeleton for hello\n\nReworked.\n"), reviewing_session("r3", "approved: yes\n")]);
         let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
-        let run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0 };
-        let judged = phase_judged(&run, Phase::Three, Attempt::First, Ok(Review::Rejected(strings(&["greet is not warm"]))), vec![]);
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget::default() };
+        let judged = phase_judged(&mut run, Phase::Three, Ok(Review::Rejected(strings(&["greet is not warm"]))), vec![]);
         assert_eq!(judged.expect("the rework's commit is approved"), Vec::<String>::new());
         two_phase_three_commits(&log_lines(&dir), &rejected);
         let body = std::process::Command::new("git").args(["log", "-1", "--format=%B"]).current_dir(&dir).output().expect("git");
