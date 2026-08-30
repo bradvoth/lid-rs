@@ -634,6 +634,35 @@ mod tests {
         Precondition { slice: "hello".to_string(), branch: "lld/hello".to_string(), crate_root: project.root().expect("root"), committed }
     }
 
+    /// Asserts that a stop carries `findings` as its first decisions and, after
+    /// them, one that names the run's spent pool and the phase this rejection
+    /// ended; that last decision, for the caller.
+    fn the_budget_is_the_last_decision(stop: &Stop, findings: &[String]) -> String {
+        assert_eq!((stop.at, &stop.decisions[..findings.len()]), (At::Review(Phase::Three), findings), "the reviewer's findings, first and unaltered");
+        let said = stop.decisions.last().expect("the decision an exhausted budget adds after them").clone();
+        mentions(&said, &[&REWORK_BUDGET.to_string(), "rework", "spent", "phase 3"]);
+        said
+    }
+
+    /// Asserts what [`Budget`] alone says: a run holds the whole pool of
+    /// [`REWORK_BUDGET`], its last rework is there to be spent, and a pool
+    /// once spent stays spent.
+    fn a_pool_of_six_that_stays_spent() {
+        assert_eq!((REWORK_BUDGET, Budget::default()), (6, Budget { remaining: 6 }), "a run starts holding the whole pool");
+        let mut pool = Budget { remaining: 1 };
+        assert_eq!((pool.spend(), pool.spend(), pool.remaining), (true, false, 0), "the last rework is spendable; the empty pool is not");
+    }
+
+    /// Rejects one of `run`'s phases and yields the pool's remaining reworks:
+    /// the rework the rejection spends opens that phase's own worker, whose
+    /// `stop` block ends the attempt.
+    fn rejected_once(run: &mut Run, phase: Phase) -> usize {
+        let rejection = Ok(Review::Rejected(strings(&["the leaf branches"])));
+        let stop = phase_judged(run, phase, rejection, vec![]).expect_err("the worker the rework opened stopped");
+        assert_eq!(stop.at, At::Phase(phase), "the rework the pool paid for opened this phase's own worker");
+        run.budget.remaining
+    }
+
     /// A worker session whose one turn ends with a `stop` block naming one decision.
     fn stopping_session(id: &str, decision: &str) -> SessionScript {
         SessionScript::new(id).page(replay::settling_page(&format!("Blocked.\n\n```stop\n1. {decision}\n```\n")))
@@ -989,6 +1018,26 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::TheReworkBudgetIsOnePoolOfSixAcrossEveryPhase)]
+    fn the_rework_budget_is_one_pool_of_six_across_every_phase() {
+        a_pool_of_six_that_stays_spent();
+        let (_dir, project) = fixture::copy("canopy-one-pool");
+        let blocked: Vec<SessionScript> = (0..REWORK_BUDGET).map(|n| stopping_session(&format!("w{n}"), "blocked")).collect();
+        let replay = Replay::serve(blocked);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget::default() };
+        // A slice's difficulty is not spread evenly: phase 2 takes three of
+        // the pool's six here, and what the phases after it may spend is
+        // what phase 2 left them.
+        let spread = [Phase::Two, Phase::Two, Phase::Two, Phase::Three, Phase::Five, Phase::Seven];
+        let left = spread.map(|phase| rejected_once(&mut run, phase));
+        assert_eq!(left, [5, 4, 3, 2, 1, 0], "one pool, not an allowance each: every phase's rejection draws down the same six");
+        let spent = phase_judged(&mut run, Phase::Seven, Ok(Review::Rejected(strings(&["still branches"]))), vec![]).expect_err("nothing left to spend");
+        stop_says(&spent, At::Review(Phase::Seven), &["still branches"]);
+        assert_eq!(replay.opened().len(), REWORK_BUDGET, "one session per rework and no seventh: the pool bounds the run, not the phase");
+    }
+
+    #[test]
     #[validates(spec::ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings)]
     fn a_rejection_with_the_budget_spent_ends_the_run_with_the_findings() {
         let (dir, project) = fixture::copy("canopy-rejected-spent");
@@ -999,6 +1048,26 @@ mod tests {
         let stop = phase_ended(&mut run, Phase::Three, end).expect_err("a rejection with nothing left to spend stops the run");
         stop_says(&stop, At::Review(Phase::Three), &["still branches", "still untraced"]);
         assert_eq!(replay.opened(), ["r3-again"], "no further session opens");
+    }
+
+    #[test]
+    #[validates(spec::AnExhaustedBudgetIsSaidToBeWhatStoppedTheRun)]
+    fn an_exhausted_budget_is_said_to_be_what_stopped_the_run() {
+        let findings = strings(&["still branches", "still untraced"]);
+        let budget_said_so = the_budget_is_the_last_decision(&exhausted(Phase::Three, findings.clone()), &findings);
+        // A run stopped by a worker's own `stop` block says nothing about the
+        // budget: the sentence is how a reader tells a phase nobody could fix
+        // from a phase nobody was left to try.
+        let blocked = stopped(&Stop { at: At::Phase(Phase::Three), decisions: findings.clone() });
+        assert!(!blocked.contains("rework") && budget_said_so.contains("rework"), "only an exhausted budget names the budget: {blocked}");
+        let (dir, project) = fixture::copy("canopy-budget-said");
+        let replay = Replay::serve(vec![reviewing_session("r3-last", "approved: no\n1. still branches\n")]);
+        let (door, committed) = (replay.door("k"), state(&project, vec![Phase::One]));
+        let mut run = Run { project: &project, door: &door, state: &committed, max_cost: 5.0, budget: Budget { remaining: 0 } };
+        let end = Ok(WorkerEnd::Committed(fixture::head(&dir), vec![]));
+        let stop = phase_ended(&mut run, Phase::Three, end).expect_err("a rejection with no rework left to spend on it");
+        let reported = terminal(&committed.branch, Outcome::Stopped(stop)).expect_err("stopped is Err");
+        mentions(&reported, &["1. still branches", &format!("2. the run's {REWORK_BUDGET} reworks are spent")]);
     }
 
     #[test]
