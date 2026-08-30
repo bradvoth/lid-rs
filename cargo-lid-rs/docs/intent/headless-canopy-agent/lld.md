@@ -301,11 +301,23 @@ approved: no
 2. <finding>
 ```
 
-`approved: yes` opens the next phase. `approved: no` with findings opens
-one rework session of the phase's worker with the findings in its prompt;
-its commit is a second `phase <n>:` commit on the branch — nothing amends
-history, since only a passing check commits — and it is reviewed the same
-way. A second rejection ends the run with the findings as the decisions.
+`approved: yes` opens the next phase. `approved: no` with findings spends
+one of the run's six reworks and opens another session of the phase's
+worker with the findings in its prompt; its commit is another `phase <n>:`
+commit on the branch — nothing amends history, since only a passing check
+commits — and it is reviewed the same way. A rejection with the budget
+spent ends the run with the findings as the decisions, saying that the
+budget is what stopped it.
+
+The budget is one pool across every phase, not an allowance each: a
+slice's difficulty is not spread evenly, and the run that measured this
+needed three attempts at one phase and four at another. It is a constant
+of the run — not a flag, not an argument, not a setting a prompt can
+carry — for the reason no waiver is offered.
+
+It buys attempts at a phase and nothing else. A finding about an earlier
+phase's artifact still ends the run: the walk is a line, and every rework
+that run needed was in place.
 An unset `CANOPY_KEY` is a precondition stop naming the variable. A
 block that is missing or malformed is asked for once more with the
 format; a second miss is a rejection whose finding says the reviewer gave
@@ -375,7 +387,8 @@ What changes is confidentiality, and it changes materially:
 | `Precondition`, `precondition(project, slice) -> Result<Precondition, Stop>` | Branch, `phase 1:` commit, clean tree, committed phases (`tag_of`), compile-time acceptance; from git and the phase library, no model |
 | `fork_point(project) -> Result<String, String>`, `log_subjects(project) -> Result<Vec<String>, String>`, `commit_paths(project, commit) -> Result<Vec<String>, String>` | Where the branch left the default branch; the branch's own subjects, newest first; the paths one commit touched |
 | `Outcome::{PrReady{decisions}, Stopped(Stop)}`, `Stop { at: At, decisions }`, `At::{Precondition, Phase(n), Review(n)}` | The two terminal states, and where a run stopped |
-| `build(project, door, state, max_cost) -> Outcome` | Phases 2, 3, 4, 5, 7 in order; skips committed ones; one flow decision per phase result |
+| `build(project, door, state, max_cost) -> Outcome` | Phases 2, 3, 4, 5, 7 in order; skips committed ones; one flow decision per phase result; carries the run's `Budget` |
+| `Budget`, `REWORK_BUDGET`, `Budget::spend(&mut self) -> bool` | The run's six reworks, spent across every phase; false when none remain |
 | `Door` | The HTTP client over one door's URL and the API key, stateless: `start(settings) -> Started`, `send(credential, offered, idem) -> cursor`, `tail(credential, after, wait) -> Page`, `refresh(credential) -> Started`, `stop(credential)`; every refusal carries the door's sentence |
 | `Started`, `Page`, `Record`, `Offered` | The boundary types over the door's JSON: `session`, `token`, `expires`, `stream`; `records`, `through`; a landed record's `cursor`, `kind`, `producer`, `body`, `envelope`; and what the client offers, `kind` and `body` alone |
 | `Door::request(method, path, bearer, body, idem) -> Result<Value, String>`, `refusal_of(status, body) -> String` | The one boundary over the HTTP library every method shares: a `2xx` yields the JSON; anything else yields the door's `refused` sentence (or the status when there is none) as the error |
