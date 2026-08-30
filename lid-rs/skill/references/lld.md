@@ -39,10 +39,13 @@ nineteen times across the two largest, because prose introduces a type by
 describing it rather than by spelling its identifier. Both signals are real,
 and both are questions below.
 
-What the checklist gives up is worth knowing, because the questions are the
-only answer to it: a document passes with four filled cells that record no real
-alternative, well-formed shape rows naming items the prose never introduces,
-and numbered deferrals that defer nothing.
+What the checklist gives up is worth knowing. Some of it the questions
+answer: shape rows naming items the prose never introduces is question 1,
+deferrals that defer nothing is question 2. One gap neither half answers —
+a decisions row whose alternative is a straw man — is left open on purpose,
+because the question that asked it found nothing across eighteen rows and
+produced a false positive, and a question that fires only on good documents
+costs more than the gap does.
 
 ## The questions — what a reader asks
 
