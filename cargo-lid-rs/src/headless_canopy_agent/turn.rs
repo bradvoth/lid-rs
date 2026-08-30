@@ -673,7 +673,7 @@ mod tests {
     use super::super::door::{Envelope, policy_for};
     use super::super::ending::WORKER_TOOLS;
     use super::super::replay::{self, REQUESTOR, Replay, Route, Seen, SessionScript, mentions, sha256, strings};
-    use super::super::tools::{REQUESTEE, declarations, execute};
+    use super::super::tools::{REQUESTEE, Tool, declarations, declared, execute};
     use super::super::{KEY_VARIABLE, PRODUCTION_DOOR};
     use super::*;
     use crate::phase::fixture;
@@ -826,6 +826,88 @@ mod tests {
         let body = &completion.body;
         assert_eq!((body["to"].as_str(), body["payload_digest"].as_str(), body["outcome"].as_str()), (Some(REQUESTOR), Some(digest.as_str()), Some("success")));
         mentions(body["result"].as_str().expect("the tool's text"), &["The hello slice"]);
+    }
+
+    #[test]
+    #[validates(spec::ASessionCarriesTheDeclarationsItsHostDialled)]
+    fn a_session_carries_the_declarations_its_host_dialled() {
+        let (dir, project) = fixture::copy("canopy-turn-declarations");
+        let one_tool = declarations(&[Tool::Read]);
+        let dial = Settings { system: "A host with one tool of its own.".to_string(), policy: policy_for(&one_tool), params: json!({}), max_cost: 1.0 };
+        let args = json!({ "path": "src/hello.rs", "old_string": "\"hello\"", "new_string": "\"hi\"" });
+        let script = SessionScript::new("s-declared").page(replay::tool_call_page("edit", args.clone(), &payload_digest(REQUESTEE, &args))).page(replay::settling_page("done"));
+        let replay = Replay::serve(vec![script]);
+        let mut session = Session::open(&replay.door("k"), &dial, Some(Phase::Three), one_tool.clone()).expect("opened");
+        let declares: Vec<bool> = ["read", "edit", "write"].iter().map(|op| session.declares(op)).collect();
+        assert_eq!((session.declarations.clone(), declares), (one_tool, vec![true, false, false]), "the session carries the declarations its host dialled, and answers for that set");
+        let before = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the module");
+        let settled = drive(&project, &mut session, &mut execute, "edit it").expect("settled").text;
+        let completion = replay::completions(&replay.landed("s-declared")).remove(0).body;
+        let after = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the module");
+        let judged = (settled.as_str(), completion["outcome"].as_str(), after.as_str());
+        assert_eq!(judged, ("done", Some("error"), before.as_str()), "a forwarded `edit` this host did not declare to this session runs nothing, and the file is untouched");
+        mentions(completion["error"].as_str().expect("the error the completion carries"), &["edit"]);
+        let dialled_five = replay::session(Door::new("http://127.0.0.1:1", "k"), "s-five", Some(Phase::Three), declarations(&WORKER_TOOLS));
+        assert_eq!(declared(&dialled_five, "edit").expect("a host that dialled the five"), Tool::Edit, "the same `op`, judged against the set that session's host dialled");
+    }
+
+    /// What a second host's executor answers, which no tool of this host's
+    /// would.
+    const ANOTHER_HOSTS_ANSWER: &str = "a second host's tool answered";
+
+    /// What its erring executor answers.
+    const ANOTHER_HOSTS_REFUSAL: &str = "a second host's tool refused";
+
+    #[test]
+    #[validates(spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
+    fn a_paired_forward_runs_through_the_executor_the_turn_was_handed() {
+        let (_dir, project) = fixture::copy("canopy-turn-executor");
+        let args = json!({ "path": "src/hello.rs" });
+        let digest = payload_digest(REQUESTEE, &args);
+        let asks_for_read = || SessionScript::new("s").page(replay::tool_call_page("read", args.clone(), &digest)).page(replay::settling_page("ok"));
+        let scripts = vec![SessionScript { id: "s-executor".to_string(), ..asks_for_read() }, SessionScript { id: "s-executor-error".to_string(), ..asks_for_read() }];
+        let replay = Replay::serve(scripts);
+        let mut ran: Vec<(String, Value)> = Vec::new();
+        let mut ours = |_: &Project, _: &Session, op: &str, called_with: &Value| -> ToolResult {
+            ran.push((op.to_string(), called_with.clone()));
+            Ok(ANOTHER_HOSTS_ANSWER.to_string())
+        };
+        let mut session = open(&replay);
+        let settled = drive(&project, &mut session, &mut ours, "read it").expect("settled").text;
+        let answered = replay::completions(&replay.landed("s-executor")).remove(0).body;
+        let handed = (settled.as_str(), answered["outcome"].as_str(), answered["result"].as_str());
+        assert_eq!(handed, ("ok", Some("success"), Some(ANOTHER_HOSTS_ANSWER)), "the executor's answer is the completion's outcome, not what this host's `read` would have said");
+        assert_eq!(ran, [("read".to_string(), args)], "the paired forward's `op` and its payload's args went to the executor this turn was handed");
+        let mut refusing = |_: &Project, _: &Session, _: &str, _: &Value| -> ToolResult { Err(ANOTHER_HOSTS_REFUSAL.to_string()) };
+        let mut second = open(&replay);
+        drive(&project, &mut second, &mut refusing, "read it").expect("settled");
+        let refused = replay::completions(&replay.landed("s-executor-error")).remove(0).body;
+        assert_eq!((refused["outcome"].as_str(), refused["error"].as_str()), (Some("error"), Some(ANOTHER_HOSTS_REFUSAL)), "and an executor that errs is the completion's error");
+    }
+
+    #[test]
+    #[validates(spec::ASessionWithoutAPhaseKeepsNoTally)]
+    fn a_session_without_a_phase_keeps_no_tally() {
+        let (dir, project) = fixture::copy("canopy-turn-phaseless-tally");
+        let host = replay::session(Door::new("http://127.0.0.1:1", "k"), "s-untallied", None, declarations(&WORKER_TOOLS));
+        mentions(&execute(&project, &host, "read", &json!({ "path": "src/hello.rs" })).expect("the observation does its work"), &["The hello slice"]);
+        let after_read = tally::load(&project, "canopy:s-untallied").expect("tally");
+        let args = json!({ "command": "rm -rf /" });
+        let page = vec![replay::responded_with_tools("Trying bash.", &[("bash", args.clone())]), replay::payload(args.clone()), replay::denied(&payload_digest(REQUESTEE, &args))];
+        let replay = Replay::serve(vec![SessionScript::new("s-untallied-denied").page(page).page(replay::settling_page("fine"))]);
+        let dial = Settings { system: "A host that runs no phase.".to_string(), policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost: 1.0 };
+        let mut phaseless = Session::open(&replay.door("k"), &dial, None, declarations(&WORKER_TOOLS)).expect("opened");
+        let settled = drive(&project, &mut phaseless, &mut execute, "go").expect("settled").text;
+        let after_denial = tally::load(&project, "canopy:s-untallied-denied").expect("tally");
+        let counted = (after_read, after_denial, settled.as_str());
+        assert_eq!(counted, (tally::Tally::default(), tally::Tally::default(), "fine"), "in a session carrying no phase neither an observation nor a denial is counted anywhere");
+        let content = "//! The hello slice, replaced by a host that runs no phase.\n";
+        // What a phaseless edit answers is no claim's; that the edit is made,
+        // and that neither it nor the check after it is tallied, is this one's.
+        let _answered = execute(&project, &host, "write", &json!({ "path": "src/hello.rs", "content": content }));
+        let written = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the module");
+        let after_edit = tally::load(&project, "canopy:s-untallied").expect("tally");
+        assert_eq!((written.as_str(), after_edit), (content, tally::Tally::default()), "nor the edit, nor the post-edit check that a phase's session would have run and counted");
     }
 
     #[test]

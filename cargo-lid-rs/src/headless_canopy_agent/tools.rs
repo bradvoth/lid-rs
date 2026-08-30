@@ -1066,6 +1066,21 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::ASessionWithoutAPhaseAsksNoPreToolVerdict)]
+    fn a_session_without_a_phase_asks_no_pre_tool_verdict() {
+        let (dir, project) = fixture::copy("canopy-tools-phaseless");
+        let manifest = dir.join("Cargo.toml");
+        let carrying = session("phased", Phase::Five, &WORKER_TOOLS);
+        let host = replay::session(Door::new("http://127.0.0.1:1", "k"), "phaseless", None, declarations(&WORKER_TOOLS));
+        let bounded = verdict(&project, &carrying, Tool::Write, Some(&manifest));
+        let unbounded = verdict(&project, &host, Tool::Write, Some(&manifest));
+        assert_eq!((bounded.is_err(), unbounded), (true, Ok(())), "the same write: judged where the session carries a phase whose policy bounds it, asked of nothing where it carries none");
+        mentions(&bounded.expect_err("Phase 5's policy bounds its artifact"), &["Cargo.toml", "Phase 5"]);
+        verdict(&project, &host, Tool::Read, None).expect("nor is an observation's verdict asked");
+        mentions(&execute(&project, &host, "read", &json!({ "path": "src/hello.rs" })).expect("the tool does its work"), &["The hello slice"]);
+    }
+
+    #[test]
     #[validates(spec::AnEditForwardedToTheReviewerIsRefusedHere)]
     fn an_edit_forwarded_to_the_reviewer_is_refused_here() {
         let (dir, project) = fixture::copy("canopy-tools-reviewer");

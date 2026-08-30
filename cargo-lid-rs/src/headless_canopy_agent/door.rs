@@ -614,6 +614,31 @@ mod tests {
         assert_eq!(arguments_of(Tool::Write), (strings(&["content", "path"]), strings(&["content", "path"])));
     }
 
+    /// A declaration no host in this crate makes: what a policy built from
+    /// another host's tools is handed.
+    fn another_hosts_tool(name: &str) -> ToolDecl {
+        ToolDecl {
+            name: name.to_string(),
+            requestee: "other-host".to_string(),
+            op: name.to_string(),
+            schema: json!({ "type": "object", "description": format!("{name}: a tool this host does not define"), "properties": {} }),
+        }
+    }
+
+    #[test]
+    #[validates(spec::APolicyIsBuiltFromTheDeclarationsItsHostHands)]
+    fn a_policy_is_built_from_the_declarations_its_host_hands() {
+        let handed = vec![another_hosts_tool("sing"), another_hosts_tool("dance")];
+        let policy = policy_for(&handed);
+        let pairs = vec![Allow { requestee: "other-host".to_string(), op: "sing".to_string() }, Allow { requestee: "other-host".to_string(), op: "dance".to_string() }];
+        let ops: Vec<&str> = policy.tools.iter().map(|t| t.op.as_str()).collect();
+        let built = (policy.tools.clone(), policy.allows, ops);
+        assert_eq!(built, (handed, pairs, vec!["sing", "dance"]), "`tools` are the declarations handed, `allows` exactly their (requestee, op) pairs, and none of this host's five is among them");
+        assert_eq!(policy_for(&[]), Policy { allows: vec![], tools: vec![] }, "a host that hands none admits none");
+        let five = policy_for(&declarations(&WORKER_TOOLS));
+        assert_eq!((five.tools, five.allows.len()), (declarations(&WORKER_TOOLS), 5), "and this host's five are its own declarations, admitted by that same rule");
+    }
+
     #[test]
     #[validates(spec::TheReviewerPolicyAdmitsOnlyTheObservationTools)]
     fn the_reviewer_policy_admits_only_the_observation_tools() {
