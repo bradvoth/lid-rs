@@ -35,6 +35,7 @@
 - [LLD: the phase gate](impl/lld-phase.md)
 - [LLD: the canopy agent](impl/lld-headless-canopy-agent.md)
 - [LLD: reviewing an LLD](impl/lld-lld-review.md)
+- [LLD: the LLD coach](impl/lld-coach.md)
 
 # Operating It
 
