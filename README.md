@@ -746,7 +746,7 @@ rest: before every edit a per-phase path policy (Phase 2 writes the
 slice's claims, 3 and 4 the slice's module and `lib.rs`, 5 and 7 the module
 only; never the LLD, the configuration, or another slice); after every
 edit, clippy; and when it ends with a ```` ```commit ```` block, phase N's
-check — the docs at 1, build and lints at 2, the type-check at 3 and 4,
+check — the docs at 1, the build at 2, the type-check at 3 and 4,
 the red run at 5 (every `#[validates]` test on the slice's claims must
 fail), the full §4.5 gate at 7 — and, if it passes, the commit, staged from
 exactly the policy's paths, with trailers counting the agent's edits,
