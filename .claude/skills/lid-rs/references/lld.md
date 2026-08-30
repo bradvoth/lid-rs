@@ -60,10 +60,12 @@ question it fails, never a verdict on the document.
    unset environment variable does and on how a rework commits; both surfaced
    as phase stops, and both answers took one sentence.
 
-3. **Is every contract with another system stated, with where it was verified,
-   or explicitly deferred?** A policy hash was asserted backwards, and a wire
-   format was absent until Phase 3 had to guess it. A contract with no
-   provenance is a guess with a citation.
+3. **Is every contract with another system stated, and does the document say
+   where its shapes were verified?** A policy hash was asserted backwards, and
+   a wire format was absent until Phase 3 had to guess it. Provenance is owed
+   at the level the document cites at — a References section naming the other
+   system's source files answers for every constant drawn from them; a
+   hostname, a timeout, or a magic number with no source anywhere does not.
 
 4. **Does everything that touches the filesystem, the network, or a credential
    state its bound completely?** Two confinement rules were half-stated; a
@@ -80,16 +82,41 @@ question it fails, never a verdict on the document.
    this document alone?** No narration of how it changed, no meaning that needs
    the discussion that produced it.
 
-7. **Is each row of the decisions table a decision the slice actually faced,
-   with an alternative that was really considered?** A row whose alternative is
-   a straw man is a decision not yet examined, and the checklist cannot tell
-   the difference.
+7. **Is each rule stated at a granularity a claim can be cut from?** Phase 2
+   must derive atomic claims, one *when* and one *shall*. A single table cell
+   once packed five independent rules about `glob` — confinement, two refused
+   pattern shapes, two directories never entered, matches outside the root
+   omitted, sorted output — and every mechanical check passed it. The agent
+   then guesses whether that is one claim or five, and whatever it guesses is
+   what Phase 5 tests.
 
-8. **Does the document's structure serve a reader who has never seen it?**
+8. **Is this one slice?** Phase 0's question, and the decision with the
+   largest downstream cost in the methodology, asked by no mechanical check.
+   A shape table spanning an HTTP client, a digest, a filesystem sandbox, a
+   turn loop, a worker driver and a git precondition is a candidate for two
+   documents, and the time to say so is before the claims exist.
+
+9. **Does the document's structure serve a reader who has never seen it?**
    Context, then behaviour, then shape, then decisions and what was deferred.
    Prescribing those headings mechanically would refuse ten of thirteen
    existing documents, so this is a reader's judgment about whether a structure
    hides something, not a rule.
+
+## What this guideline has been measured on
+
+Read once against a large, well-made LLD — the one whose construction
+produced the incidents above — a reader applying these questions found one
+contradiction that would plausibly have stopped Phase 2, one unstated rule
+the phases would have guessed at silently with a security consequence, and
+three passages not worth a keystroke. Questions 5, 4 and 1 earned their
+place; question 3 produced a near-miss and was reworded; a question asking
+whether each decision row records a real alternative found nothing across
+eighteen rows, misled the reader into a false positive, and was removed.
+Questions 7 and 8 are what that reader said the list was missing.
+
+Keep score the same way. A question that fires only on documents that turn
+out to be fine is worse than no question, because it teaches authors to write
+for the reader instead of for the next phase.
 
 ## Terms
 
