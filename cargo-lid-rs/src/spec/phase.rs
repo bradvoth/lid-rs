@@ -10,8 +10,9 @@ use lid_rs::Spec;
 #[derive(Spec)]
 pub struct PhasesWithoutACommitHaveNoCheck;
 
-/// When phase 1 is checked, the tool shall run rustdoc with broken intra-doc
-/// links denied, then the doctests, in that order.
+/// When phase 1 is checked, the tool shall run the LLD's mechanical checks,
+/// then rustdoc with broken intra-doc links denied, then the doctests, in
+/// that order.
 #[derive(Spec)]
 pub struct PhaseOneChecksTheDocs;
 

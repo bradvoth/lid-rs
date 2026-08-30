@@ -88,6 +88,9 @@ pub enum Step {
     Mutants,
     /// The phase 5 red run over the slice's validations.
     Red,
+    /// The `lld-review` slice's mechanical checks over the slice's LLD and
+    /// the project's synced guideline and reader.
+    LldChecks,
 }
 
 /// What a commit subject's tag says.
@@ -476,6 +479,14 @@ fn is_progress(line: &str) -> bool {
         .any(|prefix| trimmed.starts_with(prefix))
 }
 
+/// The `lld-review` slice's checks over one slice's LLD, as a step: the
+/// failures rendered whole, so the human sees every one rather than the
+/// first.
+fn lld_checks(project: &Project, slice: &str) -> Result<(), String> {
+    let lld = crate::lld_review::Lld::read(project, slice)?;
+    crate::lld_review::report(&crate::lld_review::check_all(project, &lld)?)
+}
+
 /// Runs a phase's check: its plan, executed in order.
 pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(), String> {
     execute(project, slice, &plan(phase, &project.publishing_members()))
@@ -492,7 +503,7 @@ pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(),
 )]
 pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     match phase {
-        Phase::One => vec![Step::Doc, Step::DocTests],
+        Phase::One => vec![Step::LldChecks, Step::Doc, Step::DocTests],
         Phase::Two => vec![Step::Check],
         Phase::Three | Phase::Four => vec![Step::Check],
         Phase::Five => vec![Step::Red],
@@ -539,6 +550,7 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
         Step::SyncCheck => sync::check(project),
         Step::Mutants => mutants::run(&[]),
         Step::Red => check_red(project, slice.ok_or(NO_SLICE)?),
+        Step::LldChecks => lld_checks(project, slice.ok_or(NO_SLICE)?),
     }
 }
 
@@ -979,7 +991,7 @@ mod tests {
     #[test]
     #[validates(spec::PhaseOneChecksTheDocs)]
     fn phase_one_checks_the_docs() {
-        assert_eq!(plan(Phase::One, &[]), [Step::Doc, Step::DocTests]);
+        assert_eq!(plan(Phase::One, &[]), [Step::LldChecks, Step::Doc, Step::DocTests]);
     }
 
     #[test]
