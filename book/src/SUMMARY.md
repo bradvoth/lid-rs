@@ -32,6 +32,7 @@
 - [LLD: the operating skill](impl/lld-skill.md)
 - [LLD: the book](impl/lld-book.md)
 - [LLD: publishability](impl/lld-publish.md)
+- [LLD: the phase gate](impl/lld-phase.md)
 
 # Operating It
 
