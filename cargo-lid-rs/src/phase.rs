@@ -988,6 +988,46 @@ mod tests {
         assert_eq!(plan(Phase::Two, &[]), [Step::Check]);
     }
 
+    /// A reworded claim as Phase 2 leaves it in `src/spec/mod.rs`: the slice's
+    /// file re-exported, and the retired name a deprecated alias for the new
+    /// one.
+    const REWORDED_SPEC_MOD: &str = "//! Atomic claims for app.\n\n/// The hello slice's claims.\nmod hello;\n\npub use hello::*;\n\n\
+                                     /// The name [`GreetsWarmly`] carried before it was reworded.\n#[deprecated = \"replaced by GreetsWarmly\"]\n\
+                                     pub type Greets = hello::GreetsWarmly;\n";
+
+    /// The slice's spec file after the reword: one claim, under its new name.
+    const REWORDED_SPEC: &str =
+        "//! Claims for hello.\n\n/// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\npub struct GreetsWarmly;\n";
+
+    /// The slice module part-way through the cascade: a skeleton leaf that
+    /// reads none of its parameters, citing the claim name the reword retired.
+    /// Both warn; neither is an error.
+    const WARNING_MODULE: &str =
+        "//! The hello slice.\n\n/// Greets, warmly.\n#[lid_rs::implements(crate::spec::Greets)]\npub fn greet_warmly(name: &str) -> String {\n    todo!()\n}\n";
+
+    /// The same module with an error in place of the warnings.
+    const BROKEN_MODULE: &str = "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet_warmly() -> String {\n    42\n}\n";
+
+    #[test]
+    #[validates(spec::WarningsDoNotFailPhaseTwosCheck)]
+    fn warnings_do_not_fail_phase_twos_check() {
+        let (dir, project) = fixture::copy("phase-two-warnings");
+        std::fs::write(dir.join("src/spec/mod.rs"), REWORDED_SPEC_MOD).expect("spec mod");
+        std::fs::write(dir.join("src/spec/hello.rs"), REWORDED_SPEC).expect("spec");
+        std::fs::write(dir.join("src/hello.rs"), WARNING_MODULE).expect("module");
+        // The tree really does warn, in both the ways the claim names: the
+        // gate's own clippy step, which denies warnings, refuses it for the
+        // skeleton's unread parameter and for the citation of the retired name.
+        let lint = run_step(&project, None, &Step::Clippy).expect_err("the gate's clippy denies warnings");
+        assert!(lint.contains("unused variable") && lint.contains("deprecated"), "the todo!() skeleton and the retired name: {lint}");
+        // Phase 2's check passes the same tree, so a claim the design turns out
+        // to need is committable while the rest of the slice stands.
+        check(&project, Phase::Two, None).expect("warnings do not fail phase 2's check");
+        // An error is not a warning: it still fails.
+        std::fs::write(dir.join("src/hello.rs"), BROKEN_MODULE).expect("module");
+        assert!(check(&project, Phase::Two, None).is_err(), "a workspace that does not build fails phase 2's check");
+    }
+
     #[test]
     #[validates(spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks)]
     fn phases_three_and_four_check_the_skeleton_type_checks() {

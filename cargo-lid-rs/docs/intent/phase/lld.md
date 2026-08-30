@@ -492,7 +492,20 @@ document does not imply it.
    from `outcomes.json`), or a stop hook that hands the gate to a
    detached process and refuses until it reports, would put Phase 7 back
    under the hook.
-8. Running each check under an OS sandbox from the hook — no network,
+8. A Phase 8 edit that subtracts or rewords has no red run. Phase 5's
+   check demands that every red-set claim's validation fail, and the red
+   set is the claims whose `struct <Name>` line the branch added. On a
+   reword, the renamed claim enters the red set while the one `match` arm
+   that implements it is re-cited by Phase 3 in the same edit; on a
+   subtraction, the behaviour change *is* the shape change, so it lands at
+   Phase 3 and every validation of it is green before Phase 5 writes one.
+   Neither can be made red without deleting working code. The walk needs a
+   stated answer — Phase 3 leaving a red-set claim's leaf unimplemented is
+   not generally available, since a leaf like `plan` is shared with claims
+   outside the red set whose validations would break — and until it has
+   one, such a Phase 5 is committed by hand with the reason in its body,
+   as this slice's was.
+9. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.
 
