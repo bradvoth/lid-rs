@@ -7,7 +7,7 @@ use serde_json::json;
 
 use super::Precondition;
 use super::door::{Door, Settings, policy_for};
-use super::tools::Tool;
+use super::tools::{Tool, declarations, execute};
 use super::turn::{Halt, Session, drive};
 use crate::phase::ending::{Ending, ending_of};
 use crate::phase::{HookInput, HookVerdict, Phase, hook_stop};
@@ -124,25 +124,27 @@ pub fn findings_section(findings: Option<&[String]>) -> String {
 }
 
 /// The worker's dial and prompt: `system` the synced
-/// `lid-rs-phase-<n>.md` body, the policy admitting the five tools, empty
-/// `params`, `max_cost`; and the user message ([`prompt_text`]).
+/// `lid-rs-phase-<n>.md` body, the policy built from this host's
+/// declarations of the five tools, empty `params`, `max_cost`; and the user
+/// message ([`prompt_text`]).
 #[implements(spec::TheSystemPromptIsTheSyncedAgentBodyWithoutItsFrontmatter, spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn worker_session(project: &Project, phase: Phase, state: &Precondition, findings: Option<&[String]>, max_cost: f64) -> Result<(Settings, String), String> {
     let system = agent_body(project, &format!("lid-rs-phase-{}", number(phase)))?;
-    let settings = Settings { system, policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost };
+    let settings = Settings { system, policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost };
     Ok((settings, prompt_text(phase, state, &oneline_log(project)?, findings)))
 }
 
 /// Drives one worker session to its end: dialled with the worker's
-/// settings, its turns run ([`rounds`]), and the session stopped whichever
+/// settings, carrying the phase it runs and this host's declarations of the
+/// five tools, its turns run ([`rounds`]), and the session stopped whichever
 /// way they ended — a stop the door refuses is the error even after a
 /// commit. `Err` is a reason outside the model's doing — a halt, a quiet
 /// tail, the provider's sentence, the door's — that stops the run.
-#[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds)]
+#[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds, spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
 pub fn worker(project: &Project, door: &Door, phase: Phase, state: &Precondition, findings: Option<&[String]>, max_cost: f64) -> Result<WorkerEnd, String> {
     let (settings, prompt) = worker_session(project, phase, state, findings, max_cost)?;
-    let mut session = Session::open(door, &settings, phase, WORKER_TOOLS.to_vec())?;
-    let end = rounds(project, &mut session, prompt);
+    let mut session = Session::open(door, &settings, Some(phase), declarations(&WORKER_TOOLS))?;
+    let end = rounds(project, &mut session, phase, prompt);
     let sealed = session.stop().map_err(halt_reason);
     end.and_then(|ended| sealed.map(|()| ended))
 }
@@ -150,12 +152,14 @@ pub fn worker(project: &Project, door: &Door, phase: Phase, state: &Precondition
 /// The worker's turns: the prompt, then each refusal's reason as the next
 /// user message in the same session, until the stop verdict lets the phase
 /// end; the ninth consecutive refusal ends the run with its reason, the
-/// tree left dirty and uncommitted.
+/// tree left dirty and uncommitted. The `phase` is the worker's own, carried
+/// down to its verdict rather than read back off the session, which holds it
+/// only for the hosts that run one.
 #[implements(spec::ARefusedStopIsLandedAsTheNextUserMessage, spec::TheNinthConsecutiveRefusalEndsTheRun)]
-fn rounds(project: &Project, session: &mut Session, prompt: String) -> Result<WorkerEnd, String> {
+fn rounds(project: &Project, session: &mut Session, phase: Phase, prompt: String) -> Result<WorkerEnd, String> {
     let mut message = prompt;
     for _ in 0..STOP_ROUNDS {
-        match round(project, session, &message)? {
+        match round(project, session, phase, &message)? {
             Round::Ended(end) => return Ok(end),
             Round::Refused(reason) => message = reason,
         }
@@ -164,21 +168,24 @@ fn rounds(project: &Project, session: &mut Session, prompt: String) -> Result<Wo
 }
 
 /// One turn and its verdict: the settled text handed to the phase library's
-/// stop verdict under `canopy:<session>` ([`stop_input`]) — allowed, the
-/// ending it carried ([`ended`]); refused, the reason.
+/// stop verdict for `phase` under `canopy:<session>` ([`stop_input`]) —
+/// allowed, the ending it carried ([`ended`]); refused, the reason.
 #[implements(spec::TheSettledTextGoesToTheStopVerdictAsTheSession)]
-fn round(project: &Project, session: &mut Session, message: &str) -> Result<Round, String> {
+fn round(project: &Project, session: &mut Session, phase: Phase, message: &str) -> Result<Round, String> {
     let settled = turn(project, session, message)?;
-    match hook_stop(project, session.phase, &stop_input(session, &settled))? {
+    match hook_stop(project, phase, &stop_input(session, &settled))? {
         HookVerdict::Allow => Ok(Round::Ended(ended(project, &settled)?)),
         HookVerdict::Refuse(reason) | HookVerdict::Context(reason) => Ok(Round::Refused(reason)),
     }
 }
 
-/// One turn's settled text; a halt is the reason that stops the run
+/// One turn's settled text, driven with this host's [`execute`] as the
+/// turn's executor — the worker's session and the reviewer's alike, both
+/// being this host's; a halt is the reason that stops the run
 /// ([`halt_reason`]).
+#[implements(spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
 pub(super) fn turn(project: &Project, session: &mut Session, message: &str) -> Result<String, String> {
-    drive(project, session, message).map(|settled| settled.text).map_err(halt_reason)
+    drive(project, session, &mut execute, message).map(|settled| settled.text).map_err(halt_reason)
 }
 
 /// A halt as the reason the run stops with: the platform's reason, the
@@ -317,7 +324,7 @@ mod tests {
     #[test]
     #[validates(spec::TheSettledTextGoesToTheStopVerdictAsTheSession, spec::TheCommitNamesItsSessionAsTheAgent)]
     fn the_settled_text_goes_to_the_stop_verdict_as_the_session() {
-        let session = replay::session(Door::new("http://127.0.0.1:1", "k"), "3f0c1c9a", Phase::Three, WORKER_TOOLS.to_vec());
+        let session = replay::session(Door::new("http://127.0.0.1:1", "k"), "3f0c1c9a", Some(Phase::Three), declarations(&WORKER_TOOLS));
         let input = stop_input(&session, "Done.\n\n```stop\n1. x\n```\n");
         assert_eq!(input, HookInput { agent_id: "canopy:3f0c1c9a".to_string(), last_message: "Done.\n\n```stop\n1. x\n```\n".to_string(), ..HookInput::default() });
     }

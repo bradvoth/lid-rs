@@ -11,7 +11,6 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::tools::{REQUESTEE, Tool, declarations};
 use crate::spec;
 
 /// The client over one door: its URL and the API key, which is presented on
@@ -317,20 +316,21 @@ pub struct Policy {
 /// One `(requestee, op)` pair a policy allows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Allow {
-    /// The principal that executes the tool: `lid-rs`.
+    /// The principal that executes the tool, as its declaration names it.
     pub requestee: String,
-    /// The tool's name: `read`, `grep`, `glob`, `edit`, or `write`.
+    /// The tool's `op`, as its declaration names it.
     pub op: String,
 }
 
-/// One tool as the policy declares it to the model: the name it is shown
-/// by, the principal that executes it, the `op` a forward names, and the
-/// schema its description lives in.
+/// One tool as the policy declares it to the model — the declaration type a
+/// host hands [`policy_for`] and [`super::turn::Session::open`], whatever
+/// tools it declares: the name it is shown by, the principal that executes
+/// it, the `op` a forward names, and the schema its description lives in.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 pub struct ToolDecl {
     /// The name the model sees and calls the tool by.
     pub name: String,
-    /// The principal that executes it: `lid-rs`.
+    /// The principal that executes it.
     pub requestee: String,
     /// The tool's name.
     pub op: String,
@@ -339,13 +339,15 @@ pub struct ToolDecl {
     pub schema: Value,
 }
 
-/// The inline policy admitting exactly `tools` for the requestee `lid-rs`:
-/// `allows` lists their pairs and `tools` their declarations
-/// ([`super::tools::declarations`]), and nothing else.
-#[implements(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
-pub fn policy_for(tools: &[Tool]) -> Policy {
-    let allows = tools.iter().map(|tool| Allow { requestee: REQUESTEE.to_string(), op: tool.op().to_string() }).collect();
-    Policy { allows, tools: declarations(tools) }
+/// The inline policy admitting exactly the declarations a host hands it,
+/// whatever tools they name: `tools` those declarations and `allows` their
+/// `(requestee, op)` pairs, and nothing else. The policy is built from what
+/// it is handed rather than from this host's [`super::tools::Tool`], so a
+/// second host in this crate dials a session with a set of its own.
+#[implements(spec::APolicyIsBuiltFromTheDeclarationsItsHostHands)]
+pub fn policy_for(declarations: &[ToolDecl]) -> Policy {
+    let allows = declarations.iter().map(|tool| Allow { requestee: tool.requestee.clone(), op: tool.op.clone() }).collect();
+    Policy { allows, tools: declarations.to_vec() }
 }
 
 #[cfg(test)]
@@ -358,12 +360,12 @@ mod tests {
     use super::super::ending::WORKER_TOOLS;
     use super::super::replay::{self, Landed, Replay, Route, SHED_SENTENCE, Seen, SessionScript, Shed, mentions, strings, user};
     use super::super::review::REVIEW_TOOLS;
-    use super::super::tools::{REQUESTEE, schema_of};
+    use super::super::tools::{REQUESTEE, Tool, declarations, schema_of};
     use super::*;
 
     /// A worker's dial with this `max_cost`.
     fn settings(max_cost: f64) -> Settings {
-        Settings { system: "You run Phase 3.".to_string(), policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost }
+        Settings { system: "You run Phase 3.".to_string(), policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost }
     }
 
     /// The requests the replay saw on one route.
@@ -587,7 +589,7 @@ mod tests {
     #[test]
     #[validates(spec::TheWorkerPolicyAdmitsExactlyTheFiveTools)]
     fn the_worker_policy_admits_exactly_the_five_tools() {
-        let policy = policy_for(&WORKER_TOOLS);
+        let policy = policy_for(&declarations(&WORKER_TOOLS));
         let allows: Vec<(&str, &str)> = policy.allows.iter().map(|a| (a.requestee.as_str(), a.op.as_str())).collect();
         assert_eq!(allows, [("lid-rs", "read"), ("lid-rs", "grep"), ("lid-rs", "glob"), ("lid-rs", "edit"), ("lid-rs", "write")]);
         let tools: Vec<(&str, &str, &str)> = policy.tools.iter().map(|t| (t.name.as_str(), t.requestee.as_str(), t.op.as_str())).collect();
@@ -615,7 +617,7 @@ mod tests {
     #[test]
     #[validates(spec::TheReviewerPolicyAdmitsOnlyTheObservationTools)]
     fn the_reviewer_policy_admits_only_the_observation_tools() {
-        let policy = policy_for(&REVIEW_TOOLS);
+        let policy = policy_for(&declarations(&REVIEW_TOOLS));
         let allows: Vec<&str> = policy.allows.iter().map(|a| a.op.as_str()).collect();
         let tools: Vec<&str> = policy.tools.iter().map(|t| t.op.as_str()).collect();
         assert_eq!((allows, tools), (vec!["read", "grep", "glob"], vec!["read", "grep", "glob"]));

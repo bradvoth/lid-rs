@@ -14,7 +14,7 @@ use serde_json::{Value, json};
 
 use super::door::ToolDecl;
 use super::turn::Session;
-use crate::phase::{HookInput, HookVerdict, hook_post_edit, hook_pre_tool};
+use crate::phase::{HookInput, HookVerdict, Phase, hook_post_edit, hook_pre_tool};
 use crate::project::Project;
 use crate::spec;
 
@@ -258,14 +258,17 @@ pub fn within(root: &Path, resolved: &Path) -> Result<(), String> {
         .ok_or_else(|| format!("`{}` resolves outside the workspace root `{}`", resolved.display(), canonical.display()))
 }
 
-/// One forwarded call: the `op` must be a tool the session declared
-/// ([`declared`]) — an edit forwarded to the reviewer is refused here,
-/// whatever the authorizer did — then dispatched over [`Tool`] to its
-/// call, each of which confines the path, asks the phase library's
-/// pre-tool verdict, and does the work. The root every call confines
-/// against is the workspace root as cargo reports it, uncanonicalised: the
-/// root the phase library's policy strips an edit's path against, and the
-/// root the slice's crate is under in the same form.
+/// One forwarded call, and this host's executor: the function
+/// [`super::ending::turn`] hands each [`super::turn::drive`] as its
+/// [`super::turn::Executor`], so a host with tools of its own runs those
+/// through the same turn rather than these. The `op` must be a tool the
+/// session's declarations carry ([`declared`]) — an edit forwarded to the
+/// reviewer is refused here, whatever the authorizer did — then dispatched
+/// over [`Tool`] to its call, each of which confines the path, asks the
+/// phase library's pre-tool verdict, and does the work. The root every call
+/// confines against is the workspace root as cargo reports it,
+/// uncanonicalised: the root the phase library's policy strips an edit's
+/// path against, and the root the slice's crate is under in the same form.
 pub fn execute(project: &Project, session: &Session, op: &str, args: &Value) -> ToolResult {
     let root = project.root()?;
     match declared(session, op)? {
@@ -277,13 +280,15 @@ pub fn execute(project: &Project, session: &Session, op: &str, args: &Value) -> 
     }
 }
 
-/// The tool a forward's `op` names, provided the session's policy declared
-/// it; an unknown `op`, or one the session did not declare — an `edit`
-/// forwarded to the reviewer — is the refusal, and nothing runs.
-#[implements(spec::AnEditForwardedToTheReviewerIsRefusedHere)]
+/// The tool a forward's `op` names, provided the session's own declarations
+/// carry it ([`Session::declares`]) — the set its host dialled, not one
+/// fixed for this host's five; an unknown `op`, or one those declarations do
+/// not name — an `edit` forwarded to the reviewer — is the refusal, and
+/// nothing runs.
+#[implements(spec::AnEditForwardedToTheReviewerIsRefusedHere, spec::ASessionCarriesTheDeclarationsItsHostDialled)]
 pub fn declared(session: &Session, op: &str) -> Result<Tool, String> {
     Tool::of(op)
-        .filter(|tool| session.tools.contains(tool))
+        .filter(|_| session.declares(op))
         .ok_or_else(|| format!("`{op}` is not a tool this session's policy declared"))
 }
 
@@ -307,24 +312,51 @@ pub fn tool_input(session: &Session, tool: Tool, path: Option<&Path>) -> HookInp
     }
 }
 
-/// The pre-tool verdict for one call, asked as
-/// [`crate::phase::hook_pre_tool`] with the session's agent id: an
-/// observation is tallied and never refused; an edit or write is allowed,
-/// or refused with the verdict's wording as the error, before any file is
-/// touched.
-#[implements(spec::ObservationsAreTalliedThroughThePreToolVerdict, spec::ARefusedEditIsTheToolsErrorAndTheFileIsUntouched)]
+/// The pre-tool verdict for one call — the one decision over whether the
+/// session carries a phase: one that does is judged by the phase library
+/// ([`judged`]); one that does not asks no verdict and does its work, there
+/// being no phase whose policy could bound it and no tally for the call to
+/// belong to.
+#[implements(spec::ASessionWithoutAPhaseAsksNoPreToolVerdict, spec::ASessionWithoutAPhaseKeepsNoTally)]
 pub fn verdict(project: &Project, session: &Session, tool: Tool, path: Option<&Path>) -> Result<(), String> {
-    match hook_pre_tool(project, session.phase, &tool_input(session, tool, path))? {
+    match session.phase {
+        Some(phase) => judged(project, session, phase, tool, path),
+        None => Ok(()),
+    }
+}
+
+/// One call judged by the phase library, asked as
+/// [`crate::phase::hook_pre_tool`] for `phase` with the session's agent id:
+/// an observation is tallied and never refused; an edit or write is
+/// allowed, or refused with the verdict's wording as the error, before any
+/// file is touched.
+#[implements(spec::ObservationsAreTalliedThroughThePreToolVerdict, spec::ARefusedEditIsTheToolsErrorAndTheFileIsUntouched)]
+pub fn judged(project: &Project, session: &Session, phase: Phase, tool: Tool, path: Option<&Path>) -> Result<(), String> {
+    match hook_pre_tool(project, phase, &tool_input(session, tool, path))? {
         HookVerdict::Allow => Ok(()),
         HookVerdict::Refuse(reason) | HookVerdict::Context(reason) => Err(reason),
     }
 }
 
+/// What an allowed edit or write answers with — the one decision over
+/// whether the session carries a phase: one that does answers with the
+/// post-edit verdict's text ([`post_edit`]); one that does not asks for no
+/// check, since the check the phase library runs writes the tally, and a
+/// session with no phase has none for it to be written under.
+#[implements(spec::AnAllowedEditReturnsThePostEditVerdictsText, spec::ASessionWithoutAPhaseKeepsNoTally)]
+pub fn checked(project: &Project, session: &Session, tool: Tool, path: &Path) -> ToolResult {
+    match session.phase {
+        Some(_) => post_edit(project, session, tool, path),
+        None => todo!("what an edit answers in a session with no phase to write the post-edit check's tally under"),
+    }
+}
+
 /// The post-edit verdict after an allowed edit or write, asked as
 /// [`crate::phase::hook_post_edit`] with the session's agent id: its text
-/// — clippy's diagnostics, or "clean" — is the tool's result.
+/// — clippy's diagnostics, or "clean" — is the tool's result, and the check
+/// is tallied under the phase the session carries.
 #[implements(spec::AnAllowedEditReturnsThePostEditVerdictsText)]
-pub fn checked(project: &Project, session: &Session, tool: Tool, path: &Path) -> ToolResult {
+pub fn post_edit(project: &Project, session: &Session, tool: Tool, path: &Path) -> ToolResult {
     match hook_post_edit(project, &tool_input(session, tool, Some(path)))? {
         HookVerdict::Allow => Ok(String::new()),
         HookVerdict::Refuse(text) | HookVerdict::Context(text) => Ok(text),
@@ -705,9 +737,10 @@ mod tests {
             .collect()
     }
 
-    /// A session over no door, for the tools alone: the tally key is `canopy:<id>`.
+    /// A session over no door carrying a phase, for the tools alone: the
+    /// tally key is `canopy:<id>`, and its declarations are `tools`.
     fn session(id: &str, phase: Phase, tools: &[Tool]) -> Session {
-        replay::session(Door::new("http://127.0.0.1:1", "k"), id, phase, tools.to_vec())
+        replay::session(Door::new("http://127.0.0.1:1", "k"), id, Some(phase), declarations(tools))
     }
 
     #[test]

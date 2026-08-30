@@ -16,8 +16,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::door::{Door, Started};
-use super::tools::{REQUESTEE, Tool};
+use super::door::{Door, Started, ToolDecl};
+use super::tools::REQUESTEE;
 use super::turn::Session;
 use crate::phase::Phase;
 
@@ -308,10 +308,12 @@ pub fn now() -> u64 {
 }
 
 /// A session over `door` without a dial, for the tools' tests: the
-/// credential names `id`, so the tally key is `canopy:<id>`.
-pub fn session(door: Door, id: &str, phase: Phase, tools: Vec<Tool>) -> Session {
+/// credential names `id`, so the tally key is `canopy:<id>`; `phase` is the
+/// phase it runs, or `None` for a host that runs none, and `declarations`
+/// what its policy carried.
+pub fn session(door: Door, id: &str, phase: Option<Phase>, declarations: Vec<ToolDecl>) -> Session {
     let credential = Started { session: id.to_string(), token: format!("tok-{id}"), expires: now() + 3600, stream: format!("t/{id}") };
-    Session { door, credential, cursor: 0, held: Vec::new(), phase, tools }
+    Session { door, credential, cursor: 0, held: Vec::new(), phase, declarations }
 }
 
 // ---- record shapes -------------------------------------------------------------

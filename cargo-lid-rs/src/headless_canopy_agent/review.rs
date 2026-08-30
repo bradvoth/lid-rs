@@ -8,7 +8,7 @@ use serde_json::json;
 use super::Precondition;
 use super::door::{Door, Settings, policy_for};
 use super::ending::{agent_body, halt_reason, number, numbered, turn};
-use super::tools::Tool;
+use super::tools::{Tool, declarations};
 use super::turn::Session;
 use crate::phase::Phase;
 use crate::project::Project;
@@ -100,27 +100,28 @@ pub fn review_prompt(phase: Phase, state: &Precondition, commit: &str, paths: &[
 }
 
 /// The reviewer's dial and prompt: `system` the synced `lid-rs-review.md`
-/// body, the policy admitting `read`, `grep`, and `glob` and nothing else,
-/// empty `params`, `max_cost`; and the user message ([`review_prompt`]),
-/// naming the paths the commit touched.
+/// body, the policy built from this host's declarations of `read`, `grep`,
+/// and `glob` and nothing else, empty `params`, `max_cost`; and the user
+/// message ([`review_prompt`]), naming the paths the commit touched.
 #[implements(spec::TheReviewerPolicyAdmitsOnlyTheObservationTools, spec::TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles)]
 pub fn review_session(project: &Project, phase: Phase, state: &Precondition, commit: &str, paths: &[String], max_cost: f64) -> Result<(Settings, String), String> {
     let system = agent_body(project, "lid-rs-review")?;
-    let settings = Settings { system, policy: policy_for(&REVIEW_TOOLS), params: json!({}), max_cost };
+    let settings = Settings { system, policy: policy_for(&declarations(&REVIEW_TOOLS)), params: json!({}), max_cost };
     Ok((settings, review_prompt(phase, state, commit, paths)))
 }
 
 /// Drives one reviewer session to a verdict: the paths the commit touched
 /// read from git ([`super::commit_paths`]), the session dialled with the
-/// reviewer's settings, its turns run ([`verdicts`]), and the session
-/// stopped whichever way they ended — a stop the door refuses is the error
-/// even after a verdict. `Err` is a reason outside the model's doing that
-/// stops the run.
-#[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds, spec::TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles)]
+/// reviewer's settings and carrying the phase it reviews and this host's
+/// declarations of the three observation tools, its turns run
+/// ([`verdicts`]), and the session stopped whichever way they ended — a stop
+/// the door refuses is the error even after a verdict. `Err` is a reason
+/// outside the model's doing that stops the run.
+#[implements(spec::EverySessionIsStoppedWhenItsPhaseEnds, spec::TheReviewPromptNamesTheCommitTheLldAndTheSkillFiles, spec::TheReviewerPolicyAdmitsOnlyTheObservationTools)]
 pub fn review(project: &Project, door: &Door, phase: Phase, state: &Precondition, commit: &str, max_cost: f64) -> Result<Review, String> {
     let paths = super::commit_paths(project, commit)?;
     let (settings, prompt) = review_session(project, phase, state, commit, &paths, max_cost)?;
-    let mut session = Session::open(door, &settings, phase, REVIEW_TOOLS.to_vec())?;
+    let mut session = Session::open(door, &settings, Some(phase), declarations(&REVIEW_TOOLS))?;
     let verdict = verdicts(project, &mut session, &prompt);
     let sealed = session.stop().map_err(halt_reason);
     verdict.and_then(|review| sealed.map(|()| review))
@@ -200,7 +201,7 @@ mod tests {
         mentions(&text.to_lowercase(), &["refut"]);
         let (settings, prompt) = review_session(&project, Phase::Three, &state(&project), &commit, &paths, 2.5).expect("the dial and the prompt");
         assert_eq!((prompt, settings.system), (text, agent_body(&project, "lid-rs-review").expect("body")));
-        assert_eq!((settings.policy, settings.params, settings.max_cost), (policy_for(&REVIEW_TOOLS), json!({}), 2.5), "the amount given, not the default");
+        assert_eq!((settings.policy, settings.params, settings.max_cost), (policy_for(&declarations(&REVIEW_TOOLS)), json!({}), 2.5), "the amount given, not the default");
     }
 
     #[test]

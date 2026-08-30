@@ -13,8 +13,8 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 
-use super::door::{Door, Offered, Record, Settings, Started};
-use super::tools::{REQUESTEE, Tool, ToolResult, execute};
+use super::door::{Door, Offered, Record, Settings, Started, ToolDecl};
+use super::tools::{REQUESTEE, ToolResult};
 use crate::phase::Phase;
 use crate::phase::tally::{self, Event};
 use crate::project::Project;
@@ -38,7 +38,7 @@ pub const COMPLETED: &str = "app.invoke.completed";
 
 /// One open session: the door it was dialled on, the credential, the cursor
 /// the tail has reached, the payloads held until their forwards arrive, the
-/// phase it runs, and the tools its policy declared.
+/// phase it runs — if it runs one — and the declarations its policy carried.
 pub struct Session {
     /// The client the session was dialled through.
     pub door: Door,
@@ -48,24 +48,37 @@ pub struct Session {
     pub cursor: u64,
     /// `app.invoke.payload` records awaiting their forwards.
     pub held: Vec<Held>,
-    /// The phase the session runs, for the phase library's verdicts.
-    pub phase: Phase,
-    /// The tools the session's policy declared; a forward for any other is
+    /// The phase the session runs, for the phase library's verdicts;
+    /// `None` for a host that runs no phase, which then asks no pre-tool
+    /// verdict and keeps no tally, there being no phase for a policy to
+    /// bound or a tally to belong to.
+    pub phase: Option<Phase>,
+    /// The declarations the session was dialled with — its host's, whatever
+    /// tools they name; a forward for an `op` none of them carries is
     /// refused here.
-    pub tools: Vec<Tool>,
+    pub declarations: Vec<ToolDecl>,
 }
 
 impl Session {
     /// Dials a session with `settings` on `door` — its policy is fixed there
     /// for the session's life — and prints [`opened_line`] for the session's
     /// id as it opens, so every session a phase opens is printed before
-    /// anything else the phase prints. The session starts at cursor 0 with
-    /// nothing held.
-    #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding)]
-    pub fn open(door: &Door, settings: &Settings, phase: Phase, tools: Vec<Tool>) -> Result<Self, String> {
+    /// anything else the phase prints. The session carries the `phase` its
+    /// host runs, or `None` when it runs none, and the `declarations` its
+    /// host dialled; it starts at cursor 0 with nothing held.
+    #[implements(spec::EveryPhasePrintsItsSessionsAndItsEnding, spec::ASessionCarriesTheDeclarationsItsHostDialled)]
+    pub fn open(door: &Door, settings: &Settings, phase: Option<Phase>, declarations: Vec<ToolDecl>) -> Result<Self, String> {
         let credential = door.start(settings)?;
         println!("{}", opened_line(&credential.session));
-        Ok(Self { door: door.clone(), credential, cursor: 0, held: Vec::new(), phase, tools })
+        Ok(Self { door: door.clone(), credential, cursor: 0, held: Vec::new(), phase, declarations })
+    }
+
+    /// Whether the session's declarations carry this `op`: the set a
+    /// forwarded call is judged against is the one its host dialled, rather
+    /// than one fixed for this host's five.
+    #[implements(spec::ASessionCarriesTheDeclarationsItsHostDialled)]
+    pub fn declares(&self, op: &str) -> bool {
+        self.declarations.iter().any(|declaration| declaration.op == op)
     }
 
     /// The tally key and the commit's agent: `canopy:<session>`.
@@ -317,18 +330,29 @@ struct Turn<'a> {
     delivered: Instant,
 }
 
+/// What a turn runs a paired forward through: the executor its caller hands
+/// it, which answers with the completion's outcome. A trait object rather
+/// than this module reaching for [`super::tools::execute`] by name, so a
+/// second host in this crate runs its own tools through the same `drive`;
+/// `FnMut` rather than a function pointer, so the caller's executor may hold
+/// state — a recording of what it ran, which is what a second host needs to
+/// observe a turn.
+pub type Executor<'a> = &'a mut dyn FnMut(&Project, &Session, &str, &Value) -> ToolResult;
+
 /// Lands `message` as one `app.client.user_message` and follows the tail
 /// page by page ([`next_page`]), acting on each record by kind ([`acted`])
-/// until one settles the turn: the model's final text. Everything that
-/// ends the session without one — the platform's halt, the provider's
-/// second terminal, a quiet tail, the door's refusal — is the [`Halt`].
-#[implements(spec::ATurnSettlesOnAResponseWithoutToolUses)]
-pub fn drive(project: &Project, session: &mut Session, message: &str) -> Result<Settled, Halt> {
+/// until one settles the turn: the model's final text. Every paired forward
+/// runs through `executor`, the [`Executor`] this turn was handed.
+/// Everything that ends the session without a settled turn — the platform's
+/// halt, the provider's second terminal, a quiet tail, the door's refusal —
+/// is the [`Halt`].
+#[implements(spec::ATurnSettlesOnAResponseWithoutToolUses, spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
+pub fn drive(project: &Project, session: &mut Session, executor: Executor, message: &str) -> Result<Settled, Halt> {
     land_message(session, message)?;
     let mut turn = Turn { message, retry: Retry::Untried, delivered: Instant::now() };
     loop {
         for record in next_page(session, &mut turn)? {
-            if let Progress::Settled(settled) = acted(project, session, &mut turn, &record)? {
+            if let Progress::Settled(settled) = acted(project, session, executor, &mut turn, &record)? {
                 return Ok(settled);
             }
         }
@@ -416,10 +440,10 @@ fn next_page(session: &mut Session, turn: &mut Turn) -> Result<Vec<Record>, Halt
     spec::ATurnSettlesOnAResponseWithoutToolUses,
     spec::AHaltEndsTheRunWithItsReason,
 )]
-fn acted(project: &Project, session: &mut Session, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
+fn acted(project: &Project, session: &mut Session, executor: Executor, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
     match Kind::of(&record.kind) {
         Kind::Payload => held(session, record),
-        Kind::Forward => answered(project, session, record),
+        Kind::Forward => answered(project, session, executor, record),
         Kind::Denied => denied(project, session),
         Kind::Responded => responded(session, turn, record),
         Kind::Halted => halted(record),
@@ -452,21 +476,22 @@ fn held(session: &mut Session, record: &Record) -> Result<Progress, Halt> {
 /// answered; one this program is not the addressee of, or whose payload it
 /// does not hold, is read past unanswered.
 #[implements(spec::AForwardIsPairedWithTheHeldPayloadOfItsDigest, spec::AForwardToAnotherPrincipalIsNotAnswered)]
-fn answered(project: &Project, session: &mut Session, record: &Record) -> Result<Progress, Halt> {
+fn answered(project: &Project, session: &mut Session, executor: Executor, record: &Record) -> Result<Progress, Halt> {
     let forward: Forward = body_of(record)?;
     match pair(&session.held, &forward) {
         None => Ok(Progress::Continue),
-        Some(pairing) => completed(project, session, record.cursor, &forward, &pairing),
+        Some(pairing) => completed(project, session, executor, record.cursor, &forward, &pairing),
     }
 }
 
-/// A paired forward answered: its tool run, the completion landed on the
-/// credential the send bears ([`Session::bearer`]) and under the forward's
-/// idempotency key — the door's refusal ends the session with its sentence —
-/// and the payload released.
-#[implements(spec::ADoorRefusalStopsTheRunWithItsSentence)]
-fn completed(project: &Project, session: &mut Session, forward_cursor: u64, forward: &Forward, pairing: &Pairing) -> Result<Progress, Halt> {
-    let result = execute(project, session, &forward.op, &pairing.args);
+/// A paired forward answered: its tool run through the [`Executor`] this
+/// turn was handed — whose answer is the completion's outcome — the
+/// completion landed on the credential the send bears ([`Session::bearer`])
+/// and under the forward's idempotency key — the door's refusal ends the
+/// session with its sentence — and the payload released.
+#[implements(spec::ADoorRefusalStopsTheRunWithItsSentence, spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
+fn completed(project: &Project, session: &mut Session, executor: Executor, forward_cursor: u64, forward: &Forward, pairing: &Pairing) -> Result<Progress, Halt> {
+    let result = executor(project, session, &forward.op, &pairing.args);
     let (offered, idem) = completion(forward_cursor, pairing, &result);
     let credential = session.bearer()?.clone();
     session.door.send(&credential, &offered, Some(&idem)).map_err(Halt::Refused)?;
@@ -474,10 +499,22 @@ fn completed(project: &Project, session: &mut Session, forward_cursor: u64, forw
     Ok(Progress::Continue)
 }
 
-/// An `app.invoke.denied`: nothing runs; it is counted as a policy refusal
-/// in the session's tally ([`crate::phase::tally::record`]).
-#[implements(spec::ADenialIsCountedAsARefusal)]
+/// An `app.invoke.denied`: nothing runs either way, and the one decision is
+/// whether there is a tally for it to be counted in — a session carrying a
+/// phase counts it as a policy refusal ([`counted`]); a session carrying
+/// none has no phase for a tally to belong to, so nothing is written.
+#[implements(spec::ADenialIsCountedAsARefusal, spec::ASessionWithoutAPhaseKeepsNoTally)]
 fn denied(project: &Project, session: &Session) -> Result<Progress, Halt> {
+    match session.phase {
+        Some(_) => counted(project, session),
+        None => Ok(Progress::Continue),
+    }
+}
+
+/// A denial counted as a policy refusal in the session's tally
+/// ([`crate::phase::tally::record`]), under `canopy:<session>`.
+#[implements(spec::ADenialIsCountedAsARefusal)]
+fn counted(project: &Project, session: &Session) -> Result<Progress, Halt> {
     tally::record(project, &session.agent_id(), Event::PolicyRefusal).map_err(Halt::Refused)?;
     Ok(Progress::Continue)
 }
@@ -636,7 +673,7 @@ mod tests {
     use super::super::door::{Envelope, policy_for};
     use super::super::ending::WORKER_TOOLS;
     use super::super::replay::{self, REQUESTOR, Replay, Route, Seen, SessionScript, mentions, sha256, strings};
-    use super::super::tools::REQUESTEE;
+    use super::super::tools::{REQUESTEE, declarations, execute};
     use super::super::{KEY_VARIABLE, PRODUCTION_DOOR};
     use super::*;
     use crate::phase::fixture;
@@ -654,12 +691,12 @@ mod tests {
 
     /// A worker's dial.
     fn settings() -> Settings {
-        Settings { system: "You run Phase 3.".to_string(), policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost: 5.0 }
+        Settings { system: "You run Phase 3.".to_string(), policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost: 5.0 }
     }
 
     /// A worker session opened on the replay.
     fn open(replay: &Replay) -> Session {
-        Session::open(&replay.door("k"), &settings(), Phase::Three, WORKER_TOOLS.to_vec()).expect("opened")
+        Session::open(&replay.door("k"), &settings(), Some(Phase::Three), declarations(&WORKER_TOOLS)).expect("opened")
     }
 
     /// A held `read` payload addressed to `to`.
@@ -690,9 +727,9 @@ mod tests {
         let line = opened_line("s-open");
         mentions(&line, &["s-open"]);
         let replay = Replay::serve(vec![SessionScript::new("s-open")]);
-        let session = Session::open(&replay.door("k"), &settings(), Phase::Four, WORKER_TOOLS.to_vec()).expect("opened");
-        let shape = (session.credential.session.as_str(), session.cursor, session.held.len(), session.phase, session.tools.as_slice());
-        assert_eq!(shape, ("s-open", 0, 0, Phase::Four, WORKER_TOOLS.as_slice()));
+        let session = Session::open(&replay.door("k"), &settings(), Some(Phase::Four), declarations(&WORKER_TOOLS)).expect("opened");
+        let shape = (session.credential.session.as_str(), session.cursor, session.held.len(), session.phase, session.declarations.as_slice());
+        assert_eq!(shape, ("s-open", 0, 0, Some(Phase::Four), declarations(&WORKER_TOOLS).as_slice()));
         assert_eq!(session.agent_id(), "canopy:s-open");
         assert_eq!((replay.opened(), line.lines().count()), (strings(&["s-open"]), 1), "one session opened; what open prints for it is one line");
     }
@@ -700,7 +737,7 @@ mod tests {
     #[test]
     #[validates(spec::TheCommitNamesItsSessionAsTheAgent)]
     fn the_agent_id_is_the_session_under_canopy() {
-        let session = replay::session(Door::new("http://127.0.0.1:1", "k"), "3f0c1c9a-6f6e", Phase::Three, vec![]);
+        let session = replay::session(Door::new("http://127.0.0.1:1", "k"), "3f0c1c9a-6f6e", Some(Phase::Three), vec![]);
         assert_eq!(session.agent_id(), "canopy:3f0c1c9a-6f6e");
     }
 
@@ -770,7 +807,7 @@ mod tests {
         let page = vec![replay::responded_with_tools("Asking the relay.", &[("read", relay.clone())]), replay::payload_to("mcp.relay", relay), replay::forward_to("mcp.relay", "read", &digest)];
         let replay = Replay::serve(vec![SessionScript::new("s-relay").page(page).page(replay::settling_page("done"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "go").expect("settled"), Settled { text: "done".to_string() });
+        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled"), Settled { text: "done".to_string() });
         assert!(replay::completions(&replay.landed("s-relay")).is_empty(), "not this program's to answer");
     }
 
@@ -782,7 +819,7 @@ mod tests {
         let script = SessionScript::new("s-read").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("ok"));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!((drive(&project, &mut session, "read hello").expect("settled").text, session.held.len()), ("ok".to_string(), 0));
+        assert_eq!((drive(&project, &mut session, &mut execute, "read hello").expect("settled").text, session.held.len()), ("ok".to_string(), 0));
         let completion = replay::completions(&replay.landed("s-read")).remove(0);
         // The door's policy record is 1 and the user message 2; the page's forward is its fifth record: cursor 7.
         assert_eq!(completion.idem, Some(":7:65534:0".to_string()));
@@ -819,7 +856,7 @@ mod tests {
         let page = vec![replay::responded_with_tools("Trying bash.", &[("bash", args.clone())]), replay::payload(args), replay::denied(&digest)];
         let replay = Replay::serve(vec![SessionScript::new("s-denied").page(page).page(replay::settling_page("fine"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "go").expect("settled").text, "fine");
+        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled").text, "fine");
         assert!(replay::completions(&replay.landed("s-denied")).is_empty(), "nothing executed, nothing answered");
         assert_eq!(tally::load(&project, "canopy:s-denied").expect("tally").policy_refusals, 1);
     }
@@ -843,7 +880,7 @@ mod tests {
         let script = SessionScript::new("s-settle").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("The file greets."));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "look").expect("settled"), Settled { text: "The file greets.".to_string() });
+        assert_eq!(drive(&project, &mut session, &mut execute, "look").expect("settled"), Settled { text: "The file greets.".to_string() });
         assert_eq!(replay::user_messages(&replay.landed("s-settle")), strings(&["look"]), "one user message outstanding for the turn");
         assert!(afters(&replay).len() >= 2, "the tail was followed on past the tool uses");
     }
@@ -857,7 +894,7 @@ mod tests {
         let first = vec![replay::requested(1), replay::attempted(), replay::terminal(replay::TERMINAL_SENTENCE)];
         let replay = Replay::serve(vec![SessionScript::new("s-terminal").page(first).page(replay::settling_page("second time lucky"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "hello").expect("settled").text, "second time lucky");
+        assert_eq!(drive(&project, &mut session, &mut execute, "hello").expect("settled").text, "second time lucky");
         assert_eq!(replay::user_messages(&replay.landed("s-terminal")), strings(&["hello", "hello"]));
     }
 
@@ -868,7 +905,7 @@ mod tests {
         let script = SessionScript::new("s-terminal2").page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]).page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]);
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "hello").expect_err("stopped"), Halt::Terminal(replay::TERMINAL_SENTENCE.to_string()));
+        assert_eq!(drive(&project, &mut session, &mut execute, "hello").expect_err("stopped"), Halt::Terminal(replay::TERMINAL_SENTENCE.to_string()));
         assert_eq!(replay::user_messages(&replay.landed("s-terminal2")).len(), 2, "landed once more, not twice");
     }
 
@@ -878,7 +915,7 @@ mod tests {
         let (_dir, project) = fixture::copy("canopy-turn-halted");
         let replay = Replay::serve(vec![SessionScript::new("s-halt").page(vec![replay::requested(1), replay::halted("context_limit reached")])]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, "go").expect_err("halted"), Halt::Halted("context_limit reached".to_string()));
+        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect_err("halted"), Halt::Halted("context_limit reached".to_string()));
     }
 
     #[test]
@@ -919,7 +956,7 @@ mod tests {
         let replay = Replay::serve(vec![SessionScript::new("s-expiring").expiring_in(3).page(replay::settling_page("ok"))]);
         let mut session = open(&replay);
         let first = session.credential.clone();
-        assert_eq!(drive(&project, &mut session, "go").expect("settled").text, "ok");
+        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled").text, "ok");
         assert!(session.credential.session == first.session && session.credential.token != first.token, "refreshed: {:?}", session.credential);
         assert_eq!(session.cursor, 4, "the door's policy record, the user message, then the page's two records, read on the refreshed credential");
     }
@@ -963,7 +1000,7 @@ mod tests {
         let script = SessionScript::new("s-after").page(vec![replay::requested(1), replay::attempted()]).page(replay::settling_page("ok"));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        drive(&project, &mut session, "go").expect("settled");
+        drive(&project, &mut session, &mut execute, "go").expect("settled");
         // The door's policy record is 1 and the message 2; the first read returns both; the next two return the pages through 4 and 6.
         assert_eq!(afters(&replay), [Some("0".to_string()), Some("2".to_string()), Some("4".to_string())]);
         assert!(replay.seen().iter().filter(|s| s.route() == Some(Route::Tail)).all(|s| s.query("wait") == Some("25".to_string())), "every read parked 25 s");
@@ -976,9 +1013,9 @@ mod tests {
         let scripts = vec![SessionScript::new("s-nosend").refusing(Route::Send, 409, "the session has stopped"), SessionScript::new("s-notail").refusing(Route::Tail, 429, "shed")];
         let replay = Replay::serve(scripts);
         let mut first = open(&replay);
-        assert_eq!(drive(&project, &mut first, "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
+        assert_eq!(drive(&project, &mut first, &mut execute, "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
         let mut second = open(&replay);
-        assert_eq!(drive(&project, &mut second, "go").expect_err("refused"), Halt::Refused("shed".to_string()));
+        assert_eq!(drive(&project, &mut second, &mut execute, "go").expect_err("refused"), Halt::Refused("shed".to_string()));
         assert_eq!(land_message(&mut first, "again").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
     }
 
@@ -1001,9 +1038,9 @@ mod tests {
         let url = std::env::var(DOOR_VARIABLE).unwrap_or_else(|_| PRODUCTION_DOOR.to_string());
         let project = Project::load_graph().expect("this workspace");
         let system = "You are checking a tool loop. Call the `read` tool on `README.md`, then answer with its first line.".to_string();
-        let settings = Settings { system, policy: policy_for(&WORKER_TOOLS), params: json!({}), max_cost: 1.0 };
-        let mut session = Session::open(&Door::new(&url, &key), &settings, Phase::Three, WORKER_TOOLS.to_vec()).expect("dialled");
-        let turn = drive(&project, &mut session, "Read `README.md` with the `read` tool and tell me its first line.");
+        let settings = Settings { system, policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost: 1.0 };
+        let mut session = Session::open(&Door::new(&url, &key), &settings, Some(Phase::Three), declarations(&WORKER_TOOLS)).expect("dialled");
+        let turn = drive(&project, &mut session, &mut execute, "Read `README.md` with the `read` tool and tell me its first line.");
         session.stop().expect("stopped");
         match turn {
             Ok(settled) => assert!(!settled.text.trim().is_empty(), "the model answered"),
