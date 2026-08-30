@@ -25,4 +25,10 @@ For a Phase 8 change to an existing slice, this phase is "edit the LLD" —
 same fresh-author discipline, same STOP, but see `phase-8.md` for the
 cascade that follows.
 
+`cargo lid-rs coach` runs this phase as an interview instead: a session that
+reads the repository, questions the human one question at a time, drafts the
+document, and has it read back by the checks and the reader between drafts.
+Its method is `coach.md`; what it produces is a draft, and approving and
+committing it are still the human's.
+
 **STOP for review.** Commit as `phase 1: LLD for <slice>` once approved.

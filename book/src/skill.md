@@ -20,6 +20,8 @@
 
 {{#include ../../lid-rs/skill/references/lld.md}}
 
+{{#include ../../lid-rs/skill/references/coach.md}}
+
 {{#include ../../lid-rs/skill/references/discipline.md}}
 
 {{#include ../../lid-rs/skill/references/gates.md}}
