@@ -49,6 +49,11 @@ pub use headless_canopy_agent::{
     TheWorkerPromptCarriesTheSliceTheLogAndTheSubject,
     AReworkPromptCarriesTheReviewersFindings,
     EverySessionIsStoppedWhenItsPhaseEnds,
+    APolicyIsBuiltFromTheDeclarationsItsHostHands,
+    ASessionCarriesTheDeclarationsItsHostDialled,
+    APairedForwardRunsThroughTheExecutorTheTurnWasHanded,
+    ASessionWithoutAPhaseAsksNoPreToolVerdict,
+    ASessionWithoutAPhaseKeepsNoTally,
     AForwardsOpClassifiesToItsToolOrToNone,
     EveryToolConfinesItsPathToTheWorkspace,
     ReadReturnsNumberedLinesOrADirectorysEntries,
@@ -99,27 +104,6 @@ pub use headless_canopy_agent::{
     AMissingReviewBlockIsAskedForOnceMore,
     ASecondMissingReviewBlockIsARejection,
 };
-
-/// The name [`ARejectionWithAReworkLeftOpensAnotherWorkerSession`] carried
-/// while a rejection was allowed exactly once per phase. The alias registers
-/// no claim, so the graph sees only the claim it points at; every citation of
-/// this name warns with its replacement, and those citations are the later
-/// phases' work list.
-#[deprecated = "replaced by ARejectionWithAReworkLeftOpensAnotherWorkerSession"]
-pub type AFirstRejectionOpensOneReworkSession =
-    headless_canopy_agent::ARejectionWithAReworkLeftOpensAnotherWorkerSession;
-
-/// The name [`AReworksCommitIsAnotherPhaseCommitOnTheBranch`] carried while
-/// a phase could hold at most two `phase <n>:` commits.
-#[deprecated = "replaced by AReworksCommitIsAnotherPhaseCommitOnTheBranch"]
-pub type AReworksCommitIsASecondPhaseCommitOnTheBranch =
-    headless_canopy_agent::AReworksCommitIsAnotherPhaseCommitOnTheBranch;
-
-/// The name [`ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings`]
-/// carried while the second rejection was the one that ended the run.
-#[deprecated = "replaced by ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings"]
-pub type ASecondRejectionEndsTheRunWithTheFindings =
-    headless_canopy_agent::ARejectionWithTheBudgetSpentEndsTheRunWithTheFindings;
 
 pub use init::{
     InitTargetsThePackageInTheCurrentDirectory,

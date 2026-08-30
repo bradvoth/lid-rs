@@ -145,6 +145,38 @@ pub struct AReworkPromptCarriesTheReviewersFindings;
 #[derive(Spec)]
 pub struct EverySessionIsStoppedWhenItsPhaseEnds;
 
+// ---- a session's tools are its host's ------------------------------------------
+
+/// When a session's policy is built, it shall be built from the declarations
+/// its host hands it: `tools` those declarations, `allows` exactly their
+/// `(requestee, op)` pairs, whatever tools a host declares.
+#[derive(Spec)]
+pub struct APolicyIsBuiltFromTheDeclarationsItsHostHands;
+
+/// When a session is opened, it shall carry the declarations it was dialled
+/// with, whatever tools they name, so the set a forwarded call is judged
+/// against is its host's rather than one fixed for this host's five.
+#[derive(Spec)]
+pub struct ASessionCarriesTheDeclarationsItsHostDialled;
+
+/// When a turn runs a paired forward's tool, it shall run it through the
+/// executor its caller handed to `drive`, whose answer is the completion's
+/// outcome.
+#[derive(Spec)]
+pub struct APairedForwardRunsThroughTheExecutorTheTurnWasHanded;
+
+/// When a session carries no phase, a tool call in it shall do its work
+/// without asking the pre-tool verdict, there being no phase whose policy
+/// could bound it.
+#[derive(Spec)]
+pub struct ASessionWithoutAPhaseAsksNoPreToolVerdict;
+
+/// When a session carries no phase, nothing shall be tallied under it —
+/// neither an observation, nor an edit, nor the check after an edit, nor a
+/// denial — there being no phase for a tally to belong to.
+#[derive(Spec)]
+pub struct ASessionWithoutAPhaseKeepsNoTally;
+
 // ---- the five tools ------------------------------------------------------------
 
 /// When a forward's `op` is classified, `read`, `grep`, `glob`, `edit`, and
@@ -199,9 +231,9 @@ pub struct AnAmbiguousOrAbsentOldStringIsAnErrorNamingTheCount;
 #[derive(Spec)]
 pub struct WriteCreatesOrReplacesTheFileWhole;
 
-/// When `read`, `grep`, or `glob` runs, it shall ask the phase library's
-/// pre-tool verdict as `Read`, `Grep`, or `Glob` before its work, so the
-/// observation is tallied under the session.
+/// When `read`, `grep`, or `glob` runs in a session carrying a phase, it
+/// shall ask the phase library's pre-tool verdict as `Read`, `Grep`, or
+/// `Glob` before its work, so the observation is tallied under the session.
 #[derive(Spec)]
 pub struct ObservationsAreTalliedThroughThePreToolVerdict;
 
@@ -210,8 +242,8 @@ pub struct ObservationsAreTalliedThroughThePreToolVerdict;
 #[derive(Spec)]
 pub struct ARefusedEditIsTheToolsErrorAndTheFileIsUntouched;
 
-/// When an `edit` or `write` is allowed and made, the tool's result shall be
-/// the text of the post-edit verdict.
+/// When an `edit` or `write` is allowed and made in a session carrying a
+/// phase, the tool's result shall be the text of the post-edit verdict.
 #[derive(Spec)]
 pub struct AnAllowedEditReturnsThePostEditVerdictsText;
 
@@ -267,7 +299,7 @@ pub struct ACompletionAnswersThePayloadsProducer;
 pub struct ACompletionsIdempotencyKeyIsTheForwardsCursor;
 
 /// When an `app.invoke.denied` arrives, the client shall execute nothing and
-/// count it as a refusal in the session's tally.
+/// count it as a refusal in the tally of the phase its session carries.
 #[derive(Spec)]
 pub struct ADenialIsCountedAsARefusal;
 
