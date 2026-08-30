@@ -226,6 +226,12 @@ That cascade is not a phase agent's to make: `src/spec/phase.rs` and
 refuses. It is the human's commit at Phase 7, alongside the gate they run
 there, as every cascade into another slice has been.
 
+The guideline and the reader are the human's for the same reason and one
+more: they ship from the `lid-rs` crate, a package outside this slice's
+path policy, and they are prose a person writes rather than code a phase
+derives. They exist before Phase 5, because the two artifact checks have
+nothing to read until they do.
+
 ## Shape
 
 | Item | Role |
