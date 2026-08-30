@@ -35,7 +35,7 @@ const HOOK_USAGE: &str = "usage: cargo lid-rs hook <pre-tool <n> | post-edit <n>
 pub enum Phase {
     /// The LLD: docs and doctests.
     One,
-    /// The claims: build and lint.
+    /// The claims: they build.
     Two,
     /// The layer-0 skeleton: type-checks.
     Three,
@@ -66,18 +66,14 @@ impl TryFrom<u8> for Phase {
 }
 
 /// One step of a phase's check — the closed set of things a check runs,
-/// which is README §4.5's list, phase 2's lint, and the red run.
+/// which is README §4.5's list and the red run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::PhaseTwoChecksTheClaimsBuildAndLint)]
+#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::PhaseTwoChecksTheClaimsBuild)]
 pub enum Step {
     /// `cargo check --all-targets`.
     Check,
     /// `cargo clippy --all-targets -- -D warnings`.
     Clippy,
-    /// `cargo clippy --all-targets -- -D warnings -A deprecated`: phase 2's
-    /// lint, where a citation of a retired claim's name is the cascade in
-    /// flight — the next phases' work list — rather than a failure.
-    ClippyAllowingDeprecated,
     /// `cargo doc --no-deps` with broken intra-doc links denied.
     Doc,
     /// `cargo test --doc`.
@@ -489,14 +485,15 @@ pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(),
 /// `cargo package` runs for at phase 7.
 #[implements(
     spec::PhaseOneChecksTheDocs,
-    spec::PhaseTwoChecksTheClaimsBuildAndLint,
+    spec::PhaseTwoChecksTheClaimsBuild,
+    spec::WarningsDoNotFailPhaseTwosCheck,
     spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks,
     spec::PhaseSevenRunsTheGateInOrder,
 )]
 pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     match phase {
         Phase::One => vec![Step::Doc, Step::DocTests],
-        Phase::Two => vec![Step::Check, Step::ClippyAllowingDeprecated],
+        Phase::Two => vec![Step::Check],
         Phase::Three | Phase::Four => vec![Step::Check],
         Phase::Five => vec![Step::Red],
         Phase::Seven => gate(publishing),
@@ -528,13 +525,13 @@ fn execute_with(steps: &[Step], mut run: impl FnMut(&Step) -> Result<(), String>
 }
 
 /// Runs one step: one dispatch over the closed set. The red run needs a
-/// slice; without one it fails naming the branch convention.
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::TheSliceComesFromTheBranchName)]
+/// slice; without one it fails naming the branch convention. `Check` denies
+/// no lint, so a workspace that builds with warnings passes it.
+#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::WarningsDoNotFailPhaseTwosCheck, spec::TheSliceComesFromTheBranchName)]
 fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), String> {
     match step {
         Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
         Step::Clippy => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings"], &[]),
-        Step::ClippyAllowingDeprecated => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings", "-A", "deprecated"], &[]),
         Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
         Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
@@ -986,23 +983,9 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhaseTwoChecksTheClaimsBuildAndLint)]
-    fn phase_two_checks_the_claims_build_and_lint() {
-        assert_eq!(plan(Phase::Two, &[]), [Step::Check, Step::ClippyAllowingDeprecated]);
-        // The lint step itself, on a package whose only warning is a citation
-        // of a deprecated item — the cascade in flight: phase 2's clippy lets
-        // it through; the gate's clippy, the same command without
-        // `-A deprecated`, denies it.
-        let (dir, project) = fixture::copy("phase-two-lint");
-        std::fs::write(
-            dir.join("src/hello.rs"),
-            "//! The hello slice.\n\n/// Greets.\n#[deprecated = \"replaced by greet_warmly\"]\npub fn greet() -> &'static str {\n    \"hello\"\n}\n\n\
-             /// Greets, warmly.\npub fn greet_warmly() -> &'static str {\n    greet()\n}\n",
-        )
-        .expect("write");
-        run_step(&project, None, &Step::ClippyAllowingDeprecated).expect("a deprecated citation passes phase 2's lint");
-        let err = run_step(&project, None, &Step::Clippy).expect_err("the gate's clippy denies the same citation");
-        assert!(err.contains("deprecated"), "{err}");
+    #[validates(spec::PhaseTwoChecksTheClaimsBuild)]
+    fn phase_two_checks_the_claims_build() {
+        assert_eq!(plan(Phase::Two, &[]), [Step::Check]);
     }
 
     #[test]
