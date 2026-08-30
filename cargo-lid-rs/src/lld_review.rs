@@ -522,3 +522,651 @@ fn cells(line: &str) -> Vec<String> {
 pub fn identifiers(cell: &str) -> Vec<String> {
     todo!("the backticked spans of {cell}")
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use lid_rs::validates;
+
+    use std::collections::BTreeSet;
+
+    use crate::phase::fixture;
+
+    /// A document that holds every check: a decisions table whose row fills
+    /// its four cells, a shape row naming an identifier and a role, and a
+    /// numbered deferral.
+    const HOLDS: &str = "\
+# s — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `run(args)` | the entry |
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| what | this | that | because |
+
+### Deferred
+1. Something later.
+";
+
+    /// A document that fails three checks at once: no decisions table, a
+    /// shape row naming no identifier, and an unnumbered deferral.
+    const FAILS_THREE: &str = "\
+# s — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| no identifier | a note |
+
+### Deferred
+- an unnumbered deferral
+";
+
+    /// A document with two tables under two headings, and a heading with no
+    /// table under it at all.
+    const TWO_TABLES: &str = "\
+# d
+
+## Behaviour
+
+Prose only, and no table anywhere under this heading.
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `a` | first |
+| `b` | second |
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| what | this | that | because |
+";
+
+    /// A document whose decisions heading is there but whose decisions are
+    /// prose, so there is no table under it.
+    const DECISIONS_IN_PROSE: &str = "\
+# d
+
+## Decisions & Alternatives
+
+The decisions are told in a paragraph, and there is no table.
+";
+
+    /// A decisions table with a filled row, a row of three cells, and a row
+    /// whose second cell is empty.
+    const DECISIONS_ROWS: &str = "\
+# d
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| full | this | that | because |
+| three | cells | only |
+| empty |  | that | because |
+";
+
+    /// A shape table with a row that names an identifier and a role, a row
+    /// that names no identifier, and a row that gives no role.
+    const SHAPE_ROWS: &str = "\
+# d
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `run(args)` | the entry |
+| plain prose | a note |
+| `Lld` |  |
+";
+
+    /// A document whose shape is named in prose under its heading rather
+    /// than in a table.
+    const SHAPE_IN_PROSE: &str = "\
+# d
+
+## Shape
+
+`run(args)` is the entry, described in a sentence rather than in a table.
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| what | this | that | because |
+";
+
+    /// A deferred section with a numbered item, its continuation line, and
+    /// two unnumbered items — and a bullet under a later heading.
+    const DEFERRED_ITEMS: &str = "\
+# d
+
+## Open Questions
+
+### Deferred
+1. A numbered deferral,
+   continued on this line.
+- an unnumbered one
+* a second unnumbered one
+
+## References
+
+- a bullet outside the deferred section
+";
+
+    /// A document with bullets and no deferred heading to number them under.
+    const BULLETS_ELSEWHERE: &str = "\
+# d
+
+## References
+
+- a bullet, under no deferred heading
+- another
+";
+
+    /// A guideline whose checklist names four of the six checks, and whose
+    /// questions name the other two outside the checklist.
+    const PARTIAL_CHECKLIST: &str = "\
+# Writing an LLD, and reading one
+
+## The checklist — what the tool refuses
+
+| Check | It holds when |
+|---|---|
+| `DecisionsExist` | the document records its decisions |
+| `Alternatives` | every row fills its four cells |
+| `DeferredNumbered` | every deferral is numbered |
+| `GuidelineNamesEveryCheck` | this checklist names every check |
+
+## The questions — what a reader asks
+
+Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
+";
+
+    /// The arguments a command line gives, as the strings `run` takes.
+    fn strings(list: &[&str]) -> Vec<String> {
+        list.iter().map(|item| (*item).to_string()).collect()
+    }
+
+    /// One of the fixture documents as the [`Lld`] a slice's document would
+    /// have been read into.
+    fn document(slice: &str, text: &str) -> Lld {
+        Lld {
+            slice: slice.to_string(),
+            path: PathBuf::from(format!("/w/docs/intent/{slice}/lld.md")),
+            lines: text.lines().map(str::to_string).collect(),
+        }
+    }
+
+    /// The number, counted from one, of a fixture text's line.
+    fn line_at(text: &str, line: &str) -> usize {
+        text.lines().position(|candidate| candidate == line).expect("the fixture holds that line") + 1
+    }
+
+    /// What a failure locates: its check, the file it is about, and the line
+    /// it is on.
+    fn located(failure: &Failure) -> (Check, &Path, usize) {
+        (failure.check, failure.path.as_path(), failure.line)
+    }
+
+    /// Every failure, located, in the order they were reported.
+    fn all_located(failures: &[Failure]) -> Vec<(Check, &Path, usize)> {
+        failures.iter().map(located).collect()
+    }
+
+    /// A `cargo metadata` document for a workspace at `root` whose members
+    /// are the directories `members`, each relative to it.
+    fn metadata(root: &Path, members: &[&str]) -> String {
+        let packages: Vec<String> = members
+            .iter()
+            .map(|member| {
+                let manifest = root.join(member).join("Cargo.toml");
+                format!(r#"{{"name":"m","manifest_path":"{}","targets":[{{"kind":["lib"],"name":"m"}}]}}"#, manifest.display())
+            })
+            .collect();
+        format!(
+            r#"{{"workspace_root":"{}","target_directory":"{}","packages":[{}]}}"#,
+            root.display(),
+            root.join("target").display(),
+            packages.join(",")
+        )
+    }
+
+    /// A project rooted at `root` with those members, without asking cargo.
+    fn project_at(root: &Path, members: &[&str]) -> Project {
+        Project::from_json(&metadata(root, members)).expect("the metadata document parses")
+    }
+
+    /// This workspace's root: the parent of this crate's manifest directory.
+    fn workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("the crate directory has a parent").to_path_buf()
+    }
+
+    /// Writes a file, creating the directories above it.
+    fn write_at(path: &Path, content: &str) {
+        std::fs::create_dir_all(path.parent().expect("the path has a parent")).expect("create the directories");
+        std::fs::write(path, content).expect("write the file");
+    }
+
+    /// This workspace's own synced guideline and reader, copied under a
+    /// scratch root so that a scratch project's artifact checks read exactly
+    /// what this project ships.
+    fn install_artifacts(root: &Path) {
+        for relative in [GUIDELINE, READER] {
+            let content = std::fs::read_to_string(workspace_root().join(relative)).expect("this workspace's synced copy");
+            write_at(&root.join(relative), &content);
+        }
+    }
+
+    /// The reader's file, declaring `tools` in its frontmatter.
+    fn reader_declaring(tools: &str) -> String {
+        format!("---\nname: lid-rs-lld-review\ndescription: Reads one slice's LLD.\ntools: {tools}\n---\n\nYou read one slice's LLD.\n")
+    }
+
+    #[test]
+    #[validates(spec::TheSliceIsTheFlagsValueOrTheBranchName)]
+    fn the_slice_is_the_flags_value_or_the_branch_name() {
+        let root = fixture::scratch("lld-review-slice");
+        fixture::git(&root, &["init", "-q", "-b", "lld/hello"]);
+        write_at(&root.join("docs/intent/hello/lld.md"), "# hello\n");
+        let project = project_at(&root, &[""]);
+
+        // Absent the flag, the branch `lld/hello` names the slice, and it is
+        // hello's document that is read.
+        let from_branch = slice_of(&project, parse_args(&[]).expect("no argument parses")).expect("the branch names a slice");
+        let read = Lld::read(&project, &from_branch).expect("the scratch workspace holds hello's document");
+        // The flag wins over the branch: the document looked for is `other`'s.
+        let given = slice_of(&project, parse_args(&strings(&["--slice", "other"])).expect("the flag parses")).expect("the flag names the slice");
+        let missing = Lld::read(&project, &given).expect_err("the scratch workspace holds no `other`");
+
+        assert_eq!(
+            (from_branch.as_str(), given.as_str(), read.slice.as_str(), read.path.as_path()),
+            ("hello", "other", "hello", root.join("docs/intent/hello/lld.md").as_path())
+        );
+        assert_eq!(read.lines, ["# hello"]);
+        assert!(missing.contains(&root.join("docs/intent/other/lld.md").display().to_string()), "{missing}");
+    }
+
+    #[test]
+    #[validates(spec::AnyOtherArgumentIsRejectedByName)]
+    fn any_other_argument_is_rejected_by_name() {
+        // Through `run`, so the rejection is the one a command line meets.
+        let unknown = run(&strings(&["--bogus"])).expect_err("an unknown flag is rejected");
+        let stray = run(&strings(&["lld-review"])).expect_err("a bare argument is rejected");
+        let nameless = run(&strings(&["--slice"])).expect_err("`--slice` without a name is rejected");
+        // And `--slice <name>` is not rejected: the run goes on to look for
+        // that slice's document and fails on the document instead.
+        let accepted = run(&strings(&["--slice", "no-such-slice"])).expect_err("no such slice has a document");
+
+        let usage = [&unknown, &stray, &nameless].map(|rejection| rejection.contains(LLD_CHECK_USAGE));
+
+        assert_eq!(
+            (usage, unknown.contains("--bogus"), stray.contains("lld-review"), nameless.contains("--slice")),
+            ([true; 3], true, true, true),
+            "each rejection names the argument, and says how the subcommand is called:\n{unknown}\n{stray}\n{nameless}"
+        );
+        assert_eq!(
+            (accepted.contains("unknown argument"), accepted.contains("docs/intent/no-such-slice/lld.md")),
+            (false, true),
+            "`--slice <name>` is not rejected: the run goes on to the document it names: {accepted}"
+        );
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt)]
+    fn the_document_is_the_slices_lld_under_the_package_that_holds_it() {
+        let root = fixture::scratch("lld-review-document");
+        write_at(&root.join("app/docs/intent/inner/lld.md"), "# inner\n\nThe inner slice.\n");
+        write_at(&root.join("docs/intent/inner/lld.md"), "# a decoy at the workspace root\n");
+        let project = project_at(&root, &["app"]);
+
+        let read = Lld::read(&project, "inner").expect("the member package holds it");
+
+        assert_eq!(read.path, root.join("app/docs/intent/inner/lld.md"), "the package that holds it, not the root");
+        assert_eq!(read.lines, ["# inner", "", "The inner slice."]);
+    }
+
+    #[test]
+    #[validates(spec::AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot)]
+    fn a_workspace_only_slices_document_is_at_the_workspace_root() {
+        let root = fixture::scratch("lld-review-workspace-only");
+        write_at(&root.join("docs/intent/skill/lld.md"), "# skill\n");
+        write_at(&root.join("app/docs/intent/other/lld.md"), "# other\n");
+        let project = project_at(&root, &["app"]);
+
+        let read = Lld::read(&project, "skill").expect("no member holds it, so the root does");
+
+        assert_eq!((read.slice.as_str(), read.path.as_path()), ("skill", root.join("docs/intent/skill/lld.md").as_path()));
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableLldFailsNamingItsPath)]
+    fn an_unreadable_lld_fails_naming_its_path() {
+        let root = fixture::scratch("lld-review-unreadable");
+        let project = project_at(&root, &[]);
+        std::fs::create_dir_all(root.join("docs/intent/a-directory/lld.md")).expect("a directory where a document should be");
+        std::fs::create_dir_all(root.join("docs/intent/not-text")).expect("the directories");
+        std::fs::write(root.join("docs/intent/not-text/lld.md"), [0xff_u8, 0xfe, 0xff]).expect("bytes that are not text");
+
+        let absent = Lld::read(&project, "absent").expect_err("there is no such document");
+        let directory = Lld::read(&project, "a-directory").expect_err("a directory is not a document");
+        let not_text = Lld::read(&project, "not-text").expect_err("bytes that are not text are not a document");
+
+        assert!(absent.contains(&root.join("docs/intent/absent/lld.md").display().to_string()), "{absent}");
+        assert!(directory.contains(&root.join("docs/intent/a-directory/lld.md").display().to_string()), "{directory}");
+        assert!(not_text.contains(&root.join("docs/intent/not-text/lld.md").display().to_string()), "{not_text}");
+    }
+
+    #[test]
+    #[validates(spec::LldCheckExitsZeroOnlyWhenEveryCheckHolds)]
+    fn lld_check_exits_zero_only_when_every_check_holds() {
+        // This slice's own document, under this workspace's own synced
+        // artifacts: every check holds, and the run exits zero.
+        let project = project_at(&workspace_root(), &["cargo-lid-rs"]);
+        let own = Lld::read(&project, "lld-review").expect("this slice's own document");
+        let holds = check_all(&project, &own).expect("the root is locatable");
+        let failing = check_all(&project, &document("s", FAILS_THREE)).expect("the root is locatable");
+
+        assert!(holds.is_empty(), "this slice's own document holds every check: {holds:?}");
+        assert_eq!(
+            (report(&holds), failing.len(), report(&failing).is_err()),
+            (Ok(()), 3, true),
+            "every check holding exits zero; a document that fails three does not: {failing:?}"
+        );
+    }
+
+    #[test]
+    #[validates(spec::EveryFailureIsReportedNotOnlyTheFirst)]
+    fn every_failure_is_reported_not_only_the_first() {
+        // A document failing three checks, in a project holding neither
+        // artifact: five failures, and the report carries all five.
+        let root = fixture::scratch("lld-review-every-failure");
+        let project = project_at(&root, &[]);
+        let doc = document("s", FAILS_THREE);
+        let failures = check_all(&project, &doc).expect("the root is locatable");
+        let checks: Vec<Check> = failures.iter().map(|failure| failure.check).collect();
+
+        assert_eq!(
+            checks,
+            [Check::DecisionsExist, Check::ShapeRows, Check::DeferredNumbered, Check::GuidelineNamesEveryCheck, Check::ReaderObservesOnly]
+        );
+        let reported = report(&failures).expect_err("five failures");
+        let named = failures
+            .iter()
+            .filter(|failure| reported.contains(&format!("{:?}", failure.check)) && reported.contains(&failure.path.display().to_string()))
+            .count();
+        assert_eq!(named, failures.len(), "every failure is named, not only the first: {reported}");
+        assert!(reported.lines().count() >= failures.len(), "one failure to a line: {reported}");
+    }
+
+    #[test]
+    #[validates(spec::AFailureNamesItsCheckItsFileItsLineAndItsRule)]
+    fn a_failure_names_its_check_its_file_its_line_and_its_rule() {
+        let doc = document("s", FAILS_THREE);
+        let failures = shape_rows(&doc);
+
+        assert_eq!(
+            all_located(&failures),
+            [(Check::ShapeRows, doc.path.as_path(), line_at(FAILS_THREE, "| no identifier | a note |"))]
+        );
+        // The message quotes the sentence the skill states that rule in.
+        let anchors = [
+            (Check::DecisionsExist, "Decisions & Alternatives"),
+            (Check::Alternatives, "four non-empty cells"),
+            (Check::ShapeRows, "backticked identifier"),
+            (Check::DeferredNumbered, "numbered list item"),
+            (Check::GuidelineNamesEveryCheck, "every check"),
+            (Check::ReaderObservesOnly, "nothing else"),
+        ];
+        let quoting = anchors.iter().filter(|(check, anchor)| rule(*check).contains(anchor)).count();
+        let rules: BTreeSet<&str> = EVERY_CHECK.iter().map(|check| rule(*check)).collect();
+
+        assert_eq!(
+            (failures[0].message.contains("backticked identifier"), quoting, rules.len()),
+            (true, anchors.len(), EVERY_CHECK.len()),
+            "each check's rule is the skill's own sentence for it, and no two checks share one: {rules:?}"
+        );
+    }
+
+    #[test]
+    #[validates(spec::ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator)]
+    fn a_table_is_the_rows_under_its_heading_less_header_and_separator() {
+        let doc = document("s", TWO_TABLES);
+        let shape = table_at(&doc, SHAPE_HEADING).expect("the shape table");
+        let decisions = table_at(&doc, DECISIONS_HEADING).expect("the decisions table");
+
+        // The header row and its separator are not rows, and the next
+        // heading ends the table: the decisions rows are not the shape's.
+        assert_eq!(
+            shape.rows,
+            [
+                Row { line: line_at(TWO_TABLES, "| `a` | first |"), cells: strings(&["`a`", "first"]) },
+                Row { line: line_at(TWO_TABLES, "| `b` | second |"), cells: strings(&["`b`", "second"]) },
+            ]
+        );
+        assert_eq!(
+            decisions.rows,
+            [Row { line: line_at(TWO_TABLES, "| what | this | that | because |"), cells: strings(&["what", "this", "that", "because"]) }]
+        );
+        assert_eq!(
+            (table_at(&doc, "## Behaviour"), table_at(&doc, "## Nowhere")),
+            (None, None),
+            "a heading with no table under it, and a heading the document does not have"
+        );
+    }
+
+    #[test]
+    #[validates(spec::ADocumentWithoutADecisionsTableFails)]
+    fn a_document_without_a_decisions_table_fails() {
+        let prose = document("s", DECISIONS_IN_PROSE);
+        let missing = document("s", FAILS_THREE);
+        let under_the_heading = decisions_exist(&prose);
+        let without_a_heading = decisions_exist(&missing);
+
+        assert_eq!(all_located(&under_the_heading), [(Check::DecisionsExist, prose.path.as_path(), FIRST_LINE)]);
+        assert_eq!(all_located(&without_a_heading), [(Check::DecisionsExist, missing.path.as_path(), FIRST_LINE)]);
+        assert!(decisions_exist(&document("s", HOLDS)).is_empty(), "a heading with a table under it holds");
+    }
+
+    #[test]
+    #[validates(spec::EveryDecisionsRowFillsItsFourCells)]
+    fn every_decisions_row_fills_its_four_cells() {
+        let doc = document("s", DECISIONS_ROWS);
+        let failures = alternatives(&doc);
+
+        assert_eq!(
+            all_located(&failures),
+            [
+                (Check::Alternatives, doc.path.as_path(), line_at(DECISIONS_ROWS, "| three | cells | only |")),
+                (Check::Alternatives, doc.path.as_path(), line_at(DECISIONS_ROWS, "| empty |  | that | because |")),
+            ],
+            "the filled row holds; a short row and an empty cell each fail on their own line"
+        );
+        assert!(alternatives(&document("s", HOLDS)).is_empty(), "a table whose every row is filled holds");
+        assert!(alternatives(&document("s", FAILS_THREE)).is_empty(), "a document with no such table has no row to fill");
+    }
+
+    #[test]
+    #[validates(spec::EveryShapeRowNamesAnIdentifierAndARole)]
+    fn every_shape_row_names_an_identifier_and_a_role() {
+        let doc = document("s", SHAPE_ROWS);
+        let failures = shape_rows(&doc);
+
+        assert_eq!(
+            all_located(&failures),
+            [
+                (Check::ShapeRows, doc.path.as_path(), line_at(SHAPE_ROWS, "| plain prose | a note |")),
+                (Check::ShapeRows, doc.path.as_path(), line_at(SHAPE_ROWS, "| `Lld` |  |")),
+            ],
+            "a row with no identifier and a row with no role each fail on their own line"
+        );
+        assert_eq!(identifiers("`Lld`, `Lld::read(project, slice)`"), ["Lld", "Lld::read(project, slice)"]);
+        assert!(identifiers("plain prose").is_empty());
+    }
+
+    #[test]
+    #[validates(spec::ADocumentWithNoShapeTableHoldsThatCheck)]
+    fn a_document_with_no_shape_table_holds_that_check() {
+        // No shape heading at all, and a shape heading whose shape is prose:
+        // a slice may name its shape either way.
+        assert!(shape_rows(&document("s", DECISIONS_ROWS)).is_empty(), "no shape heading");
+        assert!(shape_rows(&document("s", SHAPE_IN_PROSE)).is_empty(), "a shape named in prose under its heading");
+        assert!(!shape_rows(&document("s", SHAPE_ROWS)).is_empty(), "a shape table is still checked");
+    }
+
+    #[test]
+    #[validates(spec::EveryDeferredItemIsANumberedListItem)]
+    fn every_deferred_item_is_a_numbered_list_item() {
+        let doc = document("s", DEFERRED_ITEMS);
+        let failures = deferred_numbered(&doc);
+
+        assert_eq!(
+            all_located(&failures),
+            [
+                (Check::DeferredNumbered, doc.path.as_path(), line_at(DEFERRED_ITEMS, "- an unnumbered one")),
+                (Check::DeferredNumbered, doc.path.as_path(), line_at(DEFERRED_ITEMS, "* a second unnumbered one")),
+            ],
+            "the numbered item, its continuation line, and a bullet under a later heading are not failures"
+        );
+    }
+
+    #[test]
+    #[validates(spec::ADocumentWithNoDeferredHeadingHoldsThatCheck)]
+    fn a_document_with_no_deferred_heading_holds_that_check() {
+        // Bullets under some other heading are nobody's to number.
+        assert!(deferred_numbered(&document("s", BULLETS_ELSEWHERE)).is_empty());
+        assert!(!deferred_numbered(&document("s", DEFERRED_ITEMS)).is_empty(), "a deferred heading is still checked");
+    }
+
+    #[test]
+    #[validates(spec::EveryCheckIsNamedInTheGuidelinesChecklist)]
+    fn every_check_is_named_in_the_guidelines_checklist() {
+        let root = fixture::scratch("lld-review-checklist");
+        let project = project_at(&root, &[]);
+        install_artifacts(&root);
+        let shipped = guideline_names_every_check(&project).expect("the root is locatable");
+
+        // Four of six named in the checklist; the other two named only in
+        // the questions, which are not the checklist.
+        write_at(&root.join(GUIDELINE), PARTIAL_CHECKLIST);
+        let failures = guideline_names_every_check(&project).expect("the root is locatable");
+        let guideline = root.join(GUIDELINE);
+
+        assert!(shipped.is_empty(), "this workspace's own guideline names every check: {shipped:?}");
+        assert_eq!(
+            all_located(&failures),
+            [(
+                Check::GuidelineNamesEveryCheck,
+                guideline.as_path(),
+                line_at(PARTIAL_CHECKLIST, "## The checklist — what the tool refuses")
+            )]
+        );
+        assert!(failures[0].message.starts_with("`ShapeRows`, `ReaderObservesOnly`"), "it names what the checklist omits: {}", failures[0].message);
+    }
+
+    #[test]
+    #[validates(spec::TheReaderDeclaresOnlyTheObservationTools)]
+    fn the_reader_declares_only_the_observation_tools() {
+        let root = fixture::scratch("lld-review-reader");
+        let project = project_at(&root, &[]);
+        let reader = root.join(READER);
+        install_artifacts(&root);
+        let shipped = reader_observes_only(&project).expect("the root is locatable");
+
+        write_at(&reader, &reader_declaring("Glob, Read, Grep"));
+        let reordered = reader_observes_only(&project).expect("the root is locatable");
+
+        let extra = reader_declaring("Read, Grep, Glob, Edit");
+        write_at(&reader, &extra);
+        let with_edit = reader_observes_only(&project).expect("the root is locatable");
+
+        write_at(&reader, &reader_declaring("Read, Grep"));
+        let short = reader_observes_only(&project).expect("the root is locatable");
+
+        assert_eq!(
+            all_located(&with_edit),
+            [(Check::ReaderObservesOnly, reader.as_path(), line_at(&extra, "tools: Read, Grep, Glob, Edit"))]
+        );
+        assert_eq!(
+            (shipped.len(), reordered.len(), short.len(), with_edit[0].message.starts_with("Read, Grep, Glob, Edit")),
+            (0, 0, 1, true),
+            "the shipped reader holds, and so does a reordered declaration; a tool too many is named, and a tool missing fails too:\n{shipped:?}\n{reordered:?}\n{short:?}\n{}",
+            with_edit[0].message
+        );
+    }
+
+    #[test]
+    #[validates(spec::AnArtifactFailureWithNoLineToCitePointsAtTheFirstLine)]
+    fn an_artifact_failure_with_no_line_to_cite_points_at_the_first_line() {
+        // A guideline with no checklist heading, and a reader with no
+        // `tools:` line: neither failure has a line of its own to cite.
+        let root = fixture::scratch("lld-review-no-line");
+        let project = project_at(&root, &[]);
+        write_at(&root.join(GUIDELINE), "# Writing an LLD\n\nNo checklist heading, so no check is named.\n");
+        write_at(&root.join(READER), "---\nname: lid-rs-lld-review\n---\n\nIt declares no tools at all.\n");
+
+        let guideline = guideline_names_every_check(&project).expect("the root is locatable");
+        let reader = reader_observes_only(&project).expect("the root is locatable");
+
+        assert_eq!(all_located(&guideline), [(Check::GuidelineNamesEveryCheck, root.join(GUIDELINE).as_path(), FIRST_LINE)]);
+        assert_eq!(all_located(&reader), [(Check::ReaderObservesOnly, root.join(READER).as_path(), FIRST_LINE)]);
+        assert!(guideline[0].message.starts_with("`DecisionsExist`"), "a checklist that is not there names none of them: {}", guideline[0].message);
+    }
+
+    #[test]
+    #[validates(spec::TheArtifactChecksRunWhateverSliceIsNamed)]
+    fn the_artifact_checks_run_whatever_slice_is_named() {
+        // A project holding neither artifact, and two slices' documents that
+        // hold every document check.
+        let root = fixture::scratch("lld-review-whatever-slice");
+        let project = project_at(&root, &[]);
+        let alpha = document("alpha", HOLDS);
+        let beta = document("beta", HOLDS);
+
+        let for_alpha = check_all(&project, &alpha).expect("the root is locatable");
+        let for_beta = check_all(&project, &beta).expect("the root is locatable");
+        let checks: Vec<Check> = for_alpha.iter().map(|failure| failure.check).collect();
+
+        assert_eq!(for_alpha, for_beta, "the two artifact checks do not depend on the slice named");
+        assert_eq!(checks, [Check::GuidelineNamesEveryCheck, Check::ReaderObservesOnly]);
+        assert!(
+            for_alpha.iter().all(|failure| failure.path != alpha.path && failure.path.starts_with(&root)),
+            "each names the artifact it read, not the document under check: {for_alpha:?}"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableSyncedArtifactFailsNamingItsPath)]
+    fn an_unreadable_synced_artifact_fails_naming_its_path() {
+        let root = fixture::scratch("lld-review-unreadable-artifact");
+        let project = project_at(&root, &[]);
+        let guideline = root.join(GUIDELINE);
+        let reader = root.join(READER);
+        std::fs::create_dir_all(&reader).expect("a directory where the reader should be");
+
+        // Absent, and unreadable: a failure reported beside the others,
+        // never an error that hides the checks after it.
+        let absent = guideline_names_every_check(&project).expect("an absent copy is a failure, not an error");
+        let unreadable = reader_observes_only(&project).expect("an unreadable copy is a failure, not an error");
+
+        assert_eq!(all_located(&absent), [(Check::GuidelineNamesEveryCheck, guideline.as_path(), FIRST_LINE)]);
+        assert_eq!(all_located(&unreadable), [(Check::ReaderObservesOnly, reader.as_path(), FIRST_LINE)]);
+        assert_eq!(
+            (absent[0].message.contains(&guideline.display().to_string()), unreadable[0].message.contains(&reader.display().to_string())),
+            (true, true),
+            "each names the path it looked for:\n{}\n{}",
+            absent[0].message,
+            unreadable[0].message
+        );
+    }
+}
