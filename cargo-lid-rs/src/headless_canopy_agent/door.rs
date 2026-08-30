@@ -51,21 +51,25 @@ impl Door {
         if (200..300).contains(&status) { answer_json(method, path, &text) } else { Err(refusal_of(status, &text)) }
     }
 
-    /// The same request until an answer stands: each attempt goes through
-    /// [`Door::exchange`], and [`shed`] is the one decision — a `429` this
-    /// attempt may wait out yields the pause, which is slept before the
-    /// same request is sent again, under the same idempotency key, so a
-    /// shed that in fact landed does not land twice; anything else is the
-    /// answer [`Door::request`] then judges.
+    /// The same request until an answer stands: it goes through
+    /// [`Door::exchange`] once, and again once per shed waited out — the
+    /// loop's own bound is [`SHED_ATTEMPTS`] sheds, and its index is the
+    /// attempt [`shed`] is asked about, so the request is exchanged at most
+    /// four times whatever [`shed`] answers and the answer that stands
+    /// after the bound is the last one exchanged. [`shed`] is the one
+    /// decision: a `429` this attempt may wait out yields the pause, which
+    /// is slept before the same request is sent again, under the same
+    /// idempotency key, so a shed that in fact landed does not land twice;
+    /// anything else stands as the answer [`Door::request`] then judges.
     #[implements(spec::AShedIsWaitedOutAndTheSameRequestSentAgain, spec::ARetriedSendCarriesTheFirstAttemptsIdempotencyKey)]
     fn sent(&self, method: &str, path: &str, bearer: &str, body: Option<&Value>, idem: Option<&str>) -> Result<(u16, String), String> {
-        let mut attempt = 0;
-        loop {
-            let (status, header, text) = self.exchange(method, path, bearer, body, idem)?;
-            let Some(pause) = shed(status, header.as_deref(), attempt) else { return Ok((status, text)) };
-            attempt += 1;
+        let (mut status, mut header, mut text) = self.exchange(method, path, bearer, body, idem)?;
+        for attempt in 0..SHED_ATTEMPTS {
+            let Some(pause) = shed(status, header.as_deref(), attempt) else { break };
             std::thread::sleep(Duration::from_secs(pause));
+            (status, header, text) = self.exchange(method, path, bearer, body, idem)?;
         }
+        Ok((status, text))
     }
 
     /// The pass-through over ureq, deciding nothing: an `http::Request`
@@ -163,6 +167,10 @@ pub fn refusal_of(status: u16, body: &str) -> String {
 /// The header a shed's pause is read from; the one header this client reads.
 const RETRY_AFTER: &str = "Retry-After";
 
+/// The status a shed answers with: the door saying *later*, and the one
+/// status this client does not refuse on its first answer.
+const SHED_STATUS: u16 = 429;
+
 /// How many times a shed request is sent again before its answer stands: the
 /// fourth `429` is a refusal like any other status.
 pub const SHED_ATTEMPTS: u32 = 3;
@@ -176,18 +184,20 @@ pub const SHED_DEFAULT_PAUSE: u64 = 5;
 /// zero on its first answer, one after the first pause — so a `429` is the
 /// door saying *later* while `attempt` is below [`SHED_ATTEMPTS`], and the
 /// pause is the seconds [`retry_after`] reads from `header`, the
-/// `Retry-After` the answer's headers carry. The request's fourth `429` —
-/// `attempt` having reached [`SHED_ATTEMPTS`] — is none: a refusal like any
-/// other status, waited out no further. Every status but `429` is none on
-/// its first answer, whatever `attempt` holds, so nothing else is ever sent
-/// twice.
+/// `Retry-After` the answer's headers carry. An `attempt` that has reached
+/// [`SHED_ATTEMPTS`] is none — the request's fourth `429` is a refusal like
+/// any other status, waited out no further — which is also where
+/// [`Door::sent`]'s loop ends of its own shape: the bound is the loop's, and
+/// this answer agrees with it rather than setting it. Every status but `429`
+/// is none on its first answer, whatever `attempt` holds, so nothing else is
+/// ever sent twice.
 #[implements(
     spec::AShedIsWaitedOutAndTheSameRequestSentAgain,
     spec::TheFourthShedIsARefusalLikeAnyOtherStatus,
     spec::EveryStatusButAShedIsRefusedOnItsFirstAnswer,
 )]
 pub fn shed(status: u16, header: Option<&str>, attempt: u32) -> Option<u64> {
-    todo!()
+    if status == SHED_STATUS && attempt < SHED_ATTEMPTS { Some(retry_after(header)) } else { None }
 }
 
 /// A shed's pause in seconds: `header` — the `Retry-After` the shed's answer
@@ -199,7 +209,7 @@ pub fn shed(status: u16, header: Option<&str>, attempt: u32) -> Option<u64> {
 /// impose.
 #[implements(spec::AShedsPauseIsItsRetryAfterSeconds, spec::AMissingOrUnreadableRetryAfterPausesFiveSeconds)]
 pub fn retry_after(header: Option<&str>) -> u64 {
-    todo!()
+    header.and_then(|seconds| seconds.parse::<u64>().ok()).unwrap_or(SHED_DEFAULT_PAUSE)
 }
 
 /// A `2xx` answer as the boundary type it should be — `what` names the

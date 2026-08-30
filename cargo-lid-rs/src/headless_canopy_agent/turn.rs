@@ -93,7 +93,8 @@ impl Session {
     /// ends the session as any refusal does.
     #[implements(spec::TheCredentialIsRefreshedBeforeItExpires)]
     pub fn bearer(&mut self) -> Result<&Started, Halt> {
-        todo!()
+        self.credential = usable(&self.door, &self.credential, now())?;
+        Ok(&self.credential)
     }
 
     /// Stops the session through the door, on the credential the stop bears
