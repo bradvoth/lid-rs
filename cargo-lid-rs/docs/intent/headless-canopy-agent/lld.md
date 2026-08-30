@@ -140,7 +140,14 @@ way it ends; a stopped session is a sealed log.
 
 Each is a function in this crate; the model sees its name, schema, and
 description through the policy, and calls it through canopy's invoke
-choreography. Every path argument is relative to the workspace root, and
+choreography. Five is what *this* host declares, not what a session may
+hold: a session carries the declarations its host dialled and the
+executor its host hands to each turn, so another host in this crate can
+open a session with tools of its own. What makes these five the phase
+worker's is that this host declares them and executes them; what makes a
+session a phase's is that it carries a phase, and a session that carries
+none asks no pre-tool verdict and keeps no tally, because there is no
+phase for a policy to bound or a tally to belong to. Every path argument is relative to the workspace root, and
 a path that resolves outside the workspace — by `..`, by being absolute,
 or through a symlink — is refused by every tool, including `read`: on this
 host a read is a transmission (Security posture). What the phase's policy
@@ -356,6 +363,15 @@ no `app.policy.configured` after the dial and the key's faces do not
 include `configure`. The tally proves `commands: 0` as before; the log
 proves it independently.
 
+A session that carries no phase has **no path policy in front of its
+edits and no measurement of them** — only the workspace confinement every
+tool applies before any verdict is asked. That is what the phase-optional
+session buys and what it costs: the policy exists to bound a phase's
+artifact, and a host that runs no phase has no artifact for it to bound,
+so the bound that remains is the one the tools keep themselves. No host
+in this crate opens such a session; a host that does must state what
+bounds its own tools, as this one states these.
+
 What changes is confidentiality, and it changes materially:
 
 - **Reads leave.** Every tool result is a record the platform stores in
@@ -394,16 +410,16 @@ What changes is confidentiality, and it changes materially:
 | `Door::request(method, path, bearer, body, idem) -> Result<Value, String>`, `refusal_of(status, body) -> String` | The one boundary over the HTTP library every method shares: a `2xx` yields the JSON; anything else yields the door's `refused` sentence (or the status when there is none) as the error |
 | `shed(status, header, attempt) -> Option<u64>`, `retry_after(header) -> u64`, `SHED_ATTEMPTS`, `SHED_DEFAULT_PAUSE` | Whether an answer is a shed this attempt may wait out, and for how long: the `Retry-After` seconds, or five when the header is missing or unreadable; the fourth shed is a refusal. The header map stops at `exchange`, so the decision is handed the one header it reads |
 | `Session::bearer(&mut self) -> Result<&Started, Halt>` | The credential to present, refreshed when it is within five seconds of expiry — asked before every request the session makes, not before reads alone |
-| `Settings`, `policy_for(tools) -> Policy` | The dial: `system`, an inline policy of `allows` and `tools`, empty `params`, and `max_cost` |
+| `Settings`, `policy_for(declarations) -> Policy` | The dial: `system`, an inline policy of `allows` and `tools`, empty `params`, and `max_cost`. The policy is built from the declarations a host offers rather than from this host's `Tool`, so a second host can dial a session with a set of its own |
 | `Tool::{Read, Grep, Glob, Edit, Write}`, `Tool::of(op) -> Option<Tool>` (its own claim: the five names map to their tools, any other `op` to none), `Tool::hook_name(self) -> &str`, `ReadArgs` … `WriteArgs`, `ToolResult`, `declarations(tools) -> Vec<ToolDecl>` | The closed set; the forward's `op` classified into it (an unknown `op` is none); the name the phase library's verdict knows the tool by (`Read`, `Grep`, `Glob`, `Edit`, `Write`); each tool's typed arguments (the boundary over the payload's `args`); their JSON schemas with descriptions |
-| `Session`, `Session::open(door, settings, phase, tools) -> Result<Session, String>` | One open session: the door, the `Started` credential, the phase, the tools its policy declared, the cursor, held payloads, the tally key `canopy:<id>`; `open` dials and prints `opened_line(id)`, so every session a phase opens is printed as it opens and `build` prints only the ending — and, for a phase already committed, `skipped_line(phase)`; the two rendering leaves are what a test observes |
+| `Session`, `Session::open(door, settings, phase, declarations) -> Result<Session, String>` | One open session: the door, the `Started` credential, the phase — `None` for a host that runs no phase, which then asks no pre-tool verdict and keeps no tally — the declarations its policy carries, the cursor, held payloads, the tally key `canopy:<id>`; `open` dials and prints `opened_line(id)`, so every session a phase opens is printed as it opens and `build` prints only the ending — and, for a phase already committed, `skipped_line(phase)`; the two rendering leaves are what a test observes |
 | `Payload { to, args }`, `Forward { to, op, payload_digest }`, `Responded { text, tool_uses, terminal }`, `Denied`, `Halted { reason }` | The record bodies the client acts on, decoded from `Record.body` once, by kind, where `drive` classifies the record; nothing past that point indexes JSON |
-| `drive(project, session, message) -> Result<Settled, Halt>` | Lands a user message and follows the tail until the turn settles: one `match` over record kinds |
+| `drive(project, session, executor, message) -> Result<Settled, Halt>` | Lands a user message and follows the tail until the turn settles: one `match` over record kinds |
 | `Settled { text }`, `Halt::{Halted(reason), Terminal(sentence), Quiet, Refused(sentence)}` | A settled turn, or why the session ended without one: the platform's halt, the provider's second terminal, a quiet tail, the door's refusal |
 | `pair(held: &[Held], forward: &Forward) -> Option<Pairing>`, `Held { cursor, producer, payload }` | The first held payload whose digest equals the forward's and whose addressee is this program |
 | `payload_digest(to, args) -> String` | `sha256` of canopy's canonical JSON; pinned to canopy's published vector |
 | `canonical_json(value) -> String` | Keys in byte order, numbers as `f64` |
-| `execute(project, session, op, args) -> ToolResult` | Dispatch over `Tool`: the pre-tool verdict, the work, the post-edit verdict for edits |
+| `execute(project, session, op, args) -> ToolResult` | This host's executor, handed to `drive` for a turn: dispatch over `Tool`, the pre-tool verdict, the work, the post-edit verdict for edits. A turn takes its executor rather than reaching for one by name, so a host with other tools runs its own |
 | `confine(root, path) -> Result<PathBuf, String>` | The workspace boundary every tool applies first |
 | `read_tool`, `grep_tool`, `glob_tool`, `edit_tool`, `write_tool` | The work of each tool, over a confined path |
 | `SKIPPED`, `skipped(component) -> bool` | The two directory names `grep` and `glob` never enter, `target` and `.git`, as one predicate the one walk both tools share asks; that walk never enters a symlinked directory and yields no symlinked file, since a link out of the root would let `grep` read and transmit what confinement refuses |
