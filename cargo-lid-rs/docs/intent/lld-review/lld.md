@@ -226,6 +226,14 @@ That cascade is not a phase agent's to make: `src/spec/phase.rs` and
 refuses. It is the human's commit at Phase 7, alongside the gate they run
 there, as every cascade into another slice has been.
 
+The slice resolution is a third: `lld-check` takes it from the phase
+library's `resolve_slice`, which reads the branch as `phase-check` does,
+and that function is private. Making it reachable is a one-word commit in
+the phase slice's module, the same class as the three hook functions that
+slice already exposes — and the alternative, reading the branch again
+inside `lld_review`, would be the phase library re-done rather than
+called.
+
 The guideline and the reader are the human's for the same reason and one
 more: they ship from the `lid-rs` crate, a package outside this slice's
 path policy, and they are prose a person writes rather than code a phase
@@ -240,7 +248,7 @@ nothing to read until they do.
 | `Lld`, `Lld::read(project, slice) -> Result<Lld, String>` | The document as lines, with the slice and path it came from |
 | `Check` | The closed set: `DecisionsExist`, `Alternatives`, `ShapeRows`, `DeferredNumbered`, `GuidelineNamesEveryCheck`, `ReaderObservesOnly` |
 | `Failure { check, path, line, message }` | One failure: the file it is about, the line it is on, and the skill's sentence for the rule — the path matters because an artifact check's failure is about the guideline or the reader, not the document under check |
-| `check_all(lld) -> Vec<Failure>` | Every check over one document, in the table's order |
+| `check_all(project, lld) -> Result<Vec<Failure>, String>` | Every check in the table's order: the four over the document, the two over the project's synced artifacts. The error is reserved for a project whose root cannot be located — an artifact that is absent or unreadable stays a `Failure`, so it is reported beside the others rather than hiding the checks after it |
 | `decisions_exist(lld)`, `alternatives(lld)`, `shape_rows(lld)`, `deferred_numbered(lld)` | One document check each |
 | `guideline_names_every_check(project)`, `reader_observes_only(project)` | The two artifact checks: the guideline's checklist names every `Check` variant, and the reader's frontmatter declares `Read`, `Grep`, `Glob` and nothing else |
 | `Table`, `table_at(lld, heading) -> Option<Table>`, `Row` | A markdown table under a heading, as rows of cells — the one parse the checks share |

@@ -583,7 +583,7 @@ fn slice_flag(rest: &[String]) -> Result<Option<String>, String> {
 /// The slice given, or the current branch's, or none — a detached `HEAD`
 /// is on no branch and so names no slice.
 #[implements(spec::TheSliceComesFromTheBranchName)]
-fn resolve_slice(project: &Project, given: Option<String>) -> Result<Option<String>, String> {
+pub fn resolve_slice(project: &Project, given: Option<String>) -> Result<Option<String>, String> {
     Ok(given.or(current_branch(project)?.and_then(|branch| slice_of_branch(&branch))))
 }
 
