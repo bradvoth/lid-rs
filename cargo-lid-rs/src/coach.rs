@@ -1256,3 +1256,1040 @@ pub fn document_owed(path: &Path, verdict: &str) -> String {
     let _ = (path, verdict);
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Duration;
+
+    use lid_rs::validates;
+    use serde_json::json;
+
+    use super::*;
+    use crate::headless_canopy_agent::PRODUCTION_DOOR;
+    use crate::headless_canopy_agent::door::policy_for;
+    use crate::headless_canopy_agent::ending::without_frontmatter;
+    use crate::headless_canopy_agent::replay::{self, Replay, Route, SessionScript, mentions, strings};
+    use crate::headless_canopy_agent::tools::{REQUESTEE, ReadArgs, Tool as CanopyTool, declarations as canopy_declarations, read_tool};
+    use crate::headless_canopy_agent::turn::{QUIET_TAIL, payload_digest};
+    use crate::lld_review::{Check, GUIDELINE, READER, check_all, rendered};
+    use crate::phase::{fixture, tally};
+
+    /// The budget every session these tests dial is dialled with.
+    const MAX_COST: f64 = 2.5;
+
+    /// The conversation's first user message, as the loop is handed it — a
+    /// literal, so that what the coaching session's log carries first can be
+    /// compared with what [`converse`] was given.
+    const OPENING: &str = "You are writing the LLD for the slice `hello`.";
+
+    /// What the model settles the drafting turn on.
+    const FIRST_ANSWER: &str = "I have written a first draft; read the judges' findings.";
+
+    /// The sentence the platform halts the driven conversation's second turn
+    /// with — the turn answering the judges, which the human would otherwise
+    /// be read for.
+    const HALTED: &str = "max_cost reached";
+
+    /// The reader's answer: one numbered finding.
+    const READER_ANSWER: &str = "1. The Shape table names no failure path.\n";
+
+    /// That finding without its number, as [`reader_findings`] yields it.
+    const FINDING: &str = "The Shape table names no failure path.";
+
+    /// A document that holds all four of `lld-check`'s document checks.
+    const HOLDS: &str = "\
+# hello — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `run(args)` | the entry |
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| what | this | that | because |
+
+### Deferred
+1. Something later.
+";
+
+    /// A document that fails three of them at once: no decisions table, a
+    /// shape row naming no identifier, and an unnumbered deferral.
+    const FAILS: &str = "\
+# hello — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| no identifier | a note |
+
+### Deferred
+- an unnumbered deferral
+";
+
+    /// This workspace's root: the parent of this crate's manifest directory.
+    fn workspace_root() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).parent().expect("the crate directory has a parent").to_path_buf()
+    }
+
+    /// Writes a file, creating the directories above it.
+    fn write_at(path: &Path, content: &str) {
+        std::fs::create_dir_all(path.parent().expect("the path has a parent")).expect("create the directories");
+        std::fs::write(path, content).expect("write the file");
+    }
+
+    /// A `cargo metadata` document for a workspace at `root` whose members are
+    /// those `(name, directory)` pairs, each directory relative to it.
+    fn metadata(root: &Path, members: &[(&str, &str)]) -> String {
+        let packages: Vec<String> = members
+            .iter()
+            .map(|(name, dir)| {
+                let manifest = root.join(dir).join("Cargo.toml");
+                format!(r#"{{"name":"{name}","manifest_path":"{}","targets":[{{"kind":["lib"],"name":"{name}"}}]}}"#, manifest.display())
+            })
+            .collect();
+        format!(r#"{{"workspace_root":"{}","target_directory":"{}","packages":[{}]}}"#, root.display(), root.join("target").display(), packages.join(","))
+    }
+
+    /// A project rooted at `root` with those members, without asking cargo.
+    fn project_at(root: &Path, members: &[(&str, &str)]) -> Project {
+        Project::from_json(&metadata(root, members)).expect("the metadata document parses")
+    }
+
+    /// A scratch workspace carrying this project's own synced artifacts — the
+    /// interview method, the guideline and the reader — so that a scratch run
+    /// reads exactly what this workspace ships, with one member at its root.
+    fn scratch_project(name: &str) -> (PathBuf, Project) {
+        let root = fixture::scratch(name);
+        for relative in [METHOD, GUIDELINE, READER] {
+            let text = std::fs::read_to_string(workspace_root().join(relative)).expect("this workspace's synced copy");
+            write_at(&root.join(relative), &text);
+        }
+        let project = project_at(&root, &[("app", "")]);
+        (root, project)
+    }
+
+    /// One workspace member, named, at its own directory under `root`.
+    fn member(root: &Path, name: &str) -> Member {
+        Member { name: name.to_string(), dir: root.join(name) }
+    }
+
+    /// One failure of a document check, as `lld-check` reports one.
+    fn failure_at(check: Check, path: &Path, line: usize) -> Failure {
+        Failure { check, path: path.to_path_buf(), line, message: "the rule it states".to_string() }
+    }
+
+    /// A coach over `replay`'s door whose document is `path`; its coaching
+    /// session is a placeholder that never dials, a judging touching none.
+    fn judging_coach(replay: &Replay, path: &Path) -> Coach {
+        let door = replay.door("k");
+        let session = replay::session(door.clone(), "s-coach", None, vec![]);
+        Coach { door, session, path: path.to_path_buf(), max_cost: MAX_COST }
+    }
+
+    /// A reader session that answers with one numbered finding.
+    fn answering_reader(id: &str) -> SessionScript {
+        SessionScript::new(id).page(replay::settling_page(READER_ANSWER))
+    }
+
+    /// A reader session whose dial the door refuses.
+    fn refused_reader(id: &str, sentence: &str) -> SessionScript {
+        SessionScript::new(id).refusing(Route::Start, 403, sentence)
+    }
+
+    /// A reader session that reads the document through its own dispatch,
+    /// tries the coach's `draft`, and then answers.
+    fn observing_reader(id: &str, relative: &str) -> SessionScript {
+        let (read, write) = (json!({ "path": relative }), json!({ "content": "the reader cannot draft" }));
+        SessionScript::new(id)
+            .page(replay::tool_call_page("read", read.clone(), &payload_digest(REQUESTEE, &read)))
+            .page(replay::tool_call_page("draft", write.clone(), &payload_digest(REQUESTEE, &write)))
+            .page(replay::settling_page(READER_ANSWER))
+    }
+
+    /// The driven conversation's coaching session: a first turn that calls
+    /// `draft` and settles, and a second — the one answering the judges — that
+    /// the platform halts. Every turn is followed by the judges or by a halt,
+    /// so the loop runs from its opening to its end with nothing typed.
+    fn drafting_then_halted(id: &str, content: &str) -> SessionScript {
+        let args = json!({ "content": content });
+        SessionScript::new(id)
+            .page(replay::tool_call_page("draft", args.clone(), &payload_digest(REQUESTEE, &args)))
+            .page(replay::settling_page(FIRST_ANSWER))
+            .page(vec![replay::halted(HALTED)])
+    }
+
+    /// One conversation driven with nothing on the terminal.
+    struct Driven {
+        /// The door it was driven against.
+        replay: Replay,
+        /// The document `draft` wrote.
+        path: PathBuf,
+        /// What the loop answered.
+        ended: Result<Option<bool>, Halt>,
+    }
+
+    /// Drives that conversation: a scratch workspace, a replay serving the
+    /// coaching session and the judging's one reader, a coach opened on it,
+    /// and [`converse`] run on the opening it is handed. Nothing is read from
+    /// the terminal: the first turn drafts, the judges answer it, and the turn
+    /// that answers them is halted.
+    fn driven(name: &str) -> Driven {
+        let (root, project) = scratch_project(name);
+        let replay = Replay::serve(vec![drafting_then_halted("s-coach", FAILS), answering_reader("s-reader")]);
+        let path = root.join("docs/intent/hello/lld.md");
+        let door = replay.door("k");
+        let settings = coaching_settings(&project, MAX_COST).expect("the coaching dial");
+        let session = Session::open(&door, &settings, None, declarations()).expect("the coaching session");
+        let mut coach = Coach { door, session, path: path.clone(), max_cost: MAX_COST };
+        let ended = converse(&project, &mut coach, OPENING);
+        Driven { replay, path, ended }
+    }
+
+    // ---- the subcommand and its flags ------------------------------------------
+
+    #[test]
+    #[validates(spec::TheCoachsSliceIsTheFlagsValueOrTheBranchName)]
+    fn the_coachs_slice_is_the_flags_value_or_the_branch_name() {
+        let root = fixture::scratch("coach-slice");
+        fixture::git(&root, &["init", "-q", "-b", "lld/hello"]);
+        let project = project_at(&root, &[("app", "")]);
+        let flagged = parse_args(&strings(&["--slice", "login"])).expect("the flag").slice;
+        let absent = parse_args(&[]).expect("no flag").slice;
+        assert_eq!((flagged, absent), (Some("login".to_string()), None), "absent the flag, only a project can settle it");
+        let from_branch = slice_of(&project, None).expect("the branch names it");
+        let given = slice_of(&project, Some("login".to_string())).expect("the flag wins over the branch");
+        assert_eq!((from_branch.as_str(), given.as_str()), ("hello", "login"));
+        fixture::git(&root, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+        slice_of(&project, None).expect_err("a run on no `lld/<slice>` branch and no flag names no slice");
+    }
+
+    #[test]
+    #[validates(spec::TheDoorDefaultsToCanopysProductionDoor)]
+    fn the_door_defaults_to_canopys_production_door() {
+        let defaulted = (Flags::default().door, parse_args(&[]).expect("no arguments").door);
+        assert_eq!(defaulted, (PRODUCTION_DOOR.to_string(), PRODUCTION_DOOR.to_string()));
+        assert_eq!(PRODUCTION_DOOR, "https://api.canopyhq.dev");
+        assert_eq!(parse_args(&strings(&["--door", "http://127.0.0.1:1"])).expect("the flag").door, "http://127.0.0.1:1");
+    }
+
+    #[test]
+    #[validates(spec::TheMaxCostDefaultsToFive)]
+    fn the_max_cost_defaults_to_five() {
+        let defaulted = (Flags::default().max_cost, parse_args(&[]).expect("no arguments").max_cost);
+        assert_eq!(defaulted, (5.0, 5.0));
+        let given = parse_args(&strings(&["--max-cost", "0.25"])).expect("the flag").max_cost;
+        assert_eq!((given, amount("12").expect("an amount")), (0.25, 12.0));
+        mentions(&amount("lots").expect_err("not a number"), &["lots"]);
+    }
+
+    #[test]
+    #[validates(spec::AnyOtherArgumentToCoachIsRejectedByName)]
+    fn any_other_argument_to_coach_is_rejected_by_name() {
+        let named = ["--package", "--workspace", "--slice", "--door", "--max-cost", "--bogus"];
+        let classified: Vec<Option<Flag>> = named.iter().map(|argument| Flag::of(argument)).collect();
+        let closed = [Some(Flag::Package), Some(Flag::Workspace), Some(Flag::Slice), Some(Flag::Door), Some(Flag::MaxCost), None];
+        assert_eq!(classified, closed, "the five flags, and none for anything else");
+        mentions(&parse_args(&strings(&["--bogus"])).expect_err("rejected"), &["--bogus", COACH_USAGE]);
+        mentions(&parse_args(&strings(&["coach"])).expect_err("a bare argument"), &["coach"]);
+        mentions(&pairs(&strings(&["--bogus", "x"])).expect_err("no flag of that name"), &["--bogus"]);
+        mentions(&parse_args(&strings(&["--slice", "hello", "--door"])).expect_err("a flag with no value"), &["--door"]);
+    }
+
+    #[test]
+    #[validates(spec::PackageAndWorkspaceRefuseEachOther)]
+    fn package_and_workspace_refuse_each_other() {
+        let both = strings(&["--package", "app", "--workspace"]);
+        mentions(&one_target(&both).expect_err("a document has one place"), &["--package", "--workspace"]);
+        mentions(&parse_args(&both).expect_err("refused before either is applied"), &["--package", "--workspace"]);
+        one_target(&strings(&["--package", "app"])).expect("one flag names one place");
+        one_target(&strings(&["--workspace"])).expect("one flag names one place");
+        one_target(&[]).expect("neither names one, which a project settles");
+    }
+
+    #[test]
+    #[validates(spec::NeitherFlagSettlesOnNoTarget)]
+    fn neither_flag_settles_on_no_target() {
+        let another = parse_args(&strings(&["--slice", "hello"])).expect("another flag").target;
+        let settled = (Flags::default().target, parse_args(&[]).expect("no arguments").target, another);
+        assert_eq!(settled, (None, None, None), "a flag parser is handed no project and counts no workspace's members");
+        let workspace = parse_args(&strings(&["--workspace"])).expect("a target").target;
+        let package = parse_args(&strings(&["--package", "app"])).expect("a target").target;
+        assert_eq!((workspace, package), (Some(Where::Workspace), Some(Where::Package("app".to_string()))));
+    }
+
+    // ---- where the document goes -----------------------------------------------
+
+    #[test]
+    #[validates(spec::APackageNamingAMemberIsThatMembersManifestDirectory)]
+    fn a_package_naming_a_member_is_that_members_manifest_directory() {
+        let root = fixture::scratch("coach-named-member");
+        let project = project_at(&root, &[("first", "first"), ("app", "app")]);
+        assert_eq!(members(&project), vec![member(&root, "first"), member(&root, "app")]);
+        assert_eq!(named_member(&members(&project), "app").expect("a member of that name"), root.join("app"));
+        // `first` holds a document of this slice's name; the member named is
+        // still `app`, which is the guess no later check would question.
+        write_at(&root.join("first/docs/intent/hello/lld.md"), HOLDS);
+        let named = package_dir(&project, Some(&Where::Package("app".to_string()))).expect("the member named");
+        assert_eq!(named, root.join("app"), "the member of that name, not the first found to hold the slice's document");
+    }
+
+    #[test]
+    #[validates(spec::APackageNamingNoMemberStopsTheRunListingTheMembers)]
+    fn a_package_naming_no_member_stops_the_run_listing_the_members() {
+        let root = fixture::scratch("coach-no-such-member");
+        let project = project_at(&root, &[("first", "first"), ("app", "app")]);
+        mentions(&named_member(&members(&project), "missing").expect_err("no member"), &["missing", "first", "app"]);
+        let stop = package_dir(&project, Some(&Where::Package("missing".to_string()))).expect_err("no member");
+        mentions(&stop, &["missing", "first", "app"]);
+    }
+
+    #[test]
+    #[validates(spec::TheWorkspaceFlagNamesTheWorkspaceRoot)]
+    fn the_workspace_flag_names_the_workspace_root() {
+        let root = fixture::scratch("coach-workspace-root");
+        let project = project_at(&root, &[("first", "first"), ("app", "app")]);
+        let named = package_dir(&project, Some(&Where::Workspace)).expect("the workspace root");
+        assert_eq!(named, root, "a virtual manifest defines no package, so no `--package` value could name it");
+        assert_eq!(document_path(&named, "book"), root.join("docs/intent/book/lld.md"));
+    }
+
+    #[test]
+    #[validates(spec::NoTargetInAOneMemberWorkspaceIsThatMembersDirectory)]
+    fn no_target_in_a_one_member_workspace_is_that_members_directory() {
+        let root = fixture::scratch("coach-sole-member");
+        let project = project_at(&root, &[("app", "app")]);
+        assert_eq!(sole_member(&members(&project)).expect("exactly one member"), root.join("app"));
+        assert_eq!(package_dir(&project, None).expect("no target"), root.join("app"), "the only place the document could go");
+    }
+
+    #[test]
+    #[validates(spec::NoTargetInAWorkspaceOfSeveralMembersStopsNamingTheFlag)]
+    fn no_target_in_a_workspace_of_several_members_stops_naming_the_flag() {
+        let root = fixture::scratch("coach-several-members");
+        let project = project_at(&root, &[("first", "first"), ("app", "app")]);
+        mentions(&sole_member(&members(&project)).expect_err("several members"), &["--package"]);
+        mentions(&sole_member(&[]).expect_err("no member at all"), &["--package"]);
+        let stop = package_dir(&project, None).expect_err("several members and no flag");
+        mentions(&stop, &["--package"]);
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentIsTheSlicesLldUnderThatDirectory)]
+    fn the_document_is_the_slices_lld_under_that_directory() {
+        let under = document_path(Path::new("/w/app"), "login");
+        assert_eq!(under, Path::new("/w/app/docs/intent/login/lld.md"));
+        assert_eq!(document_path(Path::new("/w"), "book"), Path::new("/w/docs/intent/book/lld.md"));
+        assert_eq!(slice_named(&under), "login", "the slice the path was built from, read back out of it");
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentsPathIsPrintedWhenTheSessionOpens)]
+    fn the_documents_path_is_printed_when_the_session_opens() {
+        // Asserted at the line, as `EveryPhasePrintsItsSessionsAndItsEnding` is
+        // asserted through `opened_line`: what a print puts on the terminal has
+        // no in-process seam, and the line it is given does.
+        let line = path_line(Path::new("/w/app/docs/intent/hello/lld.md"));
+        mentions(&line, &["/w/app/docs/intent/hello/lld.md"]);
+        assert_eq!(line.lines().count(), 1, "one line, as the session opens");
+    }
+
+    // ---- before the interview --------------------------------------------------
+
+    #[test]
+    #[validates(spec::TheArtifactChecksRunOnceBeforeTheFirstQuestion)]
+    fn the_artifact_checks_run_once_before_the_first_question() {
+        let (root, project) = scratch_project("coach-artifact-checks");
+        assert_eq!(setup(&project).expect("healthy artifacts"), Vec::<String>::new(), "this project's own copies hold both");
+        let guideline = std::fs::read_to_string(root.join(GUIDELINE)).expect("the synced guideline");
+        write_at(&root.join(GUIDELINE), &guideline.replace("`DecisionsExist`", "the decisions rule"));
+        let reader = std::fs::read_to_string(root.join(READER)).expect("the synced reader");
+        write_at(&root.join(READER), &reader.replace("tools: Read, Grep, Glob", "tools: Read, Grep, Glob, Write"));
+        let warnings = setup(&project).expect("their project's problem, not this conversation's");
+        assert_eq!(warnings.len(), 2, "both artifact checks ran: {warnings:?}");
+        mentions(&warnings.join("\n"), &["DecisionsExist", "Write"]);
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableGuidelineStopsTheRunNamingItsPath)]
+    fn an_unreadable_guideline_stops_the_run_naming_its_path() {
+        let (root, project) = scratch_project("coach-guideline-unreadable");
+        std::fs::remove_file(root.join(GUIDELINE)).expect("take the guideline away");
+        let stopped = coaching_system(&project).expect_err("half the system prompt is gone");
+        mentions(&stopped, &[&root.join(GUIDELINE).display().to_string()]);
+        synced_text(&project, METHOD).expect("the interview method is still there");
+        assert!(!setup(&project).expect("the artifact checks answer").is_empty(), "setup reports it; coaching_system stops on it");
+    }
+
+    #[test]
+    #[validates(spec::ADriftedChecklistIsReportedAndTheInterviewProceeds)]
+    fn a_drifted_checklist_is_reported_and_the_interview_proceeds() {
+        let (root, project) = scratch_project("coach-checklist-drift");
+        let guideline = std::fs::read_to_string(root.join(GUIDELINE)).expect("the synced guideline");
+        write_at(&root.join(GUIDELINE), &guideline.replace("`ShapeRows`", "the shape rule"));
+        let warnings = setup(&project).expect("a drifted checklist does not stop the interview");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        mentions(&warnings[0], &["ShapeRows", &root.join(GUIDELINE).display().to_string()]);
+        coaching_system(&project).expect("a guideline that reads is half the system prompt whatever its checklist omits");
+    }
+
+    #[test]
+    #[validates(spec::AReaderDeclaringTooManyToolsIsReportedAndTheInterviewProceeds)]
+    fn a_reader_declaring_too_many_tools_is_reported_and_the_interview_proceeds() {
+        let (root, project) = scratch_project("coach-reader-declares-too-much");
+        let reader = std::fs::read_to_string(root.join(READER)).expect("the synced reader");
+        write_at(&root.join(READER), &reader.replace("tools: Read, Grep, Glob", "tools: Read, Grep, Glob, Edit"));
+        let warnings = setup(&project).expect("the project's problem, not this conversation's");
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        mentions(&warnings[0], &["Edit", &root.join(READER).display().to_string()]);
+    }
+
+    // ---- what the sessions are opened with -------------------------------------
+
+    #[test]
+    #[validates(spec::TheSystemPromptIsTheSyncedInterviewMethodThenTheGuideline)]
+    fn the_system_prompt_is_the_synced_interview_method_then_the_guideline() {
+        let (root, project) = scratch_project("coach-system-prompt");
+        let method = std::fs::read_to_string(root.join(METHOD)).expect("the synced method");
+        let guideline = std::fs::read_to_string(root.join(GUIDELINE)).expect("the synced guideline");
+        let system = coaching_system(&project).expect("both synced copies");
+        let (at_method, at_guideline) = (system.find(&method), system.find(&guideline));
+        assert!(at_method.is_some() && at_method < at_guideline, "how to interview, then the questions it will be judged by");
+        let named = (METHOD, synced_text(&project, METHOD).expect("read under the workspace root"));
+        assert_eq!(named, (".claude/skills/lid-rs/references/coach.md", method));
+        assert_eq!(coaching_settings(&project, MAX_COST).expect("the dial").system, system);
+    }
+
+    #[test]
+    #[validates(spec::TheOpeningNamesTheSlice)]
+    fn the_opening_names_the_slice() {
+        let root = fixture::scratch("coach-opening-names-the-slice");
+        let path = root.join("docs/intent/login/lld.md");
+        mentions(&writing("login"), &["login"]);
+        mentions(&amending("login", HOLDS), &["login"]);
+        assert_eq!(opening("login", &path), writing("login"), "a slice with no document is told it is writing one");
+        mentions(&opening("login", &path), &["login"]);
+    }
+
+    #[test]
+    #[validates(spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
+    fn an_existing_document_is_read_whole_into_the_opening_as_an_amendment() {
+        let root = fixture::scratch("coach-opening-amends");
+        let path = root.join("docs/intent/hello/lld.md");
+        assert_eq!(existing(&path), None, "a slice with no document yet is the ordinary case, not a fault");
+        write_at(&path, HOLDS);
+        let amendment = opening("hello", &path);
+        let read_whole = (existing(&path), amendment.clone());
+        assert_eq!(read_whole, (Some(HOLDS.to_string()), amending("hello", HOLDS)));
+        mentions(&amendment, &[HOLDS, "amend"]);
+        assert!(!writing("hello").contains(HOLDS), "and a slice with no document carries none");
+    }
+
+    #[test]
+    #[validates(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
+    fn the_coach_declares_exactly_the_read_draft_and_ask_tools() {
+        let (_root, project) = scratch_project("coach-declares-three");
+        let coachs = declarations();
+        let ops: Vec<&str> = coachs.iter().map(|tool| tool.op.as_str()).collect();
+        let set = (COACH_TOOLS, ops.clone(), coachs.clone());
+        let three = ([Tool::Read, Tool::Draft, Tool::Ask], vec!["read", "draft", "ask"], COACH_TOOLS.map(declaration).to_vec());
+        assert_eq!(set, three, "a set of the coach's own, not the canopy client's five");
+        let admitted: Vec<Tool> = ops.iter().map(|op| declared(op).expect("declared")).collect();
+        let named = coachs.iter().all(|tool| tool.requestee == REQUESTEE && tool.name == tool.op);
+        let outside = ["grep", "glob", "edit", "write"].iter().all(|op| declared(op).is_err());
+        assert_eq!((admitted, named, outside), (COACH_TOOLS.to_vec(), true, true), "each under its own `op`; the client's five are another set");
+        assert_eq!(coaching_settings(&project, MAX_COST).expect("the dial").policy, policy_for(&coachs));
+    }
+
+    #[test]
+    #[validates(spec::EverySessionTheCoachOpensIsDialledWithTheMaxCost)]
+    fn every_session_the_coach_opens_is_dialled_with_the_max_cost() {
+        let (_root, project) = scratch_project("coach-max-cost");
+        let coaching = coaching_settings(&project, MAX_COST).expect("the coaching dial");
+        let reading = reader_settings(&project, MAX_COST).expect("a reader's dial");
+        assert_eq!((coaching.max_cost, reading.max_cost), (MAX_COST, MAX_COST), "the run is bounded one session at a time");
+        assert_eq!(coaching_settings(&project, 0.5).expect("another budget").max_cost, 0.5);
+        assert_eq!(reader_settings(&project, 0.5).expect("another budget").max_cost, 0.5);
+    }
+
+    // ---- the loop --------------------------------------------------------------
+
+    #[test]
+    #[validates(spec::TheFirstTurnSettlesOnTheOpeningBeforeTheHumanIsRead)]
+    fn the_first_turn_settles_on_the_opening_before_the_human_is_read() {
+        let driven = driven("coach-first-turn");
+        let messages = replay::user_messages(&driven.replay.landed("s-coach"));
+        let opened = (messages.first().map(String::as_str), messages.len(), driven.path.is_file());
+        assert_eq!(opened, (Some(OPENING), 2, true), "the opening is the first user message, and the turn it opened settled: it drafted");
+        assert_eq!(driven.ended, Err(Halt::Halted(HALTED.to_string())), "nothing typed: a run at end of file still opens, settles a turn and ends");
+    }
+
+    #[test]
+    #[validates(spec::TheModelsSettledAnswerIsPrinted)]
+    fn the_models_settled_answer_is_printed() {
+        // What `println!` puts on the terminal has no in-process seam, and the
+        // model's settled answer is its verbatim text rather than a line this
+        // module composes — so what is asserted is the driven path: each turn is
+        // driven to a settled answer and the loop carries on from it.
+        let driven = driven("coach-settled-answer");
+        let messages = replay::user_messages(&driven.replay.landed("s-coach"));
+        assert_eq!(messages.len(), 2, "the first turn settled — the judges answered it — and the second was driven on that");
+        assert!(messages[1].starts_with(JUDGING_HEADING), "what followed the settled answer is the judges', not the model's");
+        assert_eq!(driven.ended, Err(Halt::Halted(HALTED.to_string())), "and the second turn ended the loop rather than settling");
+    }
+
+    #[test]
+    #[validates(spec::TheConversationEndsAtDoneOrEndOfFile)]
+    fn the_conversation_ends_at_done_or_end_of_file() {
+        // Asserted at `typed`, which carries this over plain data: `human_turn`
+        // and `ask` reach it only through a blocking read of the terminal.
+        let ended = (typed(None), typed(Some(DONE.to_string())), typed(Some(format!("{DONE}\n"))));
+        assert_eq!(ended, (Typed::Ended, Typed::Ended, Typed::Ended), "end of file, and `done` alone on a line with or without its newline");
+        let answers = (typed(Some("not yet".to_string())), typed(Some("done for now".to_string())));
+        let theirs = (Typed::Answer("not yet".to_string()), Typed::Answer("done for now".to_string()));
+        assert_eq!(answers, theirs, "alone on a line, and not merely first on it");
+        assert_eq!(DONE, "done");
+    }
+
+    #[test]
+    #[validates(spec::TheCoachingSessionIsStoppedBeforeTheClientExits)]
+    fn the_coaching_session_is_stopped_before_the_client_exits() {
+        let (root, project) = scratch_project("coach-session-stopped");
+        let replay = Replay::serve(vec![drafting_then_halted("s-coach", FAILS), answering_reader("s-reader")]);
+        let flags = Flags { target: None, slice: Some("hello".to_string()), door: replay.url.clone(), max_cost: MAX_COST };
+        let ended = coached(&project, &replay.door("k"), &flags).expect_err("the turn answering the judges is halted");
+        mentions(&ended, &[HALTED]);
+        assert!(replay.stopped("s-coach"), "however the conversation ended, a session left open is an unsealed log");
+        assert_eq!(replay.opened(), strings(&["s-coach", "s-reader"]));
+        assert!(root.join("docs/intent/hello/lld.md").is_file(), "under the sole member, where the flags named no other");
+    }
+
+    #[test]
+    #[validates(spec::ThatATurnDraftedIsRecordedByTheExecutorNotInferred)]
+    fn that_a_turn_drafted_is_recorded_by_the_executor_not_inferred() {
+        let (root, project) = scratch_project("coach-drafted-recorded");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&root.join("src/lib.rs"), "//! the module\n");
+        let mut drafting = Noted::default();
+        execute(&project, &path, &mut drafting, "draft", &json!({ "content": HOLDS })).expect("the document is written");
+        assert_eq!(drafting, Noted { drafted: true, wrote: true, ended: false }, "the executor ran the tool, and recorded that it did");
+        let mut reading = Noted::default();
+        execute(&project, &path, &mut reading, "read", &json!({ "path": "src/lib.rs" })).expect("the read");
+        assert_eq!(reading, Noted::default(), "a turn that only read drafted nothing");
+        assert_eq!(next_after(reading, Answering::TheHuman), Next::Human, "and what the model said about it is never read");
+    }
+
+    #[test]
+    #[validates(spec::TheJudgesAnswerATurnThatDrafted)]
+    fn the_judges_answer_a_turn_that_drafted() {
+        let (root, project) = scratch_project("coach-judges-answer");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![answering_reader("s-reader")]);
+        let coach = judging_coach(&replay, &path);
+        let wrote = Noted { drafted: true, wrote: true, ended: false };
+        assert_eq!(next_after(wrote, Answering::TheHuman), Next::Judges);
+        let landed = next_message(&project, &coach, Next::Judges).expect("the judges land the next message");
+        assert_eq!((landed.answering, landed.holds), (Answering::TheJudges, Some(true)), "rather than the run waiting for the human");
+        mentions(&landed.text, &[JUDGING_HEADING, EVERY_CHECK_HELD, FINDING]);
+    }
+
+    #[test]
+    #[validates(spec::AFailedDraftIsNotATurnThatDrafted)]
+    fn a_failed_draft_is_not_a_turn_that_drafted() {
+        let root = fixture::scratch("coach-draft-failed");
+        write_at(&root.join("src/hello.rs"), "//! a file, and not a directory\n");
+        let mut noted = Noted::default();
+        let under_a_file = root.join("src/hello.rs/lld.md");
+        draft_call(&under_a_file, &mut noted, &json!({ "content": HOLDS })).expect_err("no directory can be made under a file");
+        assert_eq!(noted, Noted { drafted: true, wrote: false, ended: false }, "called, and recorded as not having written");
+        assert_eq!(next_after(noted, Answering::TheHuman), Next::Human, "so the judges do not run for it");
+    }
+
+    #[test]
+    #[validates(spec::ATurnThatDraftedNothingIsAnsweredByTheHuman)]
+    fn a_turn_that_drafted_nothing_is_answered_by_the_human() {
+        assert_eq!(next_after(Noted::default(), Answering::TheHuman), Next::Human);
+        assert_eq!(next_after(Noted::default(), Answering::TheJudges), Next::Human);
+        let failed = Noted { drafted: true, wrote: false, ended: false };
+        assert_eq!(next_after(failed, Answering::TheHuman), Next::Human, "a failed draft wrote nothing");
+    }
+
+    #[test]
+    #[validates(spec::TheJudgesAnswerAtMostOneDraftingTurnInARow)]
+    fn the_judges_answer_at_most_one_drafting_turn_in_a_row() {
+        let wrote = Noted { drafted: true, wrote: true, ended: false };
+        assert_eq!(next_after(wrote, Answering::TheHuman), Next::Judges, "the first drafting turn is the judges' to answer");
+        assert_eq!(next_after(wrote, Answering::TheJudges), Next::Human, "the one that drafts in reply to them is the human's");
+    }
+
+    #[test]
+    #[validates(spec::AHaltReachingTheLoopEndsTheConversationWithItsSentence)]
+    fn a_halt_reaching_the_loop_ends_the_conversation_with_its_sentence() {
+        let driven = driven("coach-halted");
+        assert_eq!(driven.ended, Err(Halt::Halted(HALTED.to_string())), "the halt's own sentence, unanswered by a verdict");
+    }
+
+    #[test]
+    #[validates(spec::TheDraftedDocumentSurvivesAHalt)]
+    fn the_drafted_document_survives_a_halt() {
+        let driven = driven("coach-halt-leaves-the-document");
+        assert!(driven.ended.is_err(), "the conversation ended on the platform's halt");
+        assert_eq!(std::fs::read_to_string(&driven.path).expect("the document"), FAILS, "`draft` wrote to disk, not into the session");
+    }
+
+    // ---- the three tools -------------------------------------------------------
+
+    #[test]
+    #[validates(spec::AnOpTheCoachDidNotDeclareIsRefusedWithItsName)]
+    fn an_op_the_coach_did_not_declare_is_refused_with_its_name() {
+        let (root, project) = scratch_project("coach-undeclared-op");
+        let path = root.join("docs/intent/hello/lld.md");
+        let mut noted = Noted::default();
+        let args = json!({ "path": "src/lib.rs", "old_string": "a", "new_string": "b" });
+        mentions(&execute(&project, &path, &mut noted, "edit", &args).expect_err("the coach declares no `edit`"), &["edit"]);
+        mentions(&declared("edit").expect_err("outside the set"), &["edit"]);
+        assert_eq!((noted, path.exists()), (Noted::default(), false), "a call outside the set runs nothing and writes nothing");
+    }
+
+    #[test]
+    #[validates(spec::AReadIsRoutedToTheCanopyClientsReadOverItsConfinement)]
+    fn a_read_is_routed_to_the_canopy_clients_read_over_its_confinement() {
+        let (root, project) = scratch_project("coach-read-routed");
+        let (path, module) = (root.join("docs/intent/hello/lld.md"), root.join("src/lib.rs"));
+        write_at(&module, "//! the module\n");
+        let mut noted = Noted::default();
+        let answer = execute(&project, &path, &mut noted, "read", &json!({ "path": "src/lib.rs" })).expect("the read");
+        let clients = ReadArgs { path: "src/lib.rs".to_string(), offset: None, limit: None };
+        assert_eq!(answer, read_tool(&module, &clients).expect("the canopy client's own read"), "the answer a phase worker gets");
+        assert_eq!(answer, "1\t//! the module");
+        let climbing = execute(&project, &path, &mut noted, "read", &json!({ "path": "../elsewhere" })).expect_err("confined");
+        mentions(&climbing, &["outside the workspace"]);
+        assert_eq!(noted, Noted::default(), "a read is neither a draft nor an ending");
+    }
+
+    #[test]
+    #[validates(spec::DraftReplacesTheDocumentWholeCreatingItsDirectory)]
+    fn draft_replaces_the_document_whole_creating_its_directory() {
+        let root = fixture::scratch("coach-draft-whole");
+        let path = root.join("docs/intent/hello/lld.md");
+        assert!(!path.parent().expect("a parent").exists(), "the directory is not there yet");
+        let first = draft(&path, HOLDS).expect("the directory is created with it");
+        assert_eq!((first, std::fs::read_to_string(&path).expect("the document")), (HOLDS.len(), HOLDS.to_string()));
+        let second = draft(&path, FAILS).expect("replaced");
+        let replaced = (second, std::fs::read_to_string(&path).expect("the document"));
+        assert_eq!(replaced, (FAILS.len(), FAILS.to_string()), "whole: there is no partial edit of it");
+    }
+
+    #[test]
+    #[validates(spec::DraftWritesTheSlicesLldAndNoOtherPath)]
+    fn draft_writes_the_slices_lld_and_no_other_path() {
+        let (root, project) = scratch_project("coach-draft-one-path");
+        let (path, module) = (root.join("docs/intent/hello/lld.md"), root.join("src/lib.rs"));
+        write_at(&module, "//! the module\n");
+        let mut noted = Noted::default();
+        let args = json!({ "content": HOLDS, "path": "src/lib.rs" });
+        execute(&project, &path, &mut noted, "draft", &args).expect("the run's one document");
+        let written = (std::fs::read_to_string(&path).expect("the document"), std::fs::read_to_string(&module).expect("the module"));
+        assert_eq!(written, (HOLDS.to_string(), "//! the module\n".to_string()), "the run's one path; no call of it reaches the module");
+        let schema = Tool::Draft.schema();
+        assert_eq!((&schema["required"], &schema["properties"]["path"]), (&json!(["content"]), &Value::Null), "`content` is the whole schema");
+    }
+
+    #[test]
+    #[validates(spec::DraftAnswersWithThePathAndTheBytesWrittenNotAVerdict)]
+    fn draft_answers_with_the_path_and_the_bytes_written_not_a_verdict() {
+        let root = fixture::scratch("coach-draft-answer");
+        let path = root.join("docs/intent/hello/lld.md");
+        let mut noted = Noted::default();
+        let answer = draft_call(&path, &mut noted, &json!({ "content": FAILS })).expect("written");
+        assert_eq!(answer, wrote_line(&path, FAILS.len()));
+        mentions(&answer, &[&path.display().to_string(), &FAILS.len().to_string()]);
+        let verdicts = [EVERY_CHECK_HELD, CHECKS_HOLD, CHECKS_DO_NOT_HOLD, "DecisionsExist"];
+        assert!(!verdicts.iter().any(|verdict| answer.contains(verdict)), "the checks belong to the judges' turn: {answer}");
+    }
+
+    #[test]
+    #[validates(spec::AskPutsItsQuestionToTheHumanAndAnswersWithWhatTheyTyped)]
+    fn ask_puts_its_question_to_the_human_and_answers_with_what_they_typed() {
+        // Asserted at `answered` and `replied`, which carry this over a line a
+        // test wrote: `ask` itself reaches them only through a blocking read.
+        let options = strings(&["a closed set", "another", "a third"]);
+        let picked = answered(&options, "2");
+        let fourth = answered(&options, "a fourth answer");
+        let open = answered(&[], "free text");
+        let past_the_end = answered(&options, "9");
+        let given = (picked.as_str(), fourth.as_str(), open.as_str(), past_the_end.as_str());
+        assert_eq!(given, ("another", "a fourth answer", "free text", "9"), "a bare number picks; anything else is answered verbatim");
+        let by_number = (option_named(&options, "1").map(String::as_str), option_named(&options, "0").map(String::as_str));
+        assert_eq!(by_number, (Some("a closed set"), None), "counted from one, as the question printed it");
+        let mut noted = Noted::default();
+        let through_reply = (replied(&options, &Typed::Answer("2".to_string()), &mut noted), noted);
+        assert_eq!(through_reply, (Ok("another".to_string()), Noted::default()), "an answer is not an ending");
+    }
+
+    #[test]
+    #[validates(spec::TheStallWindowIsPrintedOnceBesideTheQuestion)]
+    fn the_stall_window_is_printed_once_beside_the_question() {
+        let options = strings(&["one", "two"]);
+        let question = "Which package holds this slice?";
+        let open = asked(question, &[]);
+        let closed = asked(question, &options);
+        mentions(&open, &[question, STALL_WINDOW]);
+        mentions(&closed, &[question, STALL_WINDOW, "one", "two"]);
+        assert_eq!((open.matches(STALL_WINDOW).count(), closed.matches(STALL_WINDOW).count()), (1, 1), "once, as the question is asked");
+        let mut noted = Noted::default();
+        let answer = replied(&options, &Typed::Answer("a fourth".to_string()), &mut noted).expect("the answer");
+        assert!(!answer.contains(STALL_WINDOW), "and at no later moment");
+        assert!(STALL_WINDOW.contains("fifteen minutes") && QUIET_TAIL == Duration::from_secs(15 * 60), "canopy's own invoke stall");
+    }
+
+    #[test]
+    #[validates(spec::EndingTheConversationInsideAskIsAToolError)]
+    fn ending_the_conversation_inside_ask_is_a_tool_error() {
+        let mut noted = Noted::default();
+        let directly = (ended_in_ask(&mut noted), noted);
+        let recorded = (Err(CONVERSATION_OVER.to_string()), Noted { drafted: false, wrote: false, ended: true });
+        assert_eq!(directly, recorded, "a tool has no other channel to say it through");
+        let mut typed_as_the_answer = Noted::default();
+        let through_reply = (replied(&[], &Typed::Ended, &mut typed_as_the_answer), typed_as_the_answer.ended);
+        assert_eq!(through_reply, (Err(CONVERSATION_OVER.to_string()), true), "`done` or end of file, typed at an outstanding question");
+    }
+
+    #[test]
+    #[validates(spec::AConversationEndedInsideAskEndsTheLoopWhenTheTurnSettles)]
+    fn a_conversation_ended_inside_ask_ends_the_loop_when_the_turn_settles() {
+        let (root, project) = scratch_project("coach-ended-in-ask");
+        let mut noted = Noted { drafted: true, wrote: true, ended: false };
+        replied(&[], &Typed::Ended, &mut noted).expect_err("the conversation is over");
+        let after = next_after(Noted { ended: true, ..Noted::default() }, Answering::TheJudges);
+        let follows = (noted.ended, next_after(noted, Answering::TheHuman), after);
+        assert_eq!(follows, (true, Next::Nothing, Next::Nothing), "the record carries the ending out of `ask`, whatever else the turn did");
+        let replay = Replay::serve(vec![]);
+        let coach = judging_coach(&replay, &root.join("docs/intent/hello/lld.md"));
+        assert_eq!(next_message(&project, &coach, Next::Nothing), None, "the loop ends rather than reading them again");
+    }
+
+    // ---- what the judges say ---------------------------------------------------
+
+    #[test]
+    #[validates(spec::TheJudgesTurnIsTheDocumentChecksThenTheReader)]
+    fn the_judges_turn_is_the_document_checks_then_the_reader() {
+        let failures = vec![failure_at(Check::DecisionsExist, Path::new("/w/docs/intent/hello/lld.md"), 1)];
+        let findings = strings(&[FINDING]);
+        let message = judges_message(&Ok(failures.clone()), &Ok(findings.clone()));
+        let at_checks = message.find(&checks_section(&Ok(failures))).expect("the document checks' part");
+        let at_reader = message.find(&reader_section(&Ok(findings))).expect("the reader's part");
+        assert!(at_checks < at_reader, "the four document checks first, the reader's findings second: {message}");
+        assert!(message.starts_with(JUDGING_HEADING));
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentChecksRunOverThePathDraftWrote)]
+    fn the_document_checks_run_over_the_path_draft_wrote() {
+        let root = fixture::scratch("coach-checks-over-the-path");
+        let (resolved, drafted) = (root.join("docs/intent/hello/lld.md"), root.join("elsewhere/docs/intent/hello/lld.md"));
+        write_at(&resolved, HOLDS);
+        write_at(&drafted, FAILS);
+        let failures = document_failures(&drafted).expect("the document reads back");
+        let over_it = failures.iter().all(|failure| failure.path == drafted);
+        let elsewhere = document_failures(&resolved).expect("reads back").is_empty();
+        assert_eq!((failures.is_empty(), over_it, elsewhere), (false, true, true), "the path it wrote, not one resolved again: {failures:?}");
+        assert!(failures_section(&failures).contains(&rendered(&failures)), "rendered as `lld-check` renders them for a human");
+    }
+
+    #[test]
+    #[validates(spec::AJudgingWhoseChecksAllHeldSaysSo)]
+    fn a_judging_whose_checks_all_held_says_so() {
+        let held = failures_section(&[]);
+        mentions(&held, &[EVERY_CHECK_HELD]);
+        assert_eq!(checks_section(&Ok(vec![])), held);
+        let failed = failures_section(&[failure_at(Check::Alternatives, Path::new("/w/docs/intent/hello/lld.md"), 9)]);
+        assert!(!failed.contains(EVERY_CHECK_HELD), "a message that said nothing of them would read as one that ran none");
+    }
+
+    #[test]
+    #[validates(spec::TheArtifactChecksAreNotInTheJudgesTurn)]
+    fn the_artifact_checks_are_not_in_the_judges_turn() {
+        let (root, project) = scratch_project("coach-no-artifact-checks");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, FAILS);
+        let guideline = std::fs::read_to_string(root.join(GUIDELINE)).expect("the synced guideline");
+        write_at(&root.join(GUIDELINE), &guideline.replace("`ShapeRows`", "the shape rule"));
+        let every = check_all(&project, &document(&path).expect("the document reads back")).expect("every check");
+        let judged = document_failures(&path).expect("the judges' four");
+        assert!(every.iter().any(|f| f.check == Check::GuidelineNamesEveryCheck), "lld-check sees the drifted guideline");
+        let four = [Check::DecisionsExist, Check::Alternatives, Check::ShapeRows, Check::DeferredNumbered];
+        assert!(judged.iter().all(|f| four.contains(&f.check)), "the judges' turn carries the document's checks alone: {judged:?}");
+        assert!(!judges_message(&Ok(judged), &Ok(vec![])).contains("GuidelineNamesEveryCheck"));
+    }
+
+    #[test]
+    #[validates(spec::AJudgingsVerdictIsTheFourDocumentChecksAndNothingElse)]
+    fn a_judgings_verdict_is_the_four_document_checks_and_nothing_else() {
+        let (root, project) = scratch_project("coach-verdict-checks-only");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        assert!(checks_hold(&Ok(vec![])));
+        assert!(!checks_hold(&Ok(vec![failure_at(Check::ShapeRows, &path, 5)])));
+        let replay = Replay::serve(vec![answering_reader("s-answers"), refused_reader("s-refuses", "the tenant has no budget")]);
+        let coach = judging_coach(&replay, &path);
+        let (with_reader, without) = (judged(&project, &coach), judged(&project, &coach));
+        assert_eq!((with_reader.holds, without.holds), (true, true), "the reader is the verdict's neighbour, not its subject");
+        mentions(&without.message, &[READER_UNCONSULTED, EVERY_CHECK_HELD]);
+    }
+
+    #[test]
+    #[validates(spec::TheHumanIsToldHowTheDocumentChecksFoundTheDocument)]
+    fn the_human_is_told_how_the_document_checks_found_the_document() {
+        let path = Path::new("/w/docs/intent/hello/lld.md");
+        let held = checks_line(&Ok(vec![]));
+        let failed = checks_line(&Ok(vec![failure_at(Check::DecisionsExist, path, 1), failure_at(Check::ShapeRows, path, 7)]));
+        assert!(!held.is_empty() && !failed.is_empty(), "a judging says how it found the document either way");
+        mentions(&failed, &["2"]);
+        assert_ne!(held, failed, "where a run tells the human whether what was just written holds");
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableDocumentsSentenceIsLandedInPlaceOfTheChecksFailures)]
+    fn an_unreadable_documents_sentence_is_landed_in_place_of_the_checks_failures() {
+        let root = fixture::scratch("coach-unreadable-document");
+        let path = root.join("docs/intent/hello/lld.md");
+        let gone = document(&path).expect_err("the file `draft` reported writing has gone");
+        mentions(&gone, &[&path.display().to_string()]);
+        let section = checks_section(&Err(gone.clone()));
+        mentions(&section, &[DOCUMENT_UNREADABLE, &gone]);
+        assert!(!section.contains(EVERY_CHECK_HELD), "a document nobody can see neither holds nor fails");
+        mentions(&judges_message(&Err(gone), &Ok(strings(&[FINDING]))), &[DOCUMENT_UNREADABLE, FINDING]);
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableDocumentIsToldToTheHuman)]
+    fn an_unreadable_document_is_told_to_the_human() {
+        let gone = "reading `docs/intent/hello/lld.md`: no such file or directory".to_string();
+        let line = checks_line(&Err(gone.clone()));
+        mentions(&line, &[DOCUMENT_UNREADABLE]);
+        assert_ne!(line, checks_line(&Ok(vec![])), "they are the only one who can put back a document that has gone");
+        mentions(&judging_line(&Err(gone), &Ok(strings(&[FINDING]))), &[DOCUMENT_UNREADABLE]);
+    }
+
+    #[test]
+    #[validates(spec::AnUnreadableDocumentsVerdictIsThatTheChecksDoNotHold)]
+    fn an_unreadable_documents_verdict_is_that_the_checks_do_not_hold() {
+        assert!(!checks_hold(&Err("no such file".to_string())), "a verdict is a statement about checks that ran, and none did");
+        assert!(checks_hold(&Ok(vec![])), "and a document that read back with nothing against it holds");
+    }
+
+    #[test]
+    #[validates(spec::ADocumentThatCannotBeReadBackDoesNotEndTheConversation)]
+    fn a_document_that_cannot_be_read_back_does_not_end_the_conversation() {
+        let (root, project) = scratch_project("coach-unreadable-continues");
+        let never_written = root.join("docs/intent/hello/lld.md");
+        let replay = Replay::serve(vec![answering_reader("s-reader")]);
+        let judging = judged(&project, &judging_coach(&replay, &never_written));
+        assert!(!judging.holds, "a judging that could run no check does not say the document holds");
+        mentions(&judging.message, &[JUDGING_HEADING, DOCUMENT_UNREADABLE, FINDING]);
+        assert_eq!(replay.opened(), strings(&["s-reader"]), "the model is still owed an answer, and the human is mid-interview");
+    }
+
+    #[test]
+    #[validates(spec::TheReadersSystemIsTheSyncedReaderBody)]
+    fn the_readers_system_is_the_synced_reader_body() {
+        let (root, project) = scratch_project("coach-reader-body");
+        let text = std::fs::read_to_string(root.join(READER)).expect("the synced reader");
+        let body = reader_body(&project).expect("the reader's body");
+        assert_eq!(body, without_frontmatter(&text), "as the canopy client reads an agent's body");
+        assert!(!body.contains("tools: Read, Grep, Glob"), "its frontmatter is not its body");
+        assert_eq!(reader_settings(&project, MAX_COST).expect("a reader's dial").system, body);
+    }
+
+    #[test]
+    #[validates(spec::AReaderSessionDeclaresTheCanopyClientsObservationTools)]
+    fn a_reader_session_declares_the_canopy_clients_observation_tools() {
+        let (_root, project) = scratch_project("coach-reader-observes");
+        let observation = canopy_declarations(&[CanopyTool::Read, CanopyTool::Grep, CanopyTool::Glob]);
+        let dial = reader_settings(&project, MAX_COST).expect("a reader's dial");
+        assert_eq!(dial.policy, policy_for(&observation), "a reading observes and cannot act");
+        let ops: Vec<&str> = dial.policy.tools.iter().map(|tool| tool.op.as_str()).collect();
+        assert_eq!(ops, ["read", "grep", "glob"]);
+    }
+
+    #[test]
+    #[validates(spec::AReaderSessionCarriesNoPhase)]
+    fn a_reader_session_carries_no_phase() {
+        let (root, project) = scratch_project("coach-reader-phaseless");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![observing_reader("s-reader", "docs/intent/hello/lld.md")]);
+        reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        let counted = tally::load(&project, "canopy:s-reader").expect("the tally");
+        assert_eq!(counted, tally::Tally::default(), "a reading belongs to no phase whose tally would count it");
+    }
+
+    #[test]
+    #[validates(spec::AReaderTurnIsRunByTheCanopyClientsOwnDispatch)]
+    fn a_reader_turn_is_run_by_the_canopy_clients_own_dispatch() {
+        let (root, project) = scratch_project("coach-reader-dispatch");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![observing_reader("s-reader", "docs/intent/hello/lld.md")]);
+        let findings = reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        assert_eq!(findings, strings(&[FINDING]));
+        let answers = replay::completions(&replay.landed("s-reader"));
+        mentions(answers[0].body["result"].as_str().expect("the read's text"), &["## Shape"]);
+        assert_eq!(answers[1].body["outcome"].as_str(), Some("error"), "the coach's own `draft` is no tool of that dispatch");
+        mentions(answers[1].body["error"].as_str().expect("the refusal"), &["draft"]);
+        assert_eq!(std::fs::read_to_string(&path).expect("the document"), HOLDS, "and nothing wrote it");
+    }
+
+    #[test]
+    #[validates(spec::TheJudgingsHeadingIsPrintedBeforeAReaderSessionOpens)]
+    fn the_judgings_heading_is_printed_before_a_reader_session_opens() {
+        // The order of two prints — this heading's and `Session::open`'s — has
+        // no in-process seam, as `EveryPhasePrintsItsSessionsAndItsEnding` is
+        // asserted through `opened_line` rather than through the print. What is
+        // asserted is the heading and that a judging opens one reader under it.
+        let (root, project) = scratch_project("coach-judging-heading");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![answering_reader("s-reader")]);
+        let judging = judged(&project, &judging_coach(&replay, &path));
+        assert_eq!(JUDGING_HEADING, "## The judges");
+        assert!(judging.message.starts_with(JUDGING_HEADING), "the line a reader session's own opening follows");
+        assert_eq!(replay.opened(), strings(&["s-reader"]), "one reader session, opened by this judging");
+    }
+
+    #[test]
+    #[validates(spec::TheReaderIsAFreshSessionForEveryJudging)]
+    fn the_reader_is_a_fresh_session_for_every_judging() {
+        let (root, project) = scratch_project("coach-fresh-reader");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![answering_reader("s-reader-1"), answering_reader("s-reader-2")]);
+        let coach = judging_coach(&replay, &path);
+        judged(&project, &coach);
+        judged(&project, &coach);
+        assert_eq!(replay.opened(), strings(&["s-reader-1", "s-reader-2"]), "a session of its own for each reading");
+    }
+
+    #[test]
+    #[validates(spec::TheReaderIsGivenTheDocumentAndAskedForFindings)]
+    fn the_reader_is_given_the_document_and_asked_for_findings() {
+        let (root, project) = scratch_project("coach-reader-prompt");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        mentions(&reader_prompt(&path), &[&path.display().to_string(), "findings"]);
+        let replay = Replay::serve(vec![answering_reader("s-reader")]);
+        reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        let asked_for = replay::user_messages(&replay.landed("s-reader"));
+        assert_eq!(asked_for, vec![reader_prompt(&path)], "what a phase would have given it");
+    }
+
+    #[test]
+    #[validates(spec::AReaderSessionIsStoppedWhenItAnswers)]
+    fn a_reader_session_is_stopped_when_it_answers() {
+        let (root, project) = scratch_project("coach-reader-stopped");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![answering_reader("s-reader")]);
+        reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        assert!(replay.stopped("s-reader"), "a session left open is an unsealed log");
+    }
+
+    #[test]
+    #[validates(spec::AFailedReadersSentenceIsLandedInPlaceOfItsFindings)]
+    fn a_failed_readers_sentence_is_landed_in_place_of_its_findings() {
+        let refused = "the door refused the dial: 403".to_string();
+        let landed = reader_section(&Err(refused.clone()));
+        mentions(&landed, &[READER_UNCONSULTED, &refused]);
+        let answered_whole = reader_section(&Ok(strings(&[FINDING, "and a second finding"])));
+        mentions(&answered_whole, &[FINDING, "and a second finding"]);
+        assert!(!answered_whole.contains(READER_UNCONSULTED), "which findings matter is the human's judgment, so they land whole");
+    }
+
+    #[test]
+    #[validates(spec::AFailedReaderIsToldToTheHuman)]
+    fn a_failed_reader_is_told_to_the_human() {
+        let halted = "the reader session halted: max_cost reached".to_string();
+        mentions(&reader_line(&Err(halted.clone())), &[READER_UNCONSULTED, &halted]);
+        assert!(reader_line(&Ok(strings(&[FINDING]))).is_empty(), "its findings went to the model; there is nothing here to tell them");
+        mentions(&judging_line(&Ok(vec![]), &Err(halted)), &[READER_UNCONSULTED]);
+    }
+
+    #[test]
+    #[validates(spec::AReaderThatCannotBeConsultedDoesNotEndTheConversation)]
+    fn a_reader_that_cannot_be_consulted_does_not_end_the_conversation() {
+        let (root, project) = scratch_project("coach-reader-lost");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let refused = "the tenant has no budget left";
+        let replay = Replay::serve(vec![refused_reader("s-first", refused), refused_reader("s-second", refused)]);
+        let coach = judging_coach(&replay, &path);
+        mentions(&reader_findings(&project, &coach).expect_err("the dial was refused"), &[refused]);
+        let judging = judged(&project, &coach);
+        assert!(judging.holds, "the document's checks held, whatever became of the second opinion");
+        mentions(&judging.message, &[READER_UNCONSULTED, refused, EVERY_CHECK_HELD]);
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentChecksAreLandedWhetherOrNotTheReaderAnswers)]
+    fn the_document_checks_are_landed_whether_or_not_the_reader_answers() {
+        let path = Path::new("/w/docs/intent/hello/lld.md");
+        let failures = vec![failure_at(Check::DeferredNumbered, path, 12)];
+        let lost = "the reader could not be reached".to_string();
+        mentions(&judges_message(&Ok(failures), &Err(lost.clone())), &["DeferredNumbered", READER_UNCONSULTED]);
+        mentions(&judges_message(&Ok(vec![]), &Err(lost)), &[EVERY_CHECK_HELD, READER_UNCONSULTED]);
+    }
+
+    #[test]
+    #[validates(spec::TheJudgesAreLandedAsOneUserMessageUnderAHeading)]
+    fn the_judges_are_landed_as_one_user_message_under_a_heading() {
+        let driven = driven("coach-judges-one-message");
+        let messages = replay::user_messages(&driven.replay.landed("s-coach"));
+        assert_eq!(messages.len(), 2, "the opening, then the judges' one message: {messages:?}");
+        assert_eq!(messages[0], OPENING);
+        assert!(messages[1].starts_with(JUDGING_HEADING), "so a reader of the sealed log tells the judges' turn from the human's");
+        mentions(&messages[1], &["DecisionsExist", FINDING]);
+    }
+
+    // ---- the ending ------------------------------------------------------------
+
+    #[test]
+    #[validates(spec::TheEndingPrintsThePathAndWhetherTheChecksHold)]
+    fn the_ending_prints_the_path_and_whether_the_checks_hold() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let holds = owed(path, Some(true));
+        let does_not = owed(path, Some(false));
+        mentions(&holds, &["/w/app/docs/intent/hello/lld.md", CHECKS_HOLD]);
+        mentions(&does_not, &["/w/app/docs/intent/hello/lld.md", CHECKS_DO_NOT_HOLD]);
+        assert_eq!(holds, document_owed(path, CHECKS_HOLD), "the verdict the last judging reached, carried out of the loop");
+        assert!(!holds.contains(CHECKS_DO_NOT_HOLD));
+    }
+
+    #[test]
+    #[validates(spec::TheEndingNamesThePhaseOneCommitTheCoachDoesNotMake)]
+    fn the_ending_names_the_phase_one_commit_the_coach_does_not_make() {
+        let under_a_package = Path::new("/w/app/docs/intent/hello/lld.md");
+        mentions(&document_owed(under_a_package, CHECKS_HOLD), &["phase 1: LLD for hello"]);
+        let at_the_root = Path::new("/w/docs/intent/book/lld.md");
+        mentions(&document_owed(at_the_root, CHECKS_DO_NOT_HOLD), &["phase 1: LLD for book"]);
+    }
+
+    #[test]
+    #[validates(spec::ARunThatDraftedNothingEndsSayingSo)]
+    fn a_run_that_drafted_nothing_ends_saying_so() {
+        // Asserted at `owed`: the loop answers `None` only when the human has
+        // ended a conversation that never drafted, which no driven run reaches.
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let nothing = owed(path, None);
+        assert_eq!(nothing, nothing_drafted(path));
+        mentions(&nothing, &["/w/app/docs/intent/hello/lld.md"]);
+        let said = [CHECKS_HOLD, CHECKS_DO_NOT_HOLD, "phase 1:"];
+        assert!(!said.iter().any(|verdict| nothing.contains(verdict)), "nothing to check, and nothing to commit: {nothing}");
+        assert_ne!(nothing, owed(path, Some(false)), "a run that drafted a failing document drafted something");
+    }
+}
