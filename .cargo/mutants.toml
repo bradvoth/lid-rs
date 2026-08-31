@@ -1,0 +1,17 @@
+# cargo-mutants configuration, read from the workspace root by `cargo lid-rs
+# mutants` (check 12) as by cargo-mutants itself.
+#
+# Exclusions here are exemptions from measurement, and every one is a claim
+# nothing checks. Each must name the function, be scoped to its file, and cite
+# the LLD's Decisions & Alternatives row that gives its reason — the same bar
+# `#[mutants::skip]` is held to, which this file stands in for so that no
+# published crate gains a dependency for a no-op attribute (tenet 3).
+exclude_re = [
+    # `coach::read_line`: a blocking read of a terminal has no state a test can
+    # put it in and still finish. The classifying was split out into
+    # `human_turn` so that this holds no branch of the slice's own, which is
+    # what makes it the pure I/O sequencing the exemption is for.
+    # See `cargo-lid-rs/docs/intent/coach/lld.md` § Decisions & Alternatives,
+    # "Measuring the terminal read".
+    'coach\.rs.*\bread_line\b',
+]

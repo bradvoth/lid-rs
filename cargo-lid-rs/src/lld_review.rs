@@ -30,10 +30,10 @@ const CHECKLIST_HEADING: &str = "## The checklist";
 const TOOLS_DECLARATION: &str = "tools:";
 
 /// The project's synced copy of the guideline, relative to the workspace root.
-const GUIDELINE: &str = ".claude/skills/lid-rs/references/lld.md";
+pub const GUIDELINE: &str = ".claude/skills/lid-rs/references/lld.md";
 
 /// The project's synced copy of the reader, relative to the workspace root.
-const READER: &str = ".claude/agents/lid-rs-lld-review.md";
+pub const READER: &str = ".claude/agents/lid-rs-lld-review.md";
 
 /// The tools an advisory reader may declare: it observes, and cannot act.
 const OBSERVATION_TOOLS: [&str; 3] = ["Read", "Grep", "Glob"];
@@ -256,7 +256,7 @@ pub fn report(failures: &[Failure]) -> Result<(), String> {
 /// Every failure, one to a line, each naming its file, its line, its check and
 /// its message — the whole list, so a human sees it rather than the first item.
 #[implements(spec::EveryFailureIsReportedNotOnlyTheFirst)]
-fn rendered(failures: &[Failure]) -> String {
+pub fn rendered(failures: &[Failure]) -> String {
     failures
         .iter()
         .map(|failure| format!("{}:{}: {:?}: {}", failure.path.display(), failure.line, failure.check, failure.message))

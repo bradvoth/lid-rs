@@ -1,5 +1,7 @@
 #![doc = include_str!("../docs/intent/cargo-lid-rs/lld.md")]
 
+#[doc = include_str!("../docs/intent/coach/lld.md")]
+pub mod coach;
 #[doc = include_str!("../docs/intent/headless-canopy-agent/lld.md")]
 pub mod headless_canopy_agent;
 #[doc = include_str!("../docs/intent/lld-review/lld.md")]
@@ -18,7 +20,7 @@ pub mod sync;
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <commit-msg <file> | subagent-start | subagent-stop>>";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <commit-msg <file> | subagent-start | subagent-stop>>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
@@ -50,6 +52,7 @@ fn dispatch(args: &[String]) -> Result<(), String> {
         Some("phase-check") => phase::run(&args[1..]),
         Some("lld-check") => lld_review::run(&args[1..]),
         Some("canopy") => headless_canopy_agent::run(&args[1..]),
+        Some("coach") => coach::run(&args[1..]),
         Some("hook") => phase::hook(&args[1..]),
         Some(other) => Err(format!("unknown subcommand `{other}`\n{USAGE}")),
         None => Err(USAGE.to_string()),

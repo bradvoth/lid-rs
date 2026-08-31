@@ -33,9 +33,16 @@ this split exists to prevent.
    clippy threshold, add `#[allow]`, wildcard a match, or pass `git commit
    --no-verify` to get past a gate or a phase hook.
    The only sanctioned `#[allow]`s are the ones inside macro-generated
-   registration blocks, which you never write by hand. `#[mutants::skip]` is
-   a suppression too: only on pure I/O sequencing, only with the reason in
-   the LLD's decisions table, only after asking.
+   registration blocks, which you never write by hand. Exempting code from check 12 is a
+   suppression too: only on pure I/O sequencing, only with the reason in
+   the LLD's decisions table, only after asking. Two mechanisms do it —
+   `#[mutants::skip]`, which needs the `mutants` crate in `[dependencies]`
+   because it is a real attribute macro and not a built-in, and an
+   `exclude_re` in `.cargo/mutants.toml`, which needs nothing. Prefer the
+   attribute where the dependency is already paid for, since it sits on the
+   function it exempts; prefer the config where it is not, and scope the
+   regex to one file and one name so it cannot silently exempt the next
+   function someone writes.
 3. **A leaf with a branch in it is a requirement nobody wrote down.** A
    function either makes one flow decision (one `match` or one `if/else`
    chain) or does one unit of work — never both. When a decision starts
