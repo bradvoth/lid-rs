@@ -30,7 +30,9 @@
 //! a terminal keep no decision of their own: each is a printing and a read
 //! around a function over plain data that a test can construct. [`typed`]
 //! classifies one line from the human as the conversation's end or their answer,
-//! for both [`human_turn`] and [`ask`]; [`replied`] turns that classification
+//! for [`human_turn`] — which the loop hands the line rather than the terminal,
+//! [`read_line`] being the whole of what this module does at one — and for
+//! [`ask`]; [`replied`] turns that classification
 //! into what the model is told, so [`ask`] prints, reads and decides nothing;
 //! [`answered`] applies `ask`'s rule for its `options`; [`checks_line`] and
 //! [`reader_line`] say how a judging went for the human who is watching; and
@@ -58,17 +60,47 @@
 //! [`drive`]: crate::headless_canopy_agent::turn::drive
 //! [`read_tool`]: crate::headless_canopy_agent::tools::read_tool
 //! [`confine`]: crate::headless_canopy_agent::tools::confine
+//
+// This module's own items are written out below for the same reason. This
+// documentation is assembled from two places — the LLD included at `pub mod
+// coach;` in `lib.rs`, and the prose above — and a block merged from a
+// declaration in another file resolves its links in that file's scope, where
+// nothing of this module's is in scope by its bare name.
+//
+//! [`Noted`]: crate::coach::Noted
+//! [`Judging`]: crate::coach::Judging
+//! [`typed`]: crate::coach::typed
+//! [`human_turn`]: crate::coach::human_turn
+//! [`read_line`]: crate::coach::read_line
+//! [`ask`]: crate::coach::ask
+//! [`replied`]: crate::coach::replied
+//! [`answered`]: crate::coach::answered
+//! [`checks_line`]: crate::coach::checks_line
+//! [`reader_line`]: crate::coach::reader_line
+//! [`next_after`]: crate::coach::next_after
+//! [`declarations`]: crate::coach::declarations
+//! [`declared`]: crate::coach::declared
+//! [`COACH_TOOLS`]: crate::coach::COACH_TOOLS
+//! [`checks_section`]: crate::coach::checks_section
+//! [`reader_section`]: crate::coach::reader_section
 
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 use serde::Deserialize;
-use serde_json::Value;
+use serde_json::{Value, json};
 
-use crate::headless_canopy_agent::door::{Door, Settings, ToolDecl};
-use crate::headless_canopy_agent::tools::ToolResult;
-use crate::headless_canopy_agent::turn::{Halt, Session};
-use crate::lld_review::{Failure, Lld};
+use crate::headless_canopy_agent::door::{Door, Settings, ToolDecl, policy_for};
+use crate::headless_canopy_agent::ending::{halt_reason, numbered, without_frontmatter};
+use crate::headless_canopy_agent::tools::{
+    REQUESTEE, ReadArgs, Tool as CanopyTool, ToolResult, arguments, confine, declarations as canopy_declarations, execute as canopy_execute, read_tool,
+};
+use crate::headless_canopy_agent::turn::{Halt, Session, drive};
+use crate::headless_canopy_agent::{DEFAULT_MAX_COST, KEY_VARIABLE, PRODUCTION_DOOR, api_key};
+use crate::lld_review::{
+    Failure, GUIDELINE, Lld, READER, alternatives, decisions_exist, deferred_numbered, guideline_names_every_check, reader_observes_only, rendered, shape_rows,
+};
+use crate::phase::resolve_slice;
 use crate::project::Project;
 use crate::spec;
 
@@ -83,8 +115,10 @@ pub const COACH_USAGE: &str = "usage: cargo lid-rs coach [--package <name> | --w
 /// [`api_key`](crate::headless_canopy_agent::api_key) stops one, before any
 /// session opens.
 pub fn run(args: &[String]) -> Result<(), String> {
-    let _ = args;
-    todo!()
+    let flags = parse_args(args)?;
+    let key = api_key(std::env::var(KEY_VARIABLE).ok()).map_err(|stop| stop.decisions.join("\n"))?;
+    let project = Project::load()?;
+    coached(&project, &Door::new(&flags.door, &key), &flags)
 }
 
 /// One coaching run, from the flags to what the human owes, on the door it is
@@ -113,8 +147,19 @@ pub fn run(args: &[String]) -> Result<(), String> {
     spec::TheEndingPrintsThePathAndWhetherTheChecksHold,
 )]
 pub fn coached(project: &Project, door: &Door, flags: &Flags) -> Result<(), String> {
-    let _ = (project, door, flags);
-    todo!()
+    setup(project)?.iter().for_each(|warning| println!("{warning}"));
+    let slice = slice_of(project, flags.slice.clone())?;
+    let path = document_path(&package_dir(project, flags.target.as_ref())?, &slice);
+    let settings = coaching_settings(project, flags.max_cost)?;
+    println!("{}", path_line(&path));
+    let session = Session::open(door, &settings, None, declarations())?;
+    let opened_with = opening(&slice, &path);
+    let mut coach = Coach { door: door.clone(), session, path, max_cost: flags.max_cost };
+    let ended = converse(project, &mut coach, &opened_with);
+    let sealed = coach.session.stop().map_err(halt_reason);
+    let holds = ended.map_err(halt_reason).and_then(|verdict| sealed.map(|()| verdict))?;
+    println!("{}", owed(&coach.path, holds));
+    Ok(())
 }
 
 /// What the coach prints as the coaching session opens: the document it is
@@ -122,8 +167,7 @@ pub fn coached(project: &Project, door: &Door, flags: &Flags) -> Result<(), Stri
 /// rather than after the conversation.
 #[implements(spec::TheDocumentsPathIsPrintedWhenTheSessionOpens)]
 pub fn path_line(path: &Path) -> String {
-    let _ = path;
-    todo!()
+    format!("this run writes {}", path.display())
 }
 
 /// The flags `coach` takes, with their defaults.
@@ -151,7 +195,7 @@ impl Default for Flags {
         spec::NeitherFlagSettlesOnNoTarget,
     )]
     fn default() -> Self {
-        todo!()
+        Self { target: None, slice: None, door: PRODUCTION_DOOR.to_string(), max_cost: DEFAULT_MAX_COST }
     }
 }
 
@@ -179,8 +223,14 @@ impl Flag {
     /// and none for anything else, which [`parse_args`] then rejects by name.
     #[implements(spec::AnyOtherArgumentToCoachIsRejectedByName)]
     pub fn of(argument: &str) -> Option<Flag> {
-        let _ = argument;
-        todo!()
+        match argument {
+            "--package" => Some(Flag::Package),
+            "--workspace" => Some(Flag::Workspace),
+            "--slice" => Some(Flag::Slice),
+            "--door" => Some(Flag::Door),
+            "--max-cost" => Some(Flag::MaxCost),
+            _ => None,
+        }
     }
 
     /// Whether the flag is followed by its value: every flag but
@@ -188,13 +238,19 @@ impl Flag {
     /// it. The one predicate [`pairs`] asks of a flag before taking the
     /// argument that follows it.
     pub fn takes_a_value(self) -> bool {
-        todo!()
+        self != Flag::Workspace
     }
 
     /// The flag as it is written on a command line, which is how a rejection
     /// and a stop name it.
     pub fn spelling(self) -> &'static str {
-        todo!()
+        match self {
+            Flag::Package => "--package",
+            Flag::Workspace => "--workspace",
+            Flag::Slice => "--slice",
+            Flag::Door => "--door",
+            Flag::MaxCost => "--max-cost",
+        }
     }
 }
 
@@ -214,8 +270,8 @@ impl Flag {
     spec::NeitherFlagSettlesOnNoTarget,
 )]
 pub fn parse_args(args: &[String]) -> Result<Flags, String> {
-    let _ = args;
-    todo!()
+    one_target(args)?;
+    pairs(args)?.into_iter().try_fold(Flags::default(), applied)
 }
 
 /// The two flags that name a place refuse each other: arguments carrying both
@@ -224,8 +280,15 @@ pub fn parse_args(args: &[String]) -> Result<Flags, String> {
 /// one target settled from two flags cannot say it came from two.
 #[implements(spec::PackageAndWorkspaceRefuseEachOther)]
 pub fn one_target(args: &[String]) -> Result<(), String> {
-    let _ = args;
-    todo!()
+    let named = |flag: Flag| args.iter().any(|argument| argument == flag.spelling());
+    let both = named(Flag::Package) && named(Flag::Workspace);
+    (!both).then_some(()).ok_or_else(|| {
+        format!(
+            "`{}` and `{}` refuse each other: the document has one place, so name it once\n{COACH_USAGE}",
+            Flag::Package.spelling(),
+            Flag::Workspace.spelling()
+        )
+    })
 }
 
 /// The arguments as the `(flag, value)` pairs they name: each argument
@@ -237,8 +300,15 @@ pub fn one_target(args: &[String]) -> Result<(), String> {
 /// missing value costs depends on the flag.
 #[implements(spec::AnyOtherArgumentToCoachIsRejectedByName)]
 pub fn pairs(args: &[String]) -> Result<Vec<(Flag, Option<String>)>, String> {
-    let _ = args;
-    todo!()
+    let mut named = Vec::new();
+    let mut rest = args;
+    while let Some((argument, after)) = rest.split_first() {
+        let flag = Flag::of(argument).ok_or_else(|| format!("unknown argument `{argument}` for coach\n{COACH_USAGE}"))?;
+        let takes = flag.takes_a_value();
+        named.push((flag, after.first().filter(|_| takes).cloned()));
+        rest = after.get(usize::from(takes)..).unwrap_or_default();
+    }
+    Ok(named)
 }
 
 /// One `(flag, value)` pair applied to the flags — the one decision over which
@@ -250,22 +320,26 @@ pub fn pairs(args: &[String]) -> Result<Vec<(Flag, Option<String>)>, String> {
 /// [`Flags::default`]'s, and that it is left standing is [`parse_args`]'s.
 #[implements(spec::TheCoachsSliceIsTheFlagsValueOrTheBranchName)]
 pub fn applied(flags: Flags, pair: (Flag, Option<String>)) -> Result<Flags, String> {
-    let _ = (flags, pair);
-    todo!()
+    let (flag, value) = pair;
+    match flag {
+        Flag::Package => Ok(Flags { target: Some(Where::Package(named(flag, value)?)), ..flags }),
+        Flag::Workspace => Ok(Flags { target: Some(Where::Workspace), ..flags }),
+        Flag::Slice => Ok(Flags { slice: Some(named(flag, value)?), ..flags }),
+        Flag::Door => Ok(Flags { door: named(flag, value)?, ..flags }),
+        Flag::MaxCost => Ok(Flags { max_cost: amount(&named(flag, value)?)?, ..flags }),
+    }
 }
 
 /// The value a flag was given; a flag whose value is not there is rejected
 /// naming the flag and saying what it needs.
 pub fn named(flag: Flag, value: Option<String>) -> Result<String, String> {
-    let _ = (flag, value);
-    todo!()
+    value.ok_or_else(|| format!("the flag `{}` for coach needs a value\n{COACH_USAGE}", flag.spelling()))
 }
 
 /// `--max-cost`'s value as an amount in the provider's currency; one that is
 /// not a number is rejected, quoting it.
 pub fn amount(value: &str) -> Result<f64, String> {
-    let _ = value;
-    todo!()
+    value.parse::<f64>().map_err(|_| format!("`{value}` is not an amount for --max-cost, in the provider's currency"))
 }
 
 /// The slice the document is written for: the flag's value, or — absent it —
@@ -275,8 +349,7 @@ pub fn amount(value: &str) -> Result<f64, String> {
 /// and so has no document to write.
 #[implements(spec::TheCoachsSliceIsTheFlagsValueOrTheBranchName)]
 pub fn slice_of(project: &Project, given: Option<String>) -> Result<String, String> {
-    let _ = (project, given);
-    todo!()
+    resolve_slice(project, given)?.ok_or_else(|| format!("no slice: the branch is not named `lld/<slice>`\n{COACH_USAGE}"))
 }
 
 /// Where the document goes, as the flags name it — never as the directory the
@@ -305,8 +378,11 @@ pub struct Member {
 /// The workspace's members, each paired with its manifest directory: what
 /// [`named_member`] matches a name against and what [`sole_member`] counts.
 pub fn members(project: &Project) -> Vec<Member> {
-    let _ = project;
-    todo!()
+    project
+        .member_manifest_dirs()
+        .into_iter()
+        .filter_map(|dir| project.package_at(&dir.join("Cargo.toml")).map(|name| Member { name, dir }))
+        .collect()
 }
 
 /// The directory the document goes under — the one decision over what the
@@ -318,8 +394,11 @@ pub fn members(project: &Project) -> Vec<Member> {
 /// [`Where`] and this goes on from there.
 #[implements(spec::TheWorkspaceFlagNamesTheWorkspaceRoot)]
 pub fn package_dir(project: &Project, target: Option<&Where>) -> Result<PathBuf, String> {
-    let _ = (project, target);
-    todo!()
+    match target {
+        Some(Where::Workspace) => project.root(),
+        Some(Where::Package(name)) => named_member(&members(project), name),
+        None => sole_member(&members(project)),
+    }
 }
 
 /// The named member's manifest directory: the member of that name, and not the
@@ -331,8 +410,12 @@ pub fn package_dir(project: &Project, target: Option<&Where>) -> Result<PathBuf,
     spec::APackageNamingNoMemberStopsTheRunListingTheMembers,
 )]
 pub fn named_member(members: &[Member], name: &str) -> Result<PathBuf, String> {
-    let _ = (members, name);
-    todo!()
+    let listed: Vec<&str> = members.iter().map(|member| member.name.as_str()).collect();
+    members
+        .iter()
+        .find(|member| member.name == name)
+        .map(|member| member.dir.clone())
+        .ok_or_else(|| format!("no workspace member is named `{name}`; the members are {}", listed.join(", ")))
 }
 
 /// The directory a workspace answers with when neither flag named one — the
@@ -345,16 +428,20 @@ pub fn named_member(members: &[Member], name: &str) -> Result<PathBuf, String> {
     spec::NoTargetInAWorkspaceOfSeveralMembersStopsNamingTheFlag,
 )]
 pub fn sole_member(members: &[Member]) -> Result<PathBuf, String> {
-    let _ = members;
-    todo!()
+    match members {
+        [only] => Ok(only.dir.clone()),
+        [] | [_, _, ..] => Err(format!(
+            "this workspace has {} members: name the one the document goes under with `--package <name>`, or `--workspace` for a slice whose product is the workspace",
+            members.len()
+        )),
+    }
 }
 
 /// The document itself: `docs/intent/<slice>/lld.md` under the directory
 /// [`package_dir`] settled — the path the walk will look for it at.
 #[implements(spec::TheDocumentIsTheSlicesLldUnderThatDirectory)]
 pub fn document_path(package_dir: &Path, slice: &str) -> PathBuf {
-    let _ = (package_dir, slice);
-    todo!()
+    package_dir.join("docs/intent").join(slice).join("lld.md")
 }
 
 /// The slice a document's path is for: its parent directory's name. What
@@ -362,8 +449,7 @@ pub fn document_path(package_dir: &Path, slice: &str) -> PathBuf {
 /// ending and the judging name the slice the path names and cannot disagree
 /// with it.
 pub fn slice_named(path: &Path) -> String {
-    let _ = path;
-    todo!()
+    path.parent().and_then(Path::file_name).map(|slice| slice.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// One coaching run: the door its sessions are dialled on, the coaching session
@@ -413,8 +499,8 @@ pub const METHOD: &str = ".claude/skills/lid-rs/references/coach.md";
 /// that cannot be read is the error naming the path that was looked for, since
 /// what a human does about it is put the file back.
 pub fn synced_text(project: &Project, relative: &str) -> Result<String, String> {
-    let _ = (project, relative);
-    todo!()
+    let path = project.root()?.join(relative);
+    std::fs::read_to_string(&path).map_err(|unreadable| format!("reading {}: {unreadable}", path.display()))
 }
 
 /// The coaching session's system prompt: the synced interview method
@@ -430,8 +516,9 @@ pub fn synced_text(project: &Project, relative: &str) -> Result<String, String> 
     spec::AnUnreadableGuidelineStopsTheRunNamingItsPath,
 )]
 pub fn coaching_system(project: &Project) -> Result<String, String> {
-    let _ = project;
-    todo!()
+    let method = synced_text(project, METHOD)?;
+    let guideline = synced_text(project, GUIDELINE)?;
+    Ok(format!("{method}\n\n{guideline}"))
 }
 
 /// The coaching session's dial: `system` the two synced prompts
@@ -444,8 +531,7 @@ pub fn coaching_system(project: &Project) -> Result<String, String> {
     spec::EverySessionTheCoachOpensIsDialledWithTheMaxCost,
 )]
 pub fn coaching_settings(project: &Project, max_cost: f64) -> Result<Settings, String> {
-    let _ = (project, max_cost);
-    todo!()
+    Ok(Settings { system: coaching_system(project)?, policy: policy_for(&declarations()), params: json!({}), max_cost })
 }
 
 /// The conversation's first user message — the one decision over whether a
@@ -454,24 +540,28 @@ pub fn coaching_settings(project: &Project, max_cost: f64) -> Result<Settings, S
 /// document, which the message carries whole ([`amending`]).
 #[implements(spec::TheOpeningNamesTheSlice, spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
 pub fn opening(slice: &str, path: &Path) -> String {
-    let _ = (slice, path);
-    todo!()
+    match existing(path) {
+        Some(document) => amending(slice, &document),
+        None => writing(slice),
+    }
 }
 
 /// The document already at that path, whole; none when there is none to read.
 /// A path that cannot be read is a slice with no document yet, which is the
 /// ordinary case rather than a fault: the coach is about to write one.
 pub fn existing(path: &Path) -> Option<String> {
-    let _ = path;
-    todo!()
+    std::fs::read_to_string(path).ok()
 }
 
 /// The opening for a slice with no document: what the slice is, and that the
 /// model is writing its LLD.
 #[implements(spec::TheOpeningNamesTheSlice)]
 pub fn writing(slice: &str) -> String {
-    let _ = slice;
-    todo!()
+    format!(
+        "You are writing the LLD for the slice `{slice}`, which has no document yet. Read what the repository already \
+         answers, then interview me one decision at a time, and draft when you can write a section without inventing \
+         anything."
+    )
 }
 
 /// The opening for a slice whose document already exists: what the slice is,
@@ -480,8 +570,11 @@ pub fn writing(slice: &str) -> String {
 /// the human's.
 #[implements(spec::TheOpeningNamesTheSlice, spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
 pub fn amending(slice: &str, document: &str) -> String {
-    let _ = (slice, document);
-    todo!()
+    format!(
+        "You are amending the LLD for the slice `{slice}`, which already exists. Read what the repository already \
+         answers, then interview me one decision at a time, and draft the whole document when you can write the \
+         amendment without inventing anything. The document as it stands follows.\n\n{document}"
+    )
 }
 
 /// The loop, opened on the message it is handed: `opening` is landed as the
@@ -526,8 +619,20 @@ pub fn amending(slice: &str, document: &str) -> String {
     spec::ARunThatDraftedNothingEndsSayingSo,
 )]
 pub fn converse(project: &Project, coach: &mut Coach, opening: &str) -> Result<Option<bool>, Halt> {
-    let _ = (project, coach, opening);
-    todo!()
+    let path = coach.path.clone();
+    let mut verdict = None;
+    let mut message = Some(Landed { text: opening.to_string(), answering: Answering::TheHuman, holds: None });
+    while let Some(landed) = message {
+        verdict = landed.holds.or(verdict);
+        let mut noted = Noted::default();
+        let settled = {
+            let mut executor = |running: &Project, _: &Session, op: &str, args: &Value| execute(running, &path, &mut noted, op, args);
+            drive(project, &mut coach.session, &mut executor, &landed.text)?
+        };
+        println!("{}", settled.text);
+        message = next_message(project, coach, next_after(noted, landed.answering));
+    }
+    Ok(verdict)
 }
 
 /// Whose message the model's turn is answering. The loop carries it from one
@@ -573,8 +678,12 @@ pub enum Next {
     spec::AConversationEndedInsideAskEndsTheLoopWhenTheTurnSettles,
 )]
 pub fn next_after(noted: Noted, answering: Answering) -> Next {
-    let _ = (noted, answering);
-    todo!()
+    match (noted.ended, noted.wrote, answering) {
+        (true, _, Answering::TheHuman | Answering::TheJudges) => Next::Nothing,
+        (false, true, Answering::TheHuman) => Next::Judges,
+        (false, true, Answering::TheJudges) => Next::Human,
+        (false, false, Answering::TheHuman | Answering::TheJudges) => Next::Human,
+    }
 }
 
 /// One user message as the loop lands it: its text, whose message the turn it
@@ -593,13 +702,21 @@ pub struct Landed {
 }
 
 /// The next user message — the one decision over what follows the last turn:
-/// the human is read for a line, and the conversation ends when they end it;
+/// the human is read for a line ([`read_line`]) and what that line means is
+/// decided over it ([`human_turn`]), the conversation ending when they end it;
 /// the judges are run and their findings landed ([`judges_turn`]) without the
 /// human asking; nobody, and the loop ends.
-#[implements(spec::TheJudgesAnswerATurnThatDrafted, spec::TheConversationEndsAtDoneOrEndOfFile)]
+#[implements(
+    spec::TheJudgesAnswerATurnThatDrafted,
+    spec::TheConversationEndsAtDoneOrEndOfFile,
+    spec::AConversationEndedInsideAskEndsTheLoopWhenTheTurnSettles,
+)]
 pub fn next_message(project: &Project, coach: &Coach, next: Next) -> Option<Landed> {
-    let _ = (project, coach, next);
-    todo!()
+    match next {
+        Next::Human => human_turn(read_line()).map(|text| Landed { text, answering: Answering::TheHuman, holds: None }),
+        Next::Judges => Some(judges_turn(project, coach)),
+        Next::Nothing => None,
+    }
 }
 
 /// The judges' turn as the loop lands it: one judging ([`judged`]) over the
@@ -607,8 +724,8 @@ pub fn next_message(project: &Project, coach: &Coach, next: Next) -> Option<Land
 /// its verdict carried beside it for [`converse`] to keep.
 #[implements(spec::TheJudgesAreLandedAsOneUserMessageUnderAHeading)]
 pub fn judges_turn(project: &Project, coach: &Coach) -> Landed {
-    let _ = (project, coach);
-    todo!()
+    let judging = judged(project, coach);
+    Landed { text: judging.message, answering: Answering::TheJudges, holds: Some(judging.holds) }
 }
 
 /// What the human types to end the conversation, alone on a line.
@@ -631,22 +748,39 @@ pub enum Typed {
 /// typed.
 #[implements(spec::TheConversationEndsAtDoneOrEndOfFile)]
 pub fn typed(read: Option<String>) -> Typed {
-    let _ = read;
-    todo!()
+    let line = read.map(|text| text.trim_end_matches(['\n', '\r']).to_string());
+    match line.as_deref() {
+        None | Some(DONE) => Typed::Ended,
+        Some(answer) => Typed::Answer(answer.to_string()),
+    }
 }
 
 /// One line from the human's terminal, from a blocking read; none at end of
-/// file. The read itself and nothing else: what the line means is [`typed`]'s.
+/// file. The read itself and nothing else: what the line means is [`typed`]'s,
+/// and what the loop does with it is [`human_turn`]'s.
+///
+/// A blocking read of a terminal has no state a test can put it in and still
+/// finish, so nothing in these three lines is measurable. Splitting the meaning
+/// out of the read is what leaves this holding no branch of the slice's own —
+/// the pure I/O sequencing `docs/intent/coach/lld.md` § Decisions &
+/// Alternatives exempts from measurement.
 pub fn read_line() -> Option<String> {
-    todo!()
+    let mut line = String::new();
+    let read = std::io::stdin().read_line(&mut line).ok()?;
+    (read > 0).then_some(line)
 }
 
 /// What the human typed at the loop's prompt, or none when they ended the
 /// conversation — `done` alone on a line, or end of file, as [`typed`]
-/// classifies them.
+/// classifies them. It is handed the line rather than reading it, so that this
+/// decision is a function over a value a test supplies and [`read_line`] is the
+/// only thing in the pair that no test can reach.
 #[implements(spec::TheConversationEndsAtDoneOrEndOfFile)]
-pub fn human_turn() -> Option<String> {
-    todo!()
+pub fn human_turn(line: Option<String>) -> Option<String> {
+    match typed(line) {
+        Typed::Answer(answer) => Some(answer),
+        Typed::Ended => None,
+    }
 }
 
 /// The coach's three tools: a set of its own, not the canopy client's five.
@@ -676,7 +810,11 @@ impl Tool {
     /// forwarded `op` against.
     #[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
     pub fn op(self) -> &'static str {
-        todo!()
+        match self {
+            Tool::Read => "read",
+            Tool::Draft => "draft",
+            Tool::Ask => "ask",
+        }
     }
 
     /// The JSON schema of the tool's arguments, its description in the
@@ -686,7 +824,13 @@ impl Tool {
     /// `options`.
     #[implements(spec::DraftWritesTheSlicesLldAndNoOtherPath)]
     pub fn schema(self) -> Value {
-        todo!()
+        let string = json!({ "type": "string" });
+        let count = json!({ "type": "integer" });
+        match self {
+            Tool::Read => json!({ "type": "object", "description": "Read a file's text with line numbers, or list a directory's entries. Every path is relative to the workspace root.", "properties": { "path": string, "offset": count.clone(), "limit": count }, "required": ["path"] }),
+            Tool::Draft => json!({ "type": "object", "description": "Replace the slice's LLD whole with `content`, creating its directory. The path is this run's own: no argument of yours names a file.", "properties": { "content": string }, "required": ["content"] }),
+            Tool::Ask => json!({ "type": "object", "description": "Put one question to the human and answer with what they typed. With `options` they are printed numbered, and a bare number answers with that option; anything else is answered as typed.", "properties": { "question": string.clone(), "options": json!({ "type": "array", "items": string }) }, "required": ["question"] }),
+        }
     }
 }
 
@@ -695,7 +839,7 @@ impl Tool {
 /// coach's own rather than the canopy client's five.
 #[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
 pub fn declarations() -> Vec<ToolDecl> {
-    todo!()
+    COACH_TOOLS.map(declaration).to_vec()
 }
 
 /// One tool as the policy declares it: its name — which the model sees and
@@ -704,8 +848,7 @@ pub fn declarations() -> Vec<ToolDecl> {
 /// ([`Tool::schema`]).
 #[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
 pub fn declaration(tool: Tool) -> ToolDecl {
-    let _ = tool;
-    todo!()
+    ToolDecl { name: tool.op().to_string(), requestee: REQUESTEE.to_string(), op: tool.op().to_string(), schema: tool.schema() }
 }
 
 /// The tool a forwarded `op` names, provided [`COACH_TOOLS`] carries one whose
@@ -718,8 +861,10 @@ pub fn declaration(tool: Tool) -> ToolDecl {
     spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools,
 )]
 pub fn declared(op: &str) -> Result<Tool, String> {
-    let _ = op;
-    todo!()
+    COACH_TOOLS
+        .into_iter()
+        .find(|tool| tool.op() == op)
+        .ok_or_else(|| format!("`{op}` is not a tool this session declared: the coach declares `read`, `draft` and `ask`"))
 }
 
 /// `draft`'s arguments: the document's content and nothing else, the one path
@@ -759,8 +904,11 @@ pub struct AskArgs {
     spec::DraftWritesTheSlicesLldAndNoOtherPath,
 )]
 pub fn execute(project: &Project, path: &Path, noted: &mut Noted, op: &str, args: &Value) -> ToolResult {
-    let _ = (project, path, noted, op, args);
-    todo!()
+    match declared(op)? {
+        Tool::Read => read_call(project, args),
+        Tool::Draft => draft_call(path, noted, args),
+        Tool::Ask => ask_call(noted, args),
+    }
 }
 
 /// `read` as the coach routes it: the canopy client's own
@@ -773,8 +921,9 @@ pub fn execute(project: &Project, path: &Path, noted: &mut Noted, op: &str, args
 /// session carries no phase.
 #[implements(spec::AReadIsRoutedToTheCanopyClientsReadOverItsConfinement)]
 pub fn read_call(project: &Project, args: &Value) -> ToolResult {
-    let _ = (project, args);
-    todo!()
+    let args: ReadArgs = arguments(args)?;
+    let path = confine(&project.root()?, Path::new(&args.path))?;
+    read_tool(&path, &args)
 }
 
 /// `draft` as the coach routes it: its [`DraftArgs`], the call recorded in
@@ -791,8 +940,11 @@ pub fn read_call(project: &Project, args: &Value) -> ToolResult {
     spec::DraftAnswersWithThePathAndTheBytesWrittenNotAVerdict,
 )]
 pub fn draft_call(path: &Path, noted: &mut Noted, args: &Value) -> ToolResult {
-    let _ = (path, noted, args);
-    todo!()
+    let args: DraftArgs = arguments(args)?;
+    noted.drafted = true;
+    let bytes = draft(path, &args.content)?;
+    noted.wrote = true;
+    Ok(wrote_line(path, bytes))
 }
 
 /// What a successful `draft` answers the model with: the path it wrote and the
@@ -800,15 +952,14 @@ pub fn draft_call(path: &Path, noted: &mut Noted, args: &Value) -> ToolResult {
 /// belong to the judges' turn.
 #[implements(spec::DraftAnswersWithThePathAndTheBytesWrittenNotAVerdict)]
 pub fn wrote_line(path: &Path, bytes: usize) -> String {
-    let _ = (path, bytes);
-    todo!()
+    format!("wrote {bytes} bytes to {}", path.display())
 }
 
 /// `ask` as the coach routes it: its [`AskArgs`], and the question put to the
 /// human ([`ask`]) with the same record the turn keeps.
 pub fn ask_call(noted: &mut Noted, args: &Value) -> ToolResult {
-    let _ = (noted, args);
-    todo!()
+    let args: AskArgs = arguments(args)?;
+    ask(&args.question, &args.options, noted)
 }
 
 /// `draft` over the run's one document: `content` replaces it whole, its
@@ -820,8 +971,10 @@ pub fn ask_call(noted: &mut Noted, args: &Value) -> ToolResult {
 /// where the path is asserted.
 #[implements(spec::DraftReplacesTheDocumentWholeCreatingItsDirectory, spec::TheDraftedDocumentSurvivesAHalt)]
 pub fn draft(path: &Path, content: &str) -> Result<usize, String> {
-    let _ = (path, content);
-    todo!()
+    let directory = path.parent().ok_or_else(|| format!("`{}` names no directory to write the document in", path.display()))?;
+    std::fs::create_dir_all(directory).map_err(|e| format!("creating {}: {e}", directory.display()))?;
+    std::fs::write(path, content).map_err(|e| format!("writing {}: {e}", path.display()))?;
+    Ok(content.len())
 }
 
 /// What is printed beside a question, once and at no later moment: canopy
@@ -846,16 +999,16 @@ pub const CONVERSATION_OVER: &str = "the conversation is over: the human ended i
 /// beneath it, if there are any, so that a number is an answer.
 #[implements(spec::TheStallWindowIsPrintedOnceBesideTheQuestion)]
 pub fn asked(question: &str, options: &[String]) -> String {
-    let _ = (question, options);
-    todo!()
+    let offered: String = options.iter().enumerate().map(|(at, option)| format!("\n{}. {option}", at + 1)).collect();
+    format!("{question}\n({STALL_WINDOW}){offered}")
 }
 
 /// The option a bare number names — the number read as a place in the list,
 /// counted from one as the question printed it; none when what was typed is
 /// not a number, or numbers no option there is.
 pub fn option_named<'a>(options: &'a [String], answer: &str) -> Option<&'a String> {
-    let _ = (options, answer);
-    todo!()
+    let place = answer.trim().parse::<usize>().ok()?;
+    options.get(place.checked_sub(1)?)
 }
 
 /// What `ask` answers the model with — the one decision over what the human
@@ -866,8 +1019,7 @@ pub fn option_named<'a>(options: &'a [String], answer: &str) -> Option<&'a Strin
 /// make the tool decide which answers a design may have.
 #[implements(spec::AskPutsItsQuestionToTheHumanAndAnswersWithWhatTheyTyped)]
 pub fn answered(options: &[String], answer: &str) -> String {
-    let _ = (options, answer);
-    todo!()
+    option_named(options, answer).cloned().unwrap_or_else(|| answer.to_string())
 }
 
 /// `ask` over the human's terminal: the question printed with its stall window
@@ -881,8 +1033,8 @@ pub fn answered(options: &[String], answer: &str) -> String {
     spec::TheStallWindowIsPrintedOnceBesideTheQuestion,
 )]
 pub fn ask(question: &str, options: &[String], noted: &mut Noted) -> ToolResult {
-    let _ = (question, options, noted);
-    todo!()
+    println!("{}", asked(question, options));
+    replied(options, &typed(read_line()), noted)
 }
 
 /// What `ask` answers the model with — the one decision over the line the human
@@ -897,8 +1049,10 @@ pub fn ask(question: &str, options: &[String], noted: &mut Noted) -> ToolResult 
     spec::AConversationEndedInsideAskEndsTheLoopWhenTheTurnSettles,
 )]
 pub fn replied(options: &[String], line: &Typed, noted: &mut Noted) -> ToolResult {
-    let _ = (options, line, noted);
-    todo!()
+    match line {
+        Typed::Answer(answer) => Ok(answered(options, answer)),
+        Typed::Ended => ended_in_ask(noted),
+    }
 }
 
 /// The conversation ended inside `ask`: the tool error saying so
@@ -913,8 +1067,8 @@ pub fn replied(options: &[String], line: &Typed, noted: &mut Noted) -> ToolResul
     spec::AConversationEndedInsideAskEndsTheLoopWhenTheTurnSettles,
 )]
 pub fn ended_in_ask(noted: &mut Noted) -> ToolResult {
-    let _ = noted;
-    todo!()
+    noted.ended = true;
+    Err(CONVERSATION_OVER.to_string())
 }
 
 /// What one judging produced: whether the four document checks hold, and the
@@ -988,8 +1142,11 @@ pub const READER_UNCONSULTED: &str = "the reader could not be consulted";
     spec::ADocumentThatCannotBeReadBackDoesNotEndTheConversation,
 )]
 pub fn judged(project: &Project, coach: &Coach) -> Judging {
-    let _ = (project, coach);
-    todo!()
+    let checks = document_failures(&coach.path);
+    println!("{JUDGING_HEADING}");
+    let findings = reader_findings(project, coach);
+    println!("{}", judging_line(&checks, &findings));
+    Judging { holds: checks_hold(&checks), message: judges_message(&checks, &findings) }
 }
 
 /// What the four document checks of `lld-check` — `DecisionsExist`,
@@ -1004,8 +1161,8 @@ pub fn judged(project: &Project, coach: &Coach) -> Judging {
 /// whose only writing tool is `draft` can act on.
 #[implements(spec::TheDocumentChecksRunOverThePathDraftWrote, spec::TheArtifactChecksAreNotInTheJudgesTurn)]
 pub fn document_failures(path: &Path) -> Result<Vec<Failure>, String> {
-    let _ = path;
-    todo!()
+    let document = document(path)?;
+    Ok([decisions_exist(&document), alternatives(&document), shape_rows(&document), deferred_numbered(&document)].concat())
 }
 
 /// The document as the four checks read it: the path `draft` wrote, its lines,
@@ -1016,8 +1173,8 @@ pub fn document_failures(path: &Path) -> Result<Vec<Failure>, String> {
 /// file `draft` reported writing can go away between that report and this
 /// read, and this is where a judging learns it did.
 pub fn document(path: &Path) -> Result<Lld, String> {
-    let _ = path;
-    todo!()
+    let text = std::fs::read_to_string(path).map_err(|unreadable| format!("reading {}: {unreadable}", path.display()))?;
+    Ok(Lld { slice: slice_named(path), path: path.to_path_buf(), lines: text.lines().map(str::to_string).collect() })
 }
 
 /// The document checks as the judges' message carries them — the one decision
@@ -1028,8 +1185,10 @@ pub fn document(path: &Path) -> Result<Lld, String> {
 /// told a document it can no longer see either holds or fails.
 #[implements(spec::AnUnreadableDocumentsSentenceIsLandedInPlaceOfTheChecksFailures)]
 pub fn checks_section(checks: &Result<Vec<Failure>, String>) -> String {
-    let _ = checks;
-    todo!()
+    match checks {
+        Ok(failures) => failures_section(failures),
+        Err(unreadable) => format!("{DOCUMENT_UNREADABLE}: {unreadable}"),
+    }
 }
 
 /// What the checks found, as the judges' message carries it — the one decision
@@ -1042,8 +1201,10 @@ pub fn checks_section(checks: &Result<Vec<Failure>, String>) -> String {
     spec::AJudgingWhoseChecksAllHeldSaysSo,
 )]
 pub fn failures_section(failures: &[Failure]) -> String {
-    let _ = failures;
-    todo!()
+    match failures {
+        [] => EVERY_CHECK_HELD.to_string(),
+        [_, ..] => rendered(failures),
+    }
 }
 
 /// The verdict one judging reached, and the whole of what [`Judging::holds`]
@@ -1059,8 +1220,7 @@ pub fn failures_section(failures: &[Failure]) -> String {
     spec::AnUnreadableDocumentsVerdictIsThatTheChecksDoNotHold,
 )]
 pub fn checks_hold(checks: &Result<Vec<Failure>, String>) -> bool {
-    let _ = checks;
-    todo!()
+    checks.as_ref().is_ok_and(|failures| failures.is_empty())
 }
 
 /// The reader's part of the judges' message — the one decision over whether it
@@ -1071,8 +1231,10 @@ pub fn checks_hold(checks: &Result<Vec<Failure>, String>) -> bool {
 /// not.
 #[implements(spec::AFailedReadersSentenceIsLandedInPlaceOfItsFindings)]
 pub fn reader_section(findings: &Result<Vec<String>, String>) -> String {
-    let _ = findings;
-    todo!()
+    match findings {
+        Ok(found) => found.join("\n"),
+        Err(lost) => format!("{READER_UNCONSULTED}: {lost}"),
+    }
 }
 
 /// The judges' message, landed whole as the next user message: the heading
@@ -1088,8 +1250,11 @@ pub fn reader_section(findings: &Result<Vec<String>, String>) -> String {
     spec::TheJudgesAreLandedAsOneUserMessageUnderAHeading,
 )]
 pub fn judges_message(checks: &Result<Vec<Failure>, String>, findings: &Result<Vec<String>, String>) -> String {
-    let _ = (checks, findings);
-    todo!()
+    format!(
+        "{JUDGING_HEADING}\n\nThe four document checks over what you just wrote:\n\n{}\n\nThe reader:\n\n{}\n",
+        checks_section(checks),
+        reader_section(findings)
+    )
 }
 
 /// What the human is told when a judging has run: how the document checks found
@@ -1098,8 +1263,7 @@ pub fn judges_message(checks: &Result<Vec<Failure>, String>, findings: &Result<V
 /// carries them in. Both are decided over the judging's two answers rather than
 /// here, so this joins two lines and chooses nothing.
 pub fn judging_line(checks: &Result<Vec<Failure>, String>, findings: &Result<Vec<String>, String>) -> String {
-    let _ = (checks, findings);
-    todo!()
+    format!("{}\n{}", checks_line(checks), reader_line(findings))
 }
 
 /// How the document checks found the document, as the human watching is told it
@@ -1115,8 +1279,11 @@ pub fn judging_line(checks: &Result<Vec<Failure>, String>, findings: &Result<Vec
     spec::AnUnreadableDocumentIsToldToTheHuman,
 )]
 pub fn checks_line(checks: &Result<Vec<Failure>, String>) -> String {
-    let _ = checks;
-    todo!()
+    match checks {
+        Ok(failures) if failures.is_empty() => "the four document checks hold over what was just written".to_string(),
+        Ok(failures) => format!("{} of the four document checks failed over what was just written", failures.len()),
+        Err(unreadable) => format!("{DOCUMENT_UNREADABLE}: {unreadable}"),
+    }
 }
 
 /// What the human is told of the reader — the one decision over whether it
@@ -1128,8 +1295,10 @@ pub fn checks_line(checks: &Result<Vec<Failure>, String>) -> String {
 /// a lost reader passes unnoticed.
 #[implements(spec::AFailedReaderIsToldToTheHuman)]
 pub fn reader_line(findings: &Result<Vec<String>, String>) -> String {
-    let _ = findings;
-    todo!()
+    match findings {
+        Ok(_) => String::new(),
+        Err(lost) => format!("{READER_UNCONSULTED}: {lost}"),
+    }
 }
 
 /// The reader's system prompt: the synced
@@ -1138,8 +1307,7 @@ pub fn reader_line(findings: &Result<Vec<String>, String>) -> String {
 /// canopy client reads an agent's body.
 #[implements(spec::TheReadersSystemIsTheSyncedReaderBody)]
 pub fn reader_body(project: &Project) -> Result<String, String> {
-    let _ = project;
-    todo!()
+    Ok(without_frontmatter(&synced_text(project, READER)?))
 }
 
 /// A reader session's dial: `system` the reader's synced body
@@ -1153,8 +1321,8 @@ pub fn reader_body(project: &Project) -> Result<String, String> {
     spec::EverySessionTheCoachOpensIsDialledWithTheMaxCost,
 )]
 pub fn reader_settings(project: &Project, max_cost: f64) -> Result<Settings, String> {
-    let _ = (project, max_cost);
-    todo!()
+    let observation = canopy_declarations(&[CanopyTool::Read, CanopyTool::Grep, CanopyTool::Glob]);
+    Ok(Settings { system: reader_body(project)?, policy: policy_for(&observation), params: json!({}), max_cost })
 }
 
 /// The reader's user message: the document's path, and the findings asked for
@@ -1162,8 +1330,11 @@ pub fn reader_settings(project: &Project, max_cost: f64) -> Result<Settings, Str
 /// back is what a phase would have been given.
 #[implements(spec::TheReaderIsGivenTheDocumentAndAskedForFindings)]
 pub fn reader_prompt(path: &Path) -> String {
-    let _ = path;
-    todo!()
+    format!(
+        "The slice's LLD is at `{}`. Read it, and the guideline, and answer with your findings as your definition asks \
+         for them: one numbered finding to a line, ordered by what they would cost, and say plainly if you find none.",
+        path.display()
+    )
 }
 
 /// One reader over the document: a session of its own for this judging —
@@ -1186,8 +1357,11 @@ pub fn reader_prompt(path: &Path) -> String {
     spec::AReaderSessionIsStoppedWhenItAnswers,
 )]
 pub fn reader_findings(project: &Project, coach: &Coach) -> Result<Vec<String>, String> {
-    let _ = (project, coach);
-    todo!()
+    let settings = reader_settings(project, coach.max_cost)?;
+    let mut session = Session::open(&coach.door, &settings, None, settings.policy.tools.clone())?;
+    let read = drive(project, &mut session, &mut canopy_execute, &reader_prompt(&coach.path)).map_err(halt_reason);
+    let sealed = session.stop().map_err(halt_reason);
+    read.and_then(|settled| sealed.map(|()| numbered(&settled.text)))
 }
 
 /// The artifact checks, run once before the first question: `lld-check`'s two
@@ -1204,16 +1378,15 @@ pub fn reader_findings(project: &Project, coach: &Coach) -> Result<Vec<String>, 
     spec::AReaderDeclaringTooManyToolsIsReportedAndTheInterviewProceeds,
 )]
 pub fn setup(project: &Project) -> Result<Vec<String>, String> {
-    let _ = project;
-    todo!()
+    let artifacts = [guideline_names_every_check(project)?, reader_observes_only(project)?].concat();
+    Ok(artifacts.iter().map(warning).collect())
 }
 
 /// One artifact check's failure as the human is told it: the file, the line,
 /// and what it found — which check the checklist omits, or what the reader
 /// declares — said as a warning the interview goes on past.
 pub fn warning(failure: &Failure) -> String {
-    let _ = failure;
-    todo!()
+    format!("warning: {}:{}: {:?}: {}", failure.path.display(), failure.line, failure.check, failure.message)
 }
 
 /// What the ending says of the document checks when the last judging found
@@ -1230,16 +1403,18 @@ pub const CHECKS_DO_NOT_HOLD: &str = "the document checks do not hold";
 /// and what the human owes ([`document_owed`]).
 #[implements(spec::TheEndingPrintsThePathAndWhetherTheChecksHold, spec::ARunThatDraftedNothingEndsSayingSo)]
 pub fn owed(path: &Path, holds: Option<bool>) -> String {
-    let _ = (path, holds);
-    todo!()
+    match holds {
+        None => nothing_drafted(path),
+        Some(true) => document_owed(path, CHECKS_HOLD),
+        Some(false) => document_owed(path, CHECKS_DO_NOT_HOLD),
+    }
 }
 
 /// The ending for a conversation in which nothing was ever drafted: there is
 /// no document at that path, nothing to check, and nothing to commit.
 #[implements(spec::ARunThatDraftedNothingEndsSayingSo)]
 pub fn nothing_drafted(path: &Path) -> String {
-    let _ = path;
-    todo!()
+    format!("nothing was drafted: there is no document at {}, nothing to check, and nothing for you to commit", path.display())
 }
 
 /// The ending for a conversation that drafted: the document's path, the
@@ -1253,8 +1428,12 @@ pub fn nothing_drafted(path: &Path) -> String {
     spec::TheEndingNamesThePhaseOneCommitTheCoachDoesNotMake,
 )]
 pub fn document_owed(path: &Path, verdict: &str) -> String {
-    let _ = (path, verdict);
-    todo!()
+    format!(
+        "the document is at {}, and {verdict}. Read it once more, and commit it as `phase 1: LLD for {}`, which the \
+         coach does not do.",
+        path.display(),
+        slice_named(path)
+    )
 }
 
 #[cfg(test)]
@@ -1461,6 +1640,21 @@ mod tests {
         let flagged = parse_args(&strings(&["--slice", "login"])).expect("the flag").slice;
         let absent = parse_args(&[]).expect("no flag").slice;
         assert_eq!((flagged, absent), (Some("login".to_string()), None), "absent the flag, only a project can settle it");
+        // The flag's value survives a fold that applies three others beside it,
+        // which is only visible if what each of those settled is named too: a
+        // fold arm that dropped a field would leave the slice standing and the
+        // flag beside it silently defaulted.
+        let every = parse_args(&strings(&["--slice", "login", "--package", "app", "--door", "http://127.0.0.1:1", "--max-cost", "0.25"]));
+        let beside_workspace = parse_args(&strings(&["--workspace", "--slice", "login"]));
+        let standing = Flags {
+            target: Some(Where::Package("app".to_string())),
+            slice: Some("login".to_string()),
+            door: "http://127.0.0.1:1".to_string(),
+            max_cost: 0.25,
+        };
+        let alongside = Flags { target: Some(Where::Workspace), slice: Some("login".to_string()), ..Flags::default() };
+        let folded = (every.expect("every flag"), beside_workspace.expect("a slice beside the workspace"));
+        assert_eq!(folded, (standing, alongside), "each flag applied to what the ones before it settled, and not one of them dropped");
         let from_branch = slice_of(&project, None).expect("the branch names it");
         let given = slice_of(&project, Some("login".to_string())).expect("the flag wins over the branch");
         assert_eq!((from_branch.as_str(), given.as_str()), ("hello", "login"));
@@ -1498,6 +1692,12 @@ mod tests {
         mentions(&parse_args(&strings(&["coach"])).expect_err("a bare argument"), &["coach"]);
         mentions(&pairs(&strings(&["--bogus", "x"])).expect_err("no flag of that name"), &["--bogus"]);
         mentions(&parse_args(&strings(&["--slice", "hello", "--door"])).expect_err("a flag with no value"), &["--door"]);
+        // Which arguments are read as names is what `--workspace` standing
+        // alone decides: a flag that consumed the argument after it would take
+        // the next flag for its value and reject that flag's value by name.
+        let stands_alone = pairs(&strings(&["--workspace", "--slice", "hello"])).expect("`--workspace` consumes nothing after it");
+        assert_eq!(stands_alone, vec![(Flag::Workspace, None), (Flag::Slice, Some("hello".to_string()))], "each argument after it still a name");
+        mentions(&run(&strings(&["--bogus"])).expect_err("the entry rejects it before it reads the environment"), &["--bogus"]);
     }
 
     #[test]
@@ -1745,13 +1945,16 @@ mod tests {
     #[test]
     #[validates(spec::TheConversationEndsAtDoneOrEndOfFile)]
     fn the_conversation_ends_at_done_or_end_of_file() {
-        // Asserted at `typed`, which carries this over plain data: `human_turn`
-        // and `ask` reach it only through a blocking read of the terminal.
+        // Asserted at `typed` and at `human_turn`, each of which is handed the
+        // line rather than reading it; only `read_line` needs a terminal, and
+        // `ask` reaches this through `replied`.
         let ended = (typed(None), typed(Some(DONE.to_string())), typed(Some(format!("{DONE}\n"))));
         assert_eq!(ended, (Typed::Ended, Typed::Ended, Typed::Ended), "end of file, and `done` alone on a line with or without its newline");
         let answers = (typed(Some("not yet".to_string())), typed(Some("done for now".to_string())));
         let theirs = (Typed::Answer("not yet".to_string()), Typed::Answer("done for now".to_string()));
-        assert_eq!(answers, theirs, "alone on a line, and not merely first on it");
+        let at_the_prompt = (human_turn(None), human_turn(Some(format!("{DONE}\n"))), human_turn(Some("not yet\n".to_string())));
+        let read_back = (None, None, Some("not yet".to_string()));
+        assert_eq!((answers, at_the_prompt), (theirs, read_back), "alone on a line and not merely first on it, at the prompt as in the tool");
         assert_eq!(DONE, "done");
     }
 
@@ -2050,8 +2253,12 @@ mod tests {
         let held = checks_line(&Ok(vec![]));
         let failed = checks_line(&Ok(vec![failure_at(Check::DecisionsExist, path, 1), failure_at(Check::ShapeRows, path, 7)]));
         assert!(!held.is_empty() && !failed.is_empty(), "a judging says how it found the document either way");
-        mentions(&failed, &["2"]);
+        mentions(&failed, &["2", "failed"]);
         assert_ne!(held, failed, "where a run tells the human whether what was just written holds");
+        // A line that counted nothing failing is not the line a document that
+        // held is told about: a human reading "0 of the four failed" has been
+        // told a count where they were owed a verdict.
+        assert!(held.contains("hold") && !held.contains("failed"), "the checks held, and the human is told that rather than a count: {held}");
     }
 
     #[test]
