@@ -1078,8 +1078,8 @@ impl Tool {
     pub fn schema(self) -> Value {
         let string = json!({ "type": "string" });
         match self {
-            Tool::Read => schema_of(CanopyTool::Read),
-            Tool::Grep => schema_of(CanopyTool::Grep),
+            Tool::Read => todo!("the canopy client's own `schema_of` for its `read`"),
+            Tool::Grep => todo!("the canopy client's own `schema_of` for its `grep`"),
             Tool::Draft => json!({ "type": "object", "description": "Replace the slice's LLD whole with `content`, creating its directory. The path is this run's own: no argument of yours names a file.", "properties": { "content": string }, "required": ["content"] }),
             Tool::Ask => json!({ "type": "object", "description": "Put one question to the human and answer with what they typed. With `options` they are printed numbered, and a bare number answers with that option; anything else is answered as typed.", "properties": { "question": string.clone(), "options": json!({ "type": "array", "items": string }) }, "required": ["question"] }),
         }
@@ -1810,7 +1810,9 @@ mod tests {
     use crate::headless_canopy_agent::door::policy_for;
     use crate::headless_canopy_agent::ending::without_frontmatter;
     use crate::headless_canopy_agent::replay::{self, Replay, Route, SessionScript, mentions, strings};
-    use crate::headless_canopy_agent::tools::{REQUESTEE, ReadArgs, Tool as CanopyTool, declarations as canopy_declarations, read_tool};
+    use crate::headless_canopy_agent::tools::{
+        GrepArgs, REQUESTEE, ReadArgs, Tool as CanopyTool, declarations as canopy_declarations, grep_tool, read_tool, search_dir,
+    };
     use crate::headless_canopy_agent::turn::{QUIET_TAIL, payload_digest};
     use crate::lld_review::{Check, GUIDELINE, READER, check_all, rendered};
     use crate::phase::{fixture, tally};
@@ -1871,6 +1873,31 @@ mod tests {
 ### Deferred
 - an unnumbered deferral
 ";
+
+    /// A workspace's HLD: the design every slice sits inside, which the
+    /// opening carries whole when the index found exactly one.
+    const HLD: &str = "# The design\n\nOne door, one session, one tail.\n";
+
+    /// A neighbouring slice's LLD: named in the index, and never carried.
+    const NEIGHBOUR: &str = "# login — the neighbouring slice\n\nA sentence no opening carries.\n";
+
+    /// The sentence in it that no opening carries.
+    const NEIGHBOUR_SENTENCE: &str = "A sentence no opening carries.";
+
+    /// A project's `AGENTS.md`, which `init` writes.
+    const AGENTS: &str = "# Agents\n\nThe conventions this project keeps.\n";
+
+    /// A project's `CLAUDE.md`, for one that arrived at the methodology by
+    /// another road.
+    const CLAUDE: &str = "# Claude\n\nThe conventions a project with no `AGENTS.md` keeps.\n";
+
+    /// What the response in `replay::tool_call_page` says before it asks for
+    /// its tool: what a narrator is handed, and what a silent one drops.
+    const SAID_BEFORE_ASKING: &str = "Let me look.";
+
+    /// A line only the file it is written in holds, for a `grep` whose answer
+    /// is compared with the canopy client's own.
+    const NEEDLE: &str = "a needle only this file holds";
 
     /// This workspace's root: the parent of this crate's manifest directory.
     fn workspace_root() -> PathBuf {
@@ -1937,6 +1964,15 @@ mod tests {
         SessionScript::new(id).page(replay::settling_page(READER_ANSWER))
     }
 
+    /// A reader session that globs — a tool the coach does not declare and
+    /// this client's own dispatch does — and then answers.
+    fn globbing_reader(id: &str, pattern: &str) -> SessionScript {
+        let args = json!({ "pattern": pattern });
+        SessionScript::new(id)
+            .page(replay::tool_call_page("glob", args.clone(), &payload_digest(REQUESTEE, &args)))
+            .page(replay::settling_page(READER_ANSWER))
+    }
+
     /// A reader session whose dial the door refuses.
     fn refused_reader(id: &str, sentence: &str) -> SessionScript {
         SessionScript::new(id).refusing(Route::Start, 403, sentence)
@@ -1989,6 +2025,26 @@ mod tests {
         let mut coach = Coach { door, session, path: path.clone(), max_cost: MAX_COST };
         let ended = converse(&project, &mut coach, OPENING);
         Driven { replay, path, ended }
+    }
+
+    /// A scratch workspace holding those documents — each written at its path
+    /// relative to the root — with those members: the repository an opening
+    /// is composed over.
+    fn documents_at(name: &str, members: &[(&str, &str)], documents: &[(&str, &str)]) -> (PathBuf, Project) {
+        let root = fixture::scratch(name);
+        documents.iter().for_each(|(relative, text)| write_at(&root.join(relative), text));
+        let project = project_at(&root, members);
+        (root, project)
+    }
+
+    /// This module's own code, up to its tests: where which narrator a session
+    /// is driven with is read, `drive` taking it as a parameter and leaving
+    /// nothing in process to observe. The tests are cut away, so that a call
+    /// quoted in one of them cannot stand in for the call it describes — as
+    /// the canopy client reads its own host's `silent` out of `ending.rs`.
+    fn module_code() -> String {
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/coach.rs")).expect("this module's source");
+        source.split("#[cfg(test)]\nmod tests {").next().expect("the code before the tests").to_string()
     }
 
     // ---- the subcommand and its flags ------------------------------------------
@@ -2253,6 +2309,189 @@ mod tests {
         assert!(!writing(&repository, "hello").contains(HOLDS), "and a slice with no document carries none");
     }
 
+    // ---- what the opening carries ----------------------------------------------
+
+    #[test]
+    #[validates(spec::TheOpeningLeadsWithWhatTheRepositoryHolds)]
+    fn the_opening_leads_with_what_the_repository_holds() {
+        let held = [("docs/intent/hld.md", HLD), ("AGENTS.md", AGENTS), ("docs/intent/login/lld.md", NEIGHBOUR)];
+        let (root, project) = documents_at("coach-opening-leads", &[("app", "")], &held);
+        let path = root.join("docs/intent/hello/lld.md");
+        let repository = preamble(&project, &path);
+        let first = opening(&project, "hello", &path);
+        let after = first.strip_prefix(&repository).expect("what the repository holds comes first");
+        mentions(after, &["hello"]);
+        write_at(&path, HOLDS);
+        let amendment = opening(&project, "hello", &path);
+        let amending_after = amendment.strip_prefix(&preamble(&project, &path)).expect("and leads the amendment too");
+        mentions(amending_after, &["hello", HOLDS]);
+    }
+
+    #[test]
+    #[validates(spec::ThePreambleIsTheIndexTheHldThenTheGuidance)]
+    fn the_preamble_is_the_index_the_hld_then_the_guidance() {
+        let held = [("docs/intent/hld.md", HLD), ("AGENTS.md", AGENTS), ("docs/intent/login/lld.md", NEIGHBOUR)];
+        let (root, project) = documents_at("coach-preamble-order", &[("app", "")], &held);
+        let path = root.join("docs/intent/hello/lld.md");
+        let paths = intent_paths(&project);
+        let repository = preamble(&project, &path);
+        let at_index = repository.find(&index_section(&root, &paths, &path)).expect("the index");
+        let at_hld = repository.find(&hld_section(&paths)).expect("the sole HLD");
+        let at_guidance = repository.find(&guidance_section(&project)).expect("the project's guidance");
+        assert!(at_index < at_hld && at_hld < at_guidance, "the index, then the HLD, then the guidance: {repository}");
+        mentions(&repository, &[INDEX_HEADING, HLD_HEADING, GUIDANCE_HEADING]);
+    }
+
+    #[test]
+    #[validates(spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace)]
+    fn the_intent_index_names_every_intent_document_in_the_workspace() {
+        let held = [
+            ("docs/intent/hld.md", HLD),
+            ("docs/intent/book/lld.md", HOLDS),
+            ("app/docs/intent/hello/lld.md", HOLDS),
+            ("app/docs/intent/login/lld.md", NEIGHBOUR),
+            ("tool/docs/intent/hld.md", HLD),
+            ("app/src/lib.rs", "//! not an intent document\n"),
+        ];
+        let (root, project) = documents_at("coach-index-names-every", &[("app", "app"), ("tool", "tool")], &held);
+        let every = [
+            root.join("app/docs/intent/hello/lld.md"),
+            root.join("app/docs/intent/login/lld.md"),
+            root.join("docs/intent/book/lld.md"),
+            root.join("docs/intent/hld.md"),
+            root.join("tool/docs/intent/hld.md"),
+        ];
+        let mut at_the_root = documents_in(&root.join("docs/intent"));
+        at_the_root.sort();
+        let found = (intent_paths(&project), intent_dirs(&project), at_the_root, subdirectories(&root.join("docs/intent")));
+        let named = (
+            every.to_vec(),
+            vec![root.join("docs/intent"), root.join("app/docs/intent"), root.join("tool/docs/intent")],
+            vec![root.join("docs/intent/book/lld.md"), root.join("docs/intent/hld.md")],
+            vec![root.join("docs/intent/book")],
+        );
+        assert_eq!(found, named, "the root's `docs/intent` and each member's, each one's HLD and each slice's LLD under it");
+        let missing = root.join("nowhere/docs/intent");
+        assert_eq!((documents_in(&missing), subdirectories(&missing)), (Vec::new(), Vec::new()), "a package with no intent documents rather than a fault");
+    }
+
+    #[test]
+    #[validates(spec::TheIntentIndexIsSortedSoTwoRunsAgree)]
+    fn the_intent_index_is_sorted_so_two_runs_agree() {
+        let held = [("docs/intent/hld.md", HLD), ("docs/intent/zebra/lld.md", HOLDS), ("docs/intent/alpha/lld.md", HOLDS)];
+        let (root, project) = documents_at("coach-index-sorted", &[("app", "")], &held);
+        let once = intent_paths(&project);
+        let (mut in_order, mut without_repeats) = (once.clone(), once.clone());
+        in_order.sort();
+        without_repeats.dedup();
+        let agreeing = (once.clone(), once.clone(), intent_paths(&project));
+        assert_eq!(agreeing, (in_order, without_repeats, once.clone()), "sorted, deduplicated, and the same on the next run");
+        let named = vec![root.join("docs/intent/alpha/lld.md"), root.join("docs/intent/hld.md"), root.join("docs/intent/zebra/lld.md")];
+        assert_eq!(once, named, "a workspace whose one member sits at its root names one `docs/intent`, not two");
+    }
+
+    #[test]
+    #[validates(spec::EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot)]
+    fn every_index_row_names_its_document_relative_to_the_workspace_root() {
+        let root = fixture::scratch("coach-index-relative");
+        let (document, own) = (root.join("docs/intent/login/lld.md"), root.join("docs/intent/hello/lld.md"));
+        let elsewhere = Path::new("/elsewhere/lld.md");
+        let named = relative_to(&root, &document);
+        let rendered = (named.clone(), relative_to(&root, elsewhere), index_row(&root, &document, &own));
+        let form = ("docs/intent/login/lld.md".to_string(), "/elsewhere/lld.md".to_string(), "docs/intent/login/lld.md".to_string());
+        assert_eq!(rendered, form, "relative to the root, one not under it named as it stands, and a row that name alone");
+        confine(&root, Path::new(&named)).expect("the form `read` and `grep` take");
+        confine(&root, &document).expect_err("`confine` refuses an absolute path as written, before it resolves anything");
+        assert!(!named.contains(&root.display().to_string()), "an index of absolute paths is a list of calls the one tool it feeds refuses");
+    }
+
+    #[test]
+    #[validates(spec::ThisRunsOwnDocumentIsMarkedInTheIndex)]
+    fn this_runs_own_document_is_marked_in_the_index() {
+        let root = fixture::scratch("coach-index-marks-its-own");
+        let (own, other) = (root.join("docs/intent/hello/lld.md"), root.join("docs/intent/login/lld.md"));
+        let mine = index_row(&root, &own, &own);
+        mentions(&mine, &[&relative_to(&root, &own), THIS_RUNS_DOCUMENT]);
+        assert_eq!(index_row(&root, &other, &own), relative_to(&root, &other), "a document to consult is its name alone");
+        let section = index_section(&root, &[own.clone(), other.clone()], &own);
+        assert_eq!(section.matches(THIS_RUNS_DOCUMENT).count(), 1, "one row is the one the model is about to write: {section}");
+        mentions(&section, &[INDEX_HEADING, &relative_to(&root, &other), &mine]);
+    }
+
+    #[test]
+    #[validates(spec::TheDocumentsTheIndexNamesAreNamedAndNotCarried)]
+    fn the_documents_the_index_names_are_named_and_not_carried() {
+        let held = [("docs/intent/hld.md", HLD), ("AGENTS.md", AGENTS), ("docs/intent/login/lld.md", NEIGHBOUR)];
+        let (root, project) = documents_at("coach-index-names-not-carries", &[("app", "")], &held);
+        let path = root.join("docs/intent/hello/lld.md");
+        let section = index_section(&root, &intent_paths(&project), &path);
+        mentions(&section, &["docs/intent/login/lld.md"]);
+        assert!(!section.contains(NEIGHBOUR_SENTENCE), "paths, not documents: a first message carrying twelve of them buries the one that mattered");
+        assert!(!preamble(&project, &path).contains(NEIGHBOUR_SENTENCE), "and the opening carries the neighbouring LLD's path and not its text");
+        let empty = index_section(&root, &[], &path);
+        assert!(empty.starts_with(INDEX_HEADING) && empty.trim_end() == INDEX_HEADING, "a workspace with no intent documents is where a first slice starts");
+    }
+
+    #[test]
+    #[validates(spec::TheOpeningCarriesTheSoleHldWhole)]
+    fn the_opening_carries_the_sole_hld_whole() {
+        let held = [("docs/intent/hld.md", HLD), ("docs/intent/login/lld.md", NEIGHBOUR)];
+        let (root, project) = documents_at("coach-sole-hld", &[("app", "")], &held);
+        let (paths, hld) = (intent_paths(&project), root.join("docs/intent/hld.md"));
+        assert_eq!(hlds(&paths), vec![hld.as_path()], "read out of the index rather than walked again");
+        let carried = hld_section(&paths);
+        assert_eq!(carried, hld_carried(&hld), "the HLD as the opening carries it");
+        mentions(&carried, &[HLD_HEADING, HLD, "docs/intent/hld.md"]);
+        assert!(!carried.contains(NEIGHBOUR_SENTENCE), "the design every slice sits inside, and no other document");
+    }
+
+    #[test]
+    #[validates(spec::AnIndexWithoutExactlyOneHldCarriesNoHld)]
+    fn an_index_without_exactly_one_hld_carries_no_hld() {
+        let root = Path::new("/w");
+        let (first, second) = (root.join("docs/intent/hld.md"), root.join("app/docs/intent/hld.md"));
+        let lld = root.join("docs/intent/hello/lld.md");
+        let (none, several) = ([lld.clone()], [first.clone(), lld.clone(), second.clone()]);
+        let counted = (hlds(&none), hlds(&several));
+        assert_eq!(counted, (Vec::new(), vec![first.as_path(), second.as_path()]), "the documents filed under `hld.md`, whichever `docs/intent` they sit in");
+        let carried = (hld_section(&[]), hld_section(&none), hld_section(&several));
+        let none = (String::new(), String::new(), String::new());
+        assert_eq!(carried, none, "which of several governs this slice is a design question with a human's answer");
+    }
+
+    #[test]
+    #[validates(spec::TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole)]
+    fn the_projects_guidance_is_the_workspaces_agents_file_whole() {
+        let (_root, project) = documents_at("coach-guidance-agents", &[("app", "")], &[("AGENTS.md", AGENTS), ("CLAUDE.md", CLAUDE)]);
+        let carried = guidance_section(&project);
+        assert_eq!(carried, guidance_carried(GUIDANCE_FILES[0], AGENTS), "the file it came from and its text, under the heading");
+        mentions(&carried, &[GUIDANCE_HEADING, "AGENTS.md", AGENTS]);
+        assert!(!carried.contains(CLAUDE), "`init` writes `AGENTS.md`, and a project holding both carries that one");
+        assert_eq!(GUIDANCE_FILES, ["AGENTS.md", "CLAUDE.md"], "the order is the whole of the else");
+    }
+
+    #[test]
+    #[validates(spec::ClaudeMdIsTheGuidanceWhenThereIsNoAgentsFile)]
+    fn claude_md_is_the_guidance_when_there_is_no_agents_file() {
+        let (root, project) = documents_at("coach-guidance-claude", &[("app", "")], &[("CLAUDE.md", CLAUDE)]);
+        assert!(!root.join("AGENTS.md").exists(), "a project that arrived at the methodology by another road");
+        let carried = guidance_section(&project);
+        assert_eq!(carried, guidance_carried(GUIDANCE_FILES[1], CLAUDE), "the file it came from and its text, under the heading");
+        mentions(&carried, &[GUIDANCE_HEADING, "CLAUDE.md", CLAUDE]);
+    }
+
+    #[test]
+    #[validates(spec::NeitherGuidanceFileCarriesNoGuidance)]
+    fn neither_guidance_file_carries_no_guidance() {
+        let (root, project) = documents_at("coach-guidance-neither", &[("app", "")], &[("docs/intent/hld.md", HLD)]);
+        let neither = !root.join("AGENTS.md").exists() && !root.join("CLAUDE.md").exists();
+        assert_eq!((neither, guidance_section(&project)), (true, String::new()), "the opening is what the repository holds, not a report on it");
+        let path = root.join("docs/intent/hello/lld.md");
+        assert!(!preamble(&project, &path).contains(GUIDANCE_HEADING), "so a project with neither carries no guidance at all");
+    }
+
+    // ---- the tools the session declares ----------------------------------------
+
     #[test]
     #[validates(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
     fn the_coach_declares_exactly_the_read_grep_draft_and_ask_tools() {
@@ -2267,6 +2506,19 @@ mod tests {
         let outside = ["glob", "edit", "write"].iter().all(|op| declared(op).is_err());
         assert_eq!((admitted, named, outside), (COACH_TOOLS.to_vec(), true, true), "each under its own `op`; the client's five are another set");
         assert_eq!(coaching_settings(&project, MAX_COST).expect("the dial").policy, policy_for(&coachs));
+    }
+
+    #[test]
+    #[validates(spec::ReadAndGrepAreDeclaredWithTheCanopyClientsSchemas)]
+    fn read_and_grep_are_declared_with_the_canopy_clients_schemas() {
+        let clients = (schema_of(CanopyTool::Read), schema_of(CanopyTool::Grep));
+        let declared: Vec<Value> = declarations().iter().map(|tool| tool.schema.clone()).collect();
+        let borrowed = ((Tool::Read.schema(), Tool::Grep.schema()), (declared[0].clone(), declared[1].clone()));
+        assert_eq!(borrowed, (clients.clone(), clients), "that client's tools whole, schema included, as the session declares them");
+        let own = (Tool::Draft.schema(), Tool::Ask.schema());
+        assert_ne!(own.0, own.1, "`draft` and `ask` are the coach's own and have no other home");
+        mentions(own.0["description"].as_str().expect("`draft`'s description"), &["content"]);
+        mentions(own.1["description"].as_str().expect("`ask`'s description"), &["options"]);
     }
 
     #[test]
@@ -2409,6 +2661,130 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&driven.path).expect("the document"), FAILS, "`draft` wrote to disk, not into the session");
     }
 
+    // ---- what the human sees while a turn runs ---------------------------------
+
+    #[test]
+    #[validates(spec::TheCoachingSessionsNarratorPrintsTheModelsText)]
+    fn the_coaching_sessions_narrator_prints_the_models_text() {
+        // What a print puts on the terminal has no in-process seam, and the
+        // narrator prints what it is handed, so there is no line to compare —
+        // `docs/intent/coach/lld.md` § Deferred 6. What is asserted is which
+        // narrator the coaching session is driven with, read out of this
+        // module's code as the canopy client reads its host's `silent`, that
+        // the narrator takes what the model said, and the driven path around
+        // it: a turn that spoke before calling a tool ran through it.
+        let code = module_code();
+        assert!(code.contains("&mut narrate,"), "the coaching session's turn is driven with this module's own narrator");
+        narrate(SAID_BEFORE_ASKING);
+        let driven = driven("coach-narrated");
+        assert_eq!(driven.ended, Err(Halt::Halted(HALTED.to_string())), "a response that spoke before asking for `draft` was narrated on the way");
+    }
+
+    #[test]
+    #[validates(spec::EveryToolCallIsAnnouncedBeforeItIsRouted)]
+    fn every_tool_call_is_announced_before_it_is_routed() {
+        // The order of a print and a call has no in-process seam either. What
+        // is asserted is the line `announced` decides on and the dispatch
+        // `execute` performs, and that neither is the other's condition: a
+        // call that fails was still announced.
+        let (root, project) = scratch_project("coach-announced-before-routed");
+        let (path, module) = (root.join("docs/intent/hello/lld.md"), root.join("src/lib.rs"));
+        write_at(&module, "//! the module\n");
+        let (read, outside) = (json!({ "path": "src/lib.rs" }), json!({ "path": "../elsewhere" }));
+        let mut noted = Noted::default();
+        let ran = executed(&project, &path, &mut noted, "read", &read);
+        assert_eq!(ran, execute(&project, &path, &mut Noted::default(), "read", &read), "announced, then routed, and the routing is the answer");
+        let failed = executed(&project, &path, &mut noted, "read", &outside);
+        let announcing_both = (announced(&path, "read", &read).is_some(), announced(&path, "read", &outside).is_some());
+        assert_eq!((failed.is_err(), announcing_both), (true, (true, true)), "a call whose line says nothing is still routed, and one that fails was still announced");
+        assert_eq!(noted, Noted::default(), "and announcing a read is neither a draft nor an ending");
+    }
+
+    #[test]
+    #[validates(spec::AReadIsAnnouncedByThePathItNames)]
+    fn a_read_is_announced_by_the_path_it_names() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let read = json!({ "path": "src/coach.rs", "offset": 40, "limit": 20 });
+        let line = announced(path, "read", &read).expect("a read names a path");
+        assert_eq!(Some(line.clone()), announcing("read", Some("src/coach.rs".to_string())), "the `op` and the subject its arguments named");
+        mentions(&line, &["read", "src/coach.rs"]);
+    }
+
+    #[test]
+    #[validates(spec::AGrepOrGlobIsAnnouncedByThePatternItNames)]
+    fn a_grep_or_glob_is_announced_by_the_pattern_it_names() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let grep = announced(path, "grep", &json!({ "pattern": "confine", "path": "under" })).expect("a grep names a pattern");
+        let glob = announced(path, "glob", &json!({ "pattern": "**/lld.md" })).expect("a reader session's glob names one too");
+        assert_eq!((Some(grep.clone()), Some(glob.clone())), (announcing("grep", Some("confine".to_string())), announcing("glob", Some("**/lld.md".to_string()))));
+        mentions(&grep, &["grep", "confine"]);
+        mentions(&glob, &["glob", "**/lld.md"]);
+        assert!(!grep.contains("under"), "the pattern it names, and not the directory it searches: {grep}");
+    }
+
+    #[test]
+    #[validates(spec::ADraftIsAnnouncedByTheDocumentItReplaces)]
+    fn a_draft_is_announced_by_the_document_it_replaces() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let line = announced(path, "draft", &json!({ "content": HOLDS })).expect("a draft names the document it replaces");
+        assert_eq!(Some(line.clone()), announcing("draft", Some(path.display().to_string())), "the coach's own path rather than an argument of the call");
+        mentions(&line, &["draft", "/w/app/docs/intent/hello/lld.md"]);
+        assert!(!line.contains("## Shape"), "the document it replaces, not the document it is about to write: {line}");
+    }
+
+    #[test]
+    #[validates(spec::AskAnnouncesNothing)]
+    fn ask_announces_nothing() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let question = json!({ "question": "Which package holds this slice?", "options": ["app", "tool"] });
+        let asked_for = (announced(path, "ask", &question), announced(path, "ask", &json!({})));
+        assert_eq!(asked_for, (None, None), "the question it prints is its own announcement, and a line above it would push that question up the screen");
+        announce(path, "ask", &question);
+    }
+
+    #[test]
+    #[validates(spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing)]
+    fn a_call_whose_arguments_lack_its_subject_announces_nothing() {
+        let path = Path::new("/w/app/docs/intent/hello/lld.md");
+        let carried = (argument_named(&json!({ "path": "src/coach.rs" }), "path"), argument_named(&json!({ "path": 7 }), "path"), argument_named(&json!({}), "path"));
+        assert_eq!(carried, (Some("src/coach.rs".to_string()), None, None), "one string argument of the call, or none");
+        let missing = (announcing("read", None), announced(path, "read", &json!({})), announced(path, "grep", &json!({ "path": "src" })));
+        assert_eq!(missing, (None, None, None), "a line guessing at what it meant would be a second, worse account of one fault");
+        announce(path, "read", &json!({}));
+    }
+
+    #[test]
+    #[validates(spec::AReaderSessionsToolCallsAreAnnouncedToo)]
+    fn a_reader_sessions_tool_calls_are_announced_too() {
+        let (root, project) = scratch_project("coach-reader-announced");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let pattern = "docs/intent/**/lld.md";
+        let replay = Replay::serve(vec![globbing_reader("s-reader", pattern)]);
+        let findings = reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        let glob = announced(&path, "glob", &json!({ "pattern": pattern })).expect("announced by the same function, over the `op` as a string");
+        assert_eq!((findings, glob.contains(pattern)), (strings(&[FINDING]), true), "the judging is the other place a run goes quiet for minutes");
+    }
+
+    #[test]
+    #[validates(spec::AReaderSessionNarratesNothing)]
+    fn a_reader_session_narrates_nothing() {
+        // Which narrator a turn was driven with is a parameter, and leaves
+        // nothing in process to observe, so it is read out of this module's
+        // code — as the canopy client reads its own host's — and the driven
+        // reading is what shows a turn whose response spoke before calling a
+        // tool answering with findings all the same.
+        let code = module_code();
+        let driven_with = (code.contains("&mut silent(), &reader_prompt"), code.contains("&mut narrate, &reader_prompt"));
+        assert_eq!(driven_with, (true, false), "a reader's turn is driven with the canopy client's silent narrator");
+        let (root, project) = scratch_project("coach-reader-silent");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&path, HOLDS);
+        let replay = Replay::serve(vec![observing_reader("s-reader", "docs/intent/hello/lld.md")]);
+        let findings = reader_findings(&project, &judging_coach(&replay, &path)).expect("the reader answered");
+        assert_eq!(findings, strings(&[FINDING]), "its account is the findings landed a moment later, not a draft of them");
+    }
+
     // ---- the three tools -------------------------------------------------------
 
     #[test]
@@ -2437,6 +2813,25 @@ mod tests {
         let climbing = execute(&project, &path, &mut noted, "read", &json!({ "path": "../elsewhere" })).expect_err("confined");
         mentions(&climbing, &["outside the workspace"]);
         assert_eq!(noted, Noted::default(), "a read is neither a draft nor an ending");
+    }
+
+    #[test]
+    #[validates(spec::AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement)]
+    fn a_grep_is_routed_to_the_canopy_clients_grep_over_its_confinement() {
+        let (root, project) = scratch_project("coach-grep-routed");
+        let path = root.join("docs/intent/hello/lld.md");
+        write_at(&root.join("src/lib.rs"), &format!("//! the module\n// {NEEDLE}\n"));
+        write_at(&root.join("src/coach.rs"), "//! the coach, holding no needle\n");
+        let mut noted = Noted::default();
+        let answer = execute(&project, &path, &mut noted, "grep", &json!({ "pattern": NEEDLE })).expect("the grep");
+        let clients = GrepArgs { pattern: NEEDLE.to_string(), path: None, glob: None };
+        let under = confine(&root, search_dir(None)).expect("the root, confined as any other path");
+        let same = grep_tool(&root, &under, &clients).expect("the canopy client's own grep");
+        assert_eq!((answer.clone(), answer.lines().count()), (same, 1), "the answer a phase worker gets, over the same confinement");
+        mentions(&answer, &["src/lib.rs", NEEDLE]);
+        let climbing = execute(&project, &path, &mut noted, "grep", &json!({ "pattern": NEEDLE, "path": "../elsewhere" })).expect_err("confined");
+        mentions(&climbing, &["outside the workspace"]);
+        assert_eq!(noted, Noted::default(), "a grep is neither a draft nor an ending");
     }
 
     #[test]
