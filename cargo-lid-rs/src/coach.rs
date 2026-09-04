@@ -95,7 +95,7 @@ use crate::headless_canopy_agent::ending::{halt_reason, numbered, without_frontm
 use crate::headless_canopy_agent::tools::{
     REQUESTEE, ReadArgs, Tool as CanopyTool, ToolResult, arguments, confine, declarations as canopy_declarations, execute as canopy_execute, read_tool,
 };
-use crate::headless_canopy_agent::turn::{Halt, Session, drive};
+use crate::headless_canopy_agent::turn::{Halt, Session, drive, silent};
 use crate::headless_canopy_agent::{DEFAULT_MAX_COST, KEY_VARIABLE, PRODUCTION_DOOR, api_key};
 use crate::lld_review::{
     Failure, GUIDELINE, Lld, READER, alternatives, decisions_exist, deferred_numbered, guideline_names_every_check, reader_observes_only, rendered, shape_rows,
@@ -627,7 +627,7 @@ pub fn converse(project: &Project, coach: &mut Coach, opening: &str) -> Result<O
         let mut noted = Noted::default();
         let settled = {
             let mut executor = |running: &Project, _: &Session, op: &str, args: &Value| execute(running, &path, &mut noted, op, args);
-            drive(project, &mut coach.session, &mut executor, &landed.text)?
+            drive(project, &mut coach.session, &mut executor, &mut silent(), &landed.text)?
         };
         println!("{}", settled.text);
         message = next_message(project, coach, next_after(noted, landed.answering));
@@ -1359,7 +1359,7 @@ pub fn reader_prompt(path: &Path) -> String {
 pub fn reader_findings(project: &Project, coach: &Coach) -> Result<Vec<String>, String> {
     let settings = reader_settings(project, coach.max_cost)?;
     let mut session = Session::open(&coach.door, &settings, None, settings.policy.tools.clone())?;
-    let read = drive(project, &mut session, &mut canopy_execute, &reader_prompt(&coach.path)).map_err(halt_reason);
+    let read = drive(project, &mut session, &mut canopy_execute, &mut silent(), &reader_prompt(&coach.path)).map_err(halt_reason);
     let sealed = session.stop().map_err(halt_reason);
     read.and_then(|settled| sealed.map(|()| numbered(&settled.text)))
 }

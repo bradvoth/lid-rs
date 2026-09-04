@@ -165,6 +165,27 @@ pub struct ASessionCarriesTheDeclarationsItsHostDialled;
 #[derive(Spec)]
 pub struct APairedForwardRunsThroughTheExecutorTheTurnWasHanded;
 
+/// When an `inference.responded` carries tool uses and text of its own,
+/// `drive` shall hand that text to the narrator its caller passed.
+#[derive(Spec)]
+pub struct ThePreCallTextOfAToolAskingResponseGoesToTheNarrator;
+
+/// When a response settles the turn, its text shall not be handed to the
+/// narrator, the turn answering with it.
+#[derive(Spec)]
+pub struct ASettlingResponsesTextIsNotNarrated;
+
+/// When a response asks for tools but carries no text of its own, nothing
+/// shall be handed to the narrator.
+#[derive(Spec)]
+pub struct AResponseThatCarriedNoTextNarratesNothing;
+
+/// When this host drives a turn — a phase worker's or a reviewer's — it
+/// shall pass the narrator that shows nothing, so that what a phase prints
+/// is its sessions and its ending and nothing more.
+#[derive(Spec)]
+pub struct ThisHostDrivesEveryTurnWithTheSilentNarrator;
+
 /// When a session carries no phase, a tool call in it shall do its work
 /// without asking the pre-tool verdict, there being no phase whose policy
 /// could bound it.

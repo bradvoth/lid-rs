@@ -339,20 +339,38 @@ struct Turn<'a> {
 /// observe a turn.
 pub type Executor<'a> = &'a mut dyn FnMut(&Project, &Session, &str, &Value) -> ToolResult;
 
+/// What a turn shows its host while it is still running: the text of each
+/// `inference.responded` that carried tool uses, when it carried any. The
+/// executor tells a host what ran; this tells it what the model said it was
+/// about to do, which is otherwise read past where the record is classified
+/// and reaches nobody. A parameter for the reason the executor is one — how
+/// a host shows its work is not the session's to hold — and `FnMut`, so a
+/// narrator may keep what it has been told.
+pub type Narrator<'a> = &'a mut dyn FnMut(&str);
+
+/// The narrator a host that shows nothing passes. This host passes it at
+/// both of its own `drive` calls: a phase worker and a reviewer run
+/// unattended, and what a phase prints is its sessions and its ending.
+#[implements(spec::ThisHostDrivesEveryTurnWithTheSilentNarrator)]
+pub fn silent() -> impl FnMut(&str) {
+    |_| {}
+}
+
 /// Lands `message` as one `app.client.user_message` and follows the tail
 /// page by page ([`next_page`]), acting on each record by kind ([`acted`])
 /// until one settles the turn: the model's final text. Every paired forward
-/// runs through `executor`, the [`Executor`] this turn was handed.
-/// Everything that ends the session without a settled turn — the platform's
-/// halt, the provider's second terminal, a quiet tail, the door's refusal —
-/// is the [`Halt`].
+/// runs through `executor`, the [`Executor`] this turn was handed, and what
+/// the model says before asking for one goes to `narrator`, the
+/// [`Narrator`] it was handed beside it. Everything that ends the session
+/// without a settled turn — the platform's halt, the provider's second
+/// terminal, a quiet tail, the door's refusal — is the [`Halt`].
 #[implements(spec::ATurnSettlesOnAResponseWithoutToolUses, spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
-pub fn drive(project: &Project, session: &mut Session, executor: Executor, message: &str) -> Result<Settled, Halt> {
+pub fn drive(project: &Project, session: &mut Session, executor: Executor, narrator: Narrator, message: &str) -> Result<Settled, Halt> {
     land_message(session, message)?;
     let mut turn = Turn { message, retry: Retry::Untried, delivered: Instant::now() };
     loop {
         for record in next_page(session, &mut turn)? {
-            if let Progress::Settled(settled) = acted(project, session, executor, &mut turn, &record)? {
+            if let Progress::Settled(settled) = acted(project, session, executor, narrator, &mut turn, &record)? {
                 return Ok(settled);
             }
         }
@@ -440,12 +458,12 @@ fn next_page(session: &mut Session, turn: &mut Turn) -> Result<Vec<Record>, Halt
     spec::ATurnSettlesOnAResponseWithoutToolUses,
     spec::AHaltEndsTheRunWithItsReason,
 )]
-fn acted(project: &Project, session: &mut Session, executor: Executor, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
+fn acted(project: &Project, session: &mut Session, executor: Executor, narrator: Narrator, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
     match Kind::of(&record.kind) {
         Kind::Payload => held(session, record),
         Kind::Forward => answered(project, session, executor, record),
         Kind::Denied => denied(project, session),
-        Kind::Responded => responded(session, turn, record),
+        Kind::Responded => responded(session, narrator, turn, record),
         Kind::Halted => halted(record),
         Kind::Other => Ok(Progress::Continue),
     }
@@ -521,17 +539,41 @@ fn counted(project: &Project, session: &Session) -> Result<Progress, Halt> {
 
 /// An `inference.responded`, shaped by [`Responded::of`]: a terminal lands
 /// the message once more the first time and stops the run the second;
-/// tool uses mean the forwards follow; neither settles the turn with the
-/// model's text.
-#[implements(spec::ATurnSettlesOnAResponseWithoutToolUses, spec::AProviderTerminalIsRetriedOnceThenStopsTheRun)]
-fn responded(session: &mut Session, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
+/// tool uses mean the forwards follow, and what the response said before
+/// asking for them is narrated ([`asked_for_tools`]); neither settles the
+/// turn with the model's text, which the turn answers with rather than
+/// narrates — a host printing it twice is the fault this distinction
+/// prevents.
+#[implements(
+    spec::ATurnSettlesOnAResponseWithoutToolUses,
+    spec::AProviderTerminalIsRetriedOnceThenStopsTheRun,
+    spec::ASettlingResponsesTextIsNotNarrated,
+)]
+fn responded(session: &mut Session, narrator: Narrator, turn: &mut Turn, record: &Record) -> Result<Progress, Halt> {
     let body = Responded::of(&record.body).map_err(|why| undecodable(record, &why))?;
     match (body.terminal, body.tool_uses.is_empty(), turn.retry) {
         (Some(_), _, Retry::Untried) => retried(session, turn),
         (Some(sentence), _, Retry::Retried) => Err(Halt::Terminal(sentence)),
-        (None, false, Retry::Untried | Retry::Retried) => Ok(Progress::Continue),
+        (None, false, Retry::Untried | Retry::Retried) => asked_for_tools(narrator, body.text.as_deref()),
         (None, true, Retry::Untried | Retry::Retried) => Ok(Progress::Settled(Settled { text: body.text.unwrap_or_default() })),
     }
+}
+
+/// A response that asked for tools: what it said before asking goes to the
+/// narrator when there is anything to say ([`narratable`]), and the tail is
+/// followed on to the forwards.
+#[implements(spec::ThePreCallTextOfAToolAskingResponseGoesToTheNarrator)]
+fn asked_for_tools(narrator: Narrator, text: Option<&str>) -> Result<Progress, Halt> {
+    narratable(text).into_iter().for_each(narrator);
+    Ok(Progress::Continue)
+}
+
+/// What a response has to narrate: the text it carried, when it carried
+/// any and that text is not empty. A response that said nothing before
+/// asking for a tool has nothing for a host to show.
+#[implements(spec::AResponseThatCarriedNoTextNarratesNothing)]
+pub fn narratable(text: Option<&str>) -> Option<&str> {
+    text.filter(|said| !said.is_empty())
 }
 
 /// The turn's one retry of a provider terminal: spent, and the message
@@ -807,7 +849,7 @@ mod tests {
         let page = vec![replay::responded_with_tools("Asking the relay.", &[("read", relay.clone())]), replay::payload_to("mcp.relay", relay), replay::forward_to("mcp.relay", "read", &digest)];
         let replay = Replay::serve(vec![SessionScript::new("s-relay").page(page).page(replay::settling_page("done"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled"), Settled { text: "done".to_string() });
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "go").expect("settled"), Settled { text: "done".to_string() });
         assert!(replay::completions(&replay.landed("s-relay")).is_empty(), "not this program's to answer");
     }
 
@@ -819,7 +861,7 @@ mod tests {
         let script = SessionScript::new("s-read").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("ok"));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!((drive(&project, &mut session, &mut execute, "read hello").expect("settled").text, session.held.len()), ("ok".to_string(), 0));
+        assert_eq!((drive(&project, &mut session, &mut execute, &mut silent(), "read hello").expect("settled").text, session.held.len()), ("ok".to_string(), 0));
         let completion = replay::completions(&replay.landed("s-read")).remove(0);
         // The door's policy record is 1 and the user message 2; the page's forward is its fifth record: cursor 7.
         assert_eq!(completion.idem, Some(":7:65534:0".to_string()));
@@ -841,7 +883,7 @@ mod tests {
         let declares: Vec<bool> = ["read", "edit", "write"].iter().map(|op| session.declares(op)).collect();
         assert_eq!((session.declarations.clone(), declares), (one_tool, vec![true, false, false]), "the session carries the declarations its host dialled, and answers for that set");
         let before = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the module");
-        let settled = drive(&project, &mut session, &mut execute, "edit it").expect("settled").text;
+        let settled = drive(&project, &mut session, &mut execute, &mut silent(), "edit it").expect("settled").text;
         let completion = replay::completions(&replay.landed("s-declared")).remove(0).body;
         let after = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the module");
         let judged = (settled.as_str(), completion["outcome"].as_str(), after.as_str());
@@ -858,6 +900,50 @@ mod tests {
     /// What its erring executor answers.
     const ANOTHER_HOSTS_REFUSAL: &str = "a second host's tool refused";
 
+    /// What the fixture's tool-asking response says before it asks.
+    const SAID_BEFORE_ASKING: &str = "Let me look.";
+
+    #[test]
+    #[validates(
+        spec::ThePreCallTextOfAToolAskingResponseGoesToTheNarrator,
+        spec::ASettlingResponsesTextIsNotNarrated,
+    )]
+    fn the_pre_call_text_of_a_tool_asking_response_goes_to_the_narrator() {
+        let (_dir, project) = fixture::copy("canopy-turn-executor");
+        let args = json!({ "path": "src/hello.rs" });
+        let digest = payload_digest(REQUESTEE, &args);
+        let script = SessionScript::new("s-narrated")
+            .page(replay::tool_call_page("read", args.clone(), &digest))
+            .page(replay::settling_page("the settled answer"));
+        let replay = Replay::serve(vec![script]);
+        let mut said: Vec<String> = Vec::new();
+        let mut heard = |text: &str| said.push(text.to_string());
+        let mut session = open(&replay);
+        let settled = drive(&project, &mut session, &mut execute, &mut heard, "read it").expect("settled").text;
+        assert_eq!(said, [SAID_BEFORE_ASKING], "what the response said before asking for a tool reached the narrator");
+        assert_eq!(settled, "the settled answer", "and the settling response's text is what the turn answers with");
+        assert!(!said.contains(&settled), "a settling response is not narrated: a host that printed both would print its answer twice");
+    }
+
+    #[test]
+    #[validates(spec::AResponseThatCarriedNoTextNarratesNothing)]
+    fn a_response_that_carried_no_text_narrates_nothing() {
+        let empty: Option<&str> = None;
+        assert_eq!(narratable(empty), None, "a response carrying no text has nothing to narrate");
+        assert_eq!(narratable(Some("")), None, "and neither has one whose text is empty");
+        assert_eq!(narratable(Some(SAID_BEFORE_ASKING)), Some(SAID_BEFORE_ASKING), "what it did say is narrated as it said it");
+    }
+
+    #[test]
+    #[validates(spec::ThisHostDrivesEveryTurnWithTheSilentNarrator)]
+    fn this_host_drives_every_turn_with_the_silent_narrator() {
+        let mut nothing = silent();
+        nothing(SAID_BEFORE_ASKING);
+        let driven = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/headless_canopy_agent/ending.rs")).expect("the host's turn");
+        assert!(driven.contains("&mut silent()"), "this host's own `drive` call passes the narrator that shows nothing");
+        assert!(!driven.contains("Narrator"), "and hands no narrator of its own, a phase printing its sessions and its ending and nothing more");
+    }
+
     #[test]
     #[validates(spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
     fn a_paired_forward_runs_through_the_executor_the_turn_was_handed() {
@@ -873,14 +959,14 @@ mod tests {
             Ok(ANOTHER_HOSTS_ANSWER.to_string())
         };
         let mut session = open(&replay);
-        let settled = drive(&project, &mut session, &mut ours, "read it").expect("settled").text;
+        let settled = drive(&project, &mut session, &mut ours, &mut silent(), "read it").expect("settled").text;
         let answered = replay::completions(&replay.landed("s-executor")).remove(0).body;
         let handed = (settled.as_str(), answered["outcome"].as_str(), answered["result"].as_str());
         assert_eq!(handed, ("ok", Some("success"), Some(ANOTHER_HOSTS_ANSWER)), "the executor's answer is the completion's outcome, not what this host's `read` would have said");
         assert_eq!(ran, [("read".to_string(), args)], "the paired forward's `op` and its payload's args went to the executor this turn was handed");
         let mut refusing = |_: &Project, _: &Session, _: &str, _: &Value| -> ToolResult { Err(ANOTHER_HOSTS_REFUSAL.to_string()) };
         let mut second = open(&replay);
-        drive(&project, &mut second, &mut refusing, "read it").expect("settled");
+        drive(&project, &mut second, &mut refusing, &mut silent(), "read it").expect("settled");
         let refused = replay::completions(&replay.landed("s-executor-error")).remove(0).body;
         assert_eq!((refused["outcome"].as_str(), refused["error"].as_str()), (Some("error"), Some(ANOTHER_HOSTS_REFUSAL)), "and an executor that errs is the completion's error");
     }
@@ -897,7 +983,7 @@ mod tests {
         let replay = Replay::serve(vec![SessionScript::new("s-untallied-denied").page(page).page(replay::settling_page("fine"))]);
         let dial = Settings { system: "A host that runs no phase.".to_string(), policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost: 1.0 };
         let mut phaseless = Session::open(&replay.door("k"), &dial, None, declarations(&WORKER_TOOLS)).expect("opened");
-        let settled = drive(&project, &mut phaseless, &mut execute, "go").expect("settled").text;
+        let settled = drive(&project, &mut phaseless, &mut execute, &mut silent(), "go").expect("settled").text;
         let after_denial = tally::load(&project, "canopy:s-untallied-denied").expect("tally");
         let counted = (after_read, after_denial, settled.as_str());
         assert_eq!(counted, (tally::Tally::default(), tally::Tally::default(), "fine"), "in a session carrying no phase neither an observation nor a denial is counted anywhere");
@@ -938,7 +1024,7 @@ mod tests {
         let page = vec![replay::responded_with_tools("Trying bash.", &[("bash", args.clone())]), replay::payload(args), replay::denied(&digest)];
         let replay = Replay::serve(vec![SessionScript::new("s-denied").page(page).page(replay::settling_page("fine"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled").text, "fine");
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "go").expect("settled").text, "fine");
         assert!(replay::completions(&replay.landed("s-denied")).is_empty(), "nothing executed, nothing answered");
         assert_eq!(tally::load(&project, "canopy:s-denied").expect("tally").policy_refusals, 1);
     }
@@ -962,7 +1048,7 @@ mod tests {
         let script = SessionScript::new("s-settle").page(replay::tool_call_page("read", json!({ "path": "src/hello.rs" }), &digest)).page(replay::settling_page("The file greets."));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "look").expect("settled"), Settled { text: "The file greets.".to_string() });
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "look").expect("settled"), Settled { text: "The file greets.".to_string() });
         assert_eq!(replay::user_messages(&replay.landed("s-settle")), strings(&["look"]), "one user message outstanding for the turn");
         assert!(afters(&replay).len() >= 2, "the tail was followed on past the tool uses");
     }
@@ -976,7 +1062,7 @@ mod tests {
         let first = vec![replay::requested(1), replay::attempted(), replay::terminal(replay::TERMINAL_SENTENCE)];
         let replay = Replay::serve(vec![SessionScript::new("s-terminal").page(first).page(replay::settling_page("second time lucky"))]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "hello").expect("settled").text, "second time lucky");
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "hello").expect("settled").text, "second time lucky");
         assert_eq!(replay::user_messages(&replay.landed("s-terminal")), strings(&["hello", "hello"]));
     }
 
@@ -987,7 +1073,7 @@ mod tests {
         let script = SessionScript::new("s-terminal2").page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]).page(vec![replay::terminal(replay::TERMINAL_SENTENCE)]);
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "hello").expect_err("stopped"), Halt::Terminal(replay::TERMINAL_SENTENCE.to_string()));
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "hello").expect_err("stopped"), Halt::Terminal(replay::TERMINAL_SENTENCE.to_string()));
         assert_eq!(replay::user_messages(&replay.landed("s-terminal2")).len(), 2, "landed once more, not twice");
     }
 
@@ -997,7 +1083,7 @@ mod tests {
         let (_dir, project) = fixture::copy("canopy-turn-halted");
         let replay = Replay::serve(vec![SessionScript::new("s-halt").page(vec![replay::requested(1), replay::halted("context_limit reached")])]);
         let mut session = open(&replay);
-        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect_err("halted"), Halt::Halted("context_limit reached".to_string()));
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "go").expect_err("halted"), Halt::Halted("context_limit reached".to_string()));
     }
 
     #[test]
@@ -1038,7 +1124,7 @@ mod tests {
         let replay = Replay::serve(vec![SessionScript::new("s-expiring").expiring_in(3).page(replay::settling_page("ok"))]);
         let mut session = open(&replay);
         let first = session.credential.clone();
-        assert_eq!(drive(&project, &mut session, &mut execute, "go").expect("settled").text, "ok");
+        assert_eq!(drive(&project, &mut session, &mut execute, &mut silent(), "go").expect("settled").text, "ok");
         assert!(session.credential.session == first.session && session.credential.token != first.token, "refreshed: {:?}", session.credential);
         assert_eq!(session.cursor, 4, "the door's policy record, the user message, then the page's two records, read on the refreshed credential");
     }
@@ -1082,7 +1168,7 @@ mod tests {
         let script = SessionScript::new("s-after").page(vec![replay::requested(1), replay::attempted()]).page(replay::settling_page("ok"));
         let replay = Replay::serve(vec![script]);
         let mut session = open(&replay);
-        drive(&project, &mut session, &mut execute, "go").expect("settled");
+        drive(&project, &mut session, &mut execute, &mut silent(), "go").expect("settled");
         // The door's policy record is 1 and the message 2; the first read returns both; the next two return the pages through 4 and 6.
         assert_eq!(afters(&replay), [Some("0".to_string()), Some("2".to_string()), Some("4".to_string())]);
         assert!(replay.seen().iter().filter(|s| s.route() == Some(Route::Tail)).all(|s| s.query("wait") == Some("25".to_string())), "every read parked 25 s");
@@ -1095,9 +1181,9 @@ mod tests {
         let scripts = vec![SessionScript::new("s-nosend").refusing(Route::Send, 409, "the session has stopped"), SessionScript::new("s-notail").refusing(Route::Tail, 429, "shed")];
         let replay = Replay::serve(scripts);
         let mut first = open(&replay);
-        assert_eq!(drive(&project, &mut first, &mut execute, "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
+        assert_eq!(drive(&project, &mut first, &mut execute, &mut silent(), "go").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
         let mut second = open(&replay);
-        assert_eq!(drive(&project, &mut second, &mut execute, "go").expect_err("refused"), Halt::Refused("shed".to_string()));
+        assert_eq!(drive(&project, &mut second, &mut execute, &mut silent(), "go").expect_err("refused"), Halt::Refused("shed".to_string()));
         assert_eq!(land_message(&mut first, "again").expect_err("refused"), Halt::Refused("the session has stopped".to_string()));
     }
 
@@ -1122,7 +1208,7 @@ mod tests {
         let system = "You are checking a tool loop. Call the `read` tool on `README.md`, then answer with its first line.".to_string();
         let settings = Settings { system, policy: policy_for(&declarations(&WORKER_TOOLS)), params: json!({}), max_cost: 1.0 };
         let mut session = Session::open(&Door::new(&url, &key), &settings, Some(Phase::Three), declarations(&WORKER_TOOLS)).expect("dialled");
-        let turn = drive(&project, &mut session, &mut execute, "Read `README.md` with the `read` tool and tell me its first line.");
+        let turn = drive(&project, &mut session, &mut execute, &mut silent(), "Read `README.md` with the `read` tool and tell me its first line.");
         session.stop().expect("stopped");
         match turn {
             Ok(settled) => assert!(!settled.text.trim().is_empty(), "the model answered"),

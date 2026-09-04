@@ -8,7 +8,7 @@ use serde_json::json;
 use super::Precondition;
 use super::door::{Door, Settings, policy_for};
 use super::tools::{Tool, declarations, execute};
-use super::turn::{Halt, Session, drive};
+use super::turn::{Halt, Session, drive, silent};
 use crate::phase::ending::{Ending, ending_of};
 use crate::phase::{HookInput, HookVerdict, Phase, hook_stop};
 use crate::project::Project;
@@ -185,7 +185,7 @@ fn round(project: &Project, session: &mut Session, phase: Phase, message: &str) 
 /// ([`halt_reason`]).
 #[implements(spec::APairedForwardRunsThroughTheExecutorTheTurnWasHanded)]
 pub(super) fn turn(project: &Project, session: &mut Session, message: &str) -> Result<String, String> {
-    drive(project, session, &mut execute, message).map(|settled| settled.text).map_err(halt_reason)
+    drive(project, session, &mut execute, &mut silent(), message).map(|settled| settled.text).map_err(halt_reason)
 }
 
 /// A halt as the reason the run stops with: the platform's reason, the
