@@ -575,34 +575,139 @@ pub fn opening(project: &Project, slice: &str, path: &Path) -> String {
 /// ([`intent_paths`]) are walked once and handed to both the section that lists
 /// them and the one that decides whether exactly one HLD is among them, so the
 /// two cannot disagree about what the workspace holds.
+///
+/// The workspace root goes to the index beside them, this being where it is
+/// already held: the paths are in the form the walk produced, and each row is
+/// named against the root as it is rendered. A project whose root cannot be
+/// located stands in the empty path and has no rows to render it against
+/// either, `intent_paths` finding nothing under a root it could not find.
 #[implements(spec::ThePreambleIsTheIndexTheHldThenTheGuidance)]
 pub fn preamble(project: &Project, path: &Path) -> String {
     let paths = intent_paths(project);
-    format!("{}\n\n{}\n\n{}", index_section(&paths, path), hld_section(&paths), guidance_section(project))
+    let root = project.root().unwrap_or_default();
+    format!("{}\n\n{}\n\n{}", index_section(&root, &paths, path), hld_section(&paths), guidance_section(project))
 }
+
+/// The name every HLD is filed under, which is how one is told from an `lld.md`
+/// both when the index is walked ([`documents_in`]) and when the HLDs among the
+/// index's paths are counted ([`hlds`]) — one spelling, so the document the
+/// index names and the one the opening carries cannot be different files.
+pub const HLD_FILE: &str = "hld.md";
 
 /// Every `docs/intent` document in the workspace: the HLD at the workspace root
 /// and under each member, and every slice's `<slice>/lld.md` under either,
-/// sorted, so that one run's index and the next's agree.
+/// sorted, so that one run's index and the next's agree. Sorted also puts a
+/// directory named twice — a workspace whose one member sits at its root — next
+/// to itself, which is what lets the repeat be dropped.
+///
+/// The paths are the ones the walk produced, as [`document_path`] holds this
+/// run's own: [`hld_section`] opens one of them, and a row compares one against
+/// this run's document. What the model is shown is another form — relative to
+/// the workspace root, which is the only form `confine` accepts — and that
+/// conversion is [`relative_to`]'s, made at the row where its one reader is —
+/// not here, where the HLD that must be opened and the comparison that marks a
+/// row both want the form the walk answered with.
 #[implements(
     spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace,
     spec::TheIntentIndexIsSortedSoTwoRunsAgree,
 )]
 pub fn intent_paths(project: &Project) -> Vec<PathBuf> {
-    todo!("the workspace's intent documents, sorted")
+    let mut documents: Vec<PathBuf> = intent_dirs(project).iter().flat_map(|intent| documents_in(intent)).collect();
+    documents.sort();
+    documents.dedup();
+    documents
 }
 
+/// The `docs/intent` directories the index is walked from: the workspace
+/// root's, and each member's ([`members`], which already answers what the
+/// members are). A project whose root cannot be located has none of them,
+/// every one being under it.
+#[implements(spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace)]
+pub fn intent_dirs(project: &Project) -> Vec<PathBuf> {
+    todo!("the workspace root's `docs/intent` and each member's")
+}
+
+/// The intent documents in one `docs/intent` directory: its [`HLD_FILE`], and
+/// the `lld.md` of each slice directory under it ([`subdirectories`]) — of
+/// those that are there, a directory holding neither being a package with no
+/// intent documents rather than a fault.
+#[implements(spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace)]
+pub fn documents_in(intent: &Path) -> Vec<PathBuf> {
+    todo!("that directory's HLD and each slice's LLD, of those that are there")
+}
+
+/// The directories directly under `dir` — a `docs/intent`'s slice directories —
+/// in whatever order the filesystem answers with, [`intent_paths`] being where
+/// the order is settled. A directory that cannot be read holds none, which is
+/// a package with no documents rather than a fault, as [`members`] treats a
+/// member with no manifest name.
+pub fn subdirectories(dir: &Path) -> Vec<PathBuf> {
+    todo!("the directories directly under it")
+}
+
+/// The heading the index is carried under, so that a model reading the opening
+/// can tell what the workspace holds from what this run is.
+pub const INDEX_HEADING: &str = "## The intent documents this workspace holds";
+
+/// What the row naming this run's own document is marked with: the one path in
+/// the index the model is about to write rather than consult.
+pub const THIS_RUNS_DOCUMENT: &str = "this run's own document, the one you are writing rather than one to consult";
+
 /// The index as the opening lists it: those paths and not their text — a first
-/// message carrying twelve documents buries the one that mattered — with the row
-/// naming `path`, this run's own document, marked as the one the model is about
-/// to write rather than consult.
+/// message carrying twelve documents buries the one that mattered — each named
+/// against `root` and the row naming `path`, this run's own document, marked as
+/// the one the model is about to write rather than consult ([`index_row`], where
+/// both are settled one row at a time). An index of nothing is its heading and
+/// no rows, a workspace with no intent documents being where a first slice
+/// starts.
+///
+/// It takes the root because the paths do not carry their own relation to it:
+/// [`intent_paths`] answers in the form the filesystem walk produced, which is
+/// what [`hld_section`] opens one of and what a row compares against this run's
+/// own document, and the one conversion into the form `confine` accepts sits at
+/// the row, where its one reader is.
+#[implements(
+    spec::EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot,
+    spec::ThisRunsOwnDocumentIsMarkedInTheIndex,
+    spec::TheDocumentsTheIndexNamesAreNamedAndNotCarried,
+)]
+pub fn index_section(root: &Path, paths: &[PathBuf], path: &Path) -> String {
+    let rows: Vec<String> = paths.iter().map(|document| index_row(root, document, path)).collect();
+    format!("{INDEX_HEADING}\n{}", rows.join("\n"))
+}
+
+/// One document's row: the document named against the root ([`relative_to`]),
+/// and then the one decision over whether it is the document this run writes —
+/// it is, and the row says so ([`THIS_RUNS_DOCUMENT`]), since a model asked to
+/// consult what it is about to replace would be reading its own draft; it is
+/// not, and the row is that name alone, which is the whole of what the index
+/// carries about a document. The comparison is between the paths as the walk
+/// answered with them, both sides being in that form, so how a row is *named*
+/// cannot change which row is marked.
 #[implements(
     spec::ThisRunsOwnDocumentIsMarkedInTheIndex,
     spec::TheDocumentsTheIndexNamesAreNamedAndNotCarried,
 )]
-pub fn index_section(paths: &[PathBuf], path: &Path) -> String {
-    todo!("the index, this run's own document marked")
+pub fn index_row(root: &Path, document: &Path, own: &Path) -> String {
+    todo!("the document named against the root, marked when it is this run's own")
 }
+
+/// A document as a row names it: its path relative to the workspace root, which
+/// is the form `read` and `grep` take — [`confine`](crate::headless_canopy_agent::tools::confine)
+/// refuses an absolute path as written, before it resolves anything, so a row in
+/// any other form is a path the one tool it feeds will not accept.
+///
+/// A document that is not under the root is named as it stands. No such path can
+/// come out of [`intent_paths`], every one of them being built under the root
+/// this is handed; if one ever arrives, the row carries what the walk found and
+/// the model can see it, which a dropped row or an empty name would not allow.
+#[implements(spec::EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot)]
+pub fn relative_to(root: &Path, document: &Path) -> String {
+    todo!("the document relative to the root, or as it stands when it is not under it")
+}
+
+/// The heading the sole HLD is carried under.
+pub const HLD_HEADING: &str = "## The HLD every slice sits inside";
 
 /// The HLD the opening carries — the one decision over how many the index
 /// found: exactly one, and it is carried whole, being the design every slice
@@ -615,19 +720,62 @@ pub fn index_section(paths: &[PathBuf], path: &Path) -> String {
     spec::AnIndexWithoutExactlyOneHldCarriesNoHld,
 )]
 pub fn hld_section(paths: &[PathBuf]) -> String {
-    todo!("the sole HLD whole, or nothing")
+    let found = hlds(paths);
+    match found.as_slice() {
+        [only] => hld_carried(only),
+        [] | [_, _, ..] => String::new(),
+    }
 }
+
+/// Those of the index's paths that are an HLD — the documents filed under
+/// [`HLD_FILE`], whichever `docs/intent` they sit in — which is the set
+/// [`hld_section`] counts. Read out of the index rather than walked again, so
+/// that the HLD the opening carries is one the index named.
+pub fn hlds(paths: &[PathBuf]) -> Vec<&Path> {
+    todo!("those of the index's paths that are an HLD")
+}
+
+/// The HLD as the opening carries it: where it was read from, and its text
+/// whole. A document that has gone between the walk that found it and this
+/// carries its heading and nothing under it — the index still names it, and a
+/// `read` can be aimed at it, which is what the opening is for.
+#[implements(spec::TheOpeningCarriesTheSoleHldWhole)]
+pub fn hld_carried(hld: &Path) -> String {
+    todo!("the HLD's path and its text whole, under the heading")
+}
+
+/// The files the project's guidance is looked for in, in the order it prefers
+/// them: `AGENTS.md`, which `init` writes, and then `CLAUDE.md`, for a project
+/// that arrived at the methodology by another road. The order is the whole of
+/// the "else": the first of them that reads is the one carried, so no branch
+/// decides between two files a list already ranks.
+pub const GUIDANCE_FILES: [&str; 2] = ["AGENTS.md", "CLAUDE.md"];
+
+/// The heading the project's guidance is carried under, naming the file it came
+/// from, since which of the two a project keeps is a fact about it.
+pub const GUIDANCE_HEADING: &str = "## The project's guidance";
 
 /// The project's guidance, whole: `AGENTS.md` at the workspace root, else its
 /// `CLAUDE.md` — for a project that arrived at the methodology by another road —
-/// else nothing.
+/// else nothing. The two are [`GUIDANCE_FILES`] in that order and each is read
+/// from under the workspace root ([`synced_text`], which is that read and
+/// nothing else); a project with neither, or one whose root cannot be located,
+/// carries no guidance rather than a sentence about not having any, the opening
+/// being what the repository holds and not a report on it.
 #[implements(
     spec::TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole,
     spec::ClaudeMdIsTheGuidanceWhenThereIsNoAgentsFile,
     spec::NeitherGuidanceFileCarriesNoGuidance,
 )]
 pub fn guidance_section(project: &Project) -> String {
-    todo!("AGENTS.md, else CLAUDE.md, else nothing")
+    todo!("the first of the guidance files that reads, whole; else nothing")
+}
+
+/// The guidance as the opening carries it: the file it came from, and its text
+/// whole — [`hld_carried`]'s shape for the other document the opening carries.
+#[implements(spec::TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole)]
+pub fn guidance_carried(name: &str, guidance: &str) -> String {
+    todo!("the file it came from and its text, under the heading")
 }
 
 /// The document already at that path, whole; none when there is none to read.
@@ -1024,6 +1172,11 @@ pub fn announce(path: &Path, op: &str, args: &Value) {
 /// — and nothing for `ask`, whose printed question is its own announcement, or
 /// for a call whose arguments do not carry the subject its line would name.
 ///
+/// It decides which argument a call's line is named by and nothing further: the
+/// line itself is [`announcing`]'s, so that each arm here names a subject rather
+/// than composing a sentence, and the rule that a missing subject is no line at
+/// all is stated once instead of four times.
+///
 /// It is written over the `op` as a string rather than over [`Tool`], because a
 /// reader session's calls are announced by it too and that session calls
 /// `glob`, which this host does not declare.
@@ -1036,6 +1189,16 @@ pub fn announce(path: &Path, op: &str, args: &Value) {
 )]
 pub fn announced(path: &Path, op: &str, args: &Value) -> Option<String> {
     todo!("the line this call is announced with, or none")
+}
+
+/// The line a call is announced with once its subject is known: the `op` and
+/// that subject, which is what a human watching needs to tell one call from the
+/// next. A call whose arguments did not carry a subject has no line — the whole
+/// of that rule, kept here rather than in each of [`announced`]'s arms, since
+/// what is missing is the same thing however it was named.
+#[implements(spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing)]
+pub fn announcing(op: &str, subject: Option<String>) -> Option<String> {
+    todo!("the op and its subject, or no line at all")
 }
 
 /// One string argument out of a call's JSON, which is where every
