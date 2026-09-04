@@ -8,7 +8,7 @@
 //! **What this slice owns.** The subcommand's flags; the package the document
 //! goes under and the path within it; the two prompts a coaching session is
 //! opened with; the loop of human turn, model turn and judges' turn; a tool set
-//! of its own — `read`, `draft`, `ask` — and the dispatch that routes a
+//! of its own — `read`, `grep`, `draft`, `ask` — and the dispatch that routes a
 //! forwarded call to one of them; the record ([`Noted`]) that dispatch keeps of
 //! what one turn did, which is how the loop knows a turn drafted and how it
 //! learns the human ended the conversation inside a tool; what a judging
@@ -49,6 +49,15 @@
 //! renders rather than propagates ([`reader_section`], [`checks_section`]), so
 //! neither can end a conversation the human is in the middle of.
 //!
+//! **What a watched run shows.** An interview is watched, so a turn shows its
+//! work rather than claiming it is happening: [`narrate`] prints the model's own
+//! words as `drive` hands them over, and [`executed`] announces a call before it
+//! routes it, the line itself decided by [`announced`] over the `op` as a string
+//! — because a reader session's calls are announced by the same function and it
+//! calls tools this host does not declare. What the repository holds is landed
+//! once, in [`preamble`], rather than walked for a directory listing at a time
+//! on every run.
+//!
 //! **What it gives up.** The canopy client bounds what leaves by confining
 //! every read to the workspace. A coaching conversation is not in the
 //! workspace: what the human types exists nowhere else, and every word of it is
@@ -83,6 +92,10 @@
 //! [`COACH_TOOLS`]: crate::coach::COACH_TOOLS
 //! [`checks_section`]: crate::coach::checks_section
 //! [`reader_section`]: crate::coach::reader_section
+//! [`narrate`]: crate::coach::narrate
+//! [`executed`]: crate::coach::executed
+//! [`announced`]: crate::coach::announced
+//! [`preamble`]: crate::coach::preamble
 
 use std::path::{Path, PathBuf};
 
@@ -94,6 +107,7 @@ use crate::headless_canopy_agent::door::{Door, Settings, ToolDecl, policy_for};
 use crate::headless_canopy_agent::ending::{halt_reason, numbered, without_frontmatter};
 use crate::headless_canopy_agent::tools::{
     REQUESTEE, ReadArgs, Tool as CanopyTool, ToolResult, arguments, confine, declarations as canopy_declarations, execute as canopy_execute, read_tool,
+    schema_of,
 };
 use crate::headless_canopy_agent::turn::{Halt, Session, drive, silent};
 use crate::headless_canopy_agent::{DEFAULT_MAX_COST, KEY_VARIABLE, PRODUCTION_DOOR, api_key};
@@ -153,7 +167,7 @@ pub fn coached(project: &Project, door: &Door, flags: &Flags) -> Result<(), Stri
     let settings = coaching_settings(project, flags.max_cost)?;
     println!("{}", path_line(&path));
     let session = Session::open(door, &settings, None, declarations())?;
-    let opened_with = opening(&slice, &path);
+    let opened_with = opening(project, &slice, &path);
     let mut coach = Coach { door: door.clone(), session, path, max_cost: flags.max_cost };
     let ended = converse(project, &mut coach, &opened_with);
     let sealed = coach.session.stop().map_err(halt_reason);
@@ -522,12 +536,12 @@ pub fn coaching_system(project: &Project) -> Result<String, String> {
 }
 
 /// The coaching session's dial: `system` the two synced prompts
-/// ([`coaching_system`]), the policy built from this host's three declarations
+/// ([`coaching_system`]), the policy built from this host's four declarations
 /// ([`declarations`]) and nothing else, empty `params`, and the run's
 /// `max_cost` as this session's ceiling.
 #[implements(
     spec::TheSystemPromptIsTheSyncedInterviewMethodThenTheGuideline,
-    spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools,
+    spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools,
     spec::EverySessionTheCoachOpensIsDialledWithTheMaxCost,
 )]
 pub fn coaching_settings(project: &Project, max_cost: f64) -> Result<Settings, String> {
@@ -537,13 +551,83 @@ pub fn coaching_settings(project: &Project, max_cost: f64) -> Result<Settings, S
 /// The conversation's first user message — the one decision over whether a
 /// document is already at that path: none, and the model is told which slice it
 /// is writing one for ([`writing`]); one, and it is told it is amending that
-/// document, which the message carries whole ([`amending`]).
-#[implements(spec::TheOpeningNamesTheSlice, spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
-pub fn opening(slice: &str, path: &Path) -> String {
+/// document, which the message carries whole ([`amending`]). Both are handed
+/// what the repository holds ([`preamble`]) to lead with, so the walk of
+/// directories a model would otherwise spend its first minutes on is done once,
+/// by the coach, and the same walk is not repeated a listing at a time on every
+/// run.
+#[implements(
+    spec::TheOpeningNamesTheSlice,
+    spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment,
+    spec::TheOpeningLeadsWithWhatTheRepositoryHolds,
+)]
+pub fn opening(project: &Project, slice: &str, path: &Path) -> String {
+    let repository = preamble(project, path);
     match existing(path) {
-        Some(document) => amending(slice, &document),
-        None => writing(slice),
+        Some(document) => amending(&repository, slice, &document),
+        None => writing(&repository, slice),
     }
+}
+
+/// What the repository holds, as the opening carries it: the intent index
+/// ([`index_section`]), then the sole HLD ([`hld_section`]), then the project's
+/// guidance ([`guidance_section`]), in that order. The index's paths
+/// ([`intent_paths`]) are walked once and handed to both the section that lists
+/// them and the one that decides whether exactly one HLD is among them, so the
+/// two cannot disagree about what the workspace holds.
+#[implements(spec::ThePreambleIsTheIndexTheHldThenTheGuidance)]
+pub fn preamble(project: &Project, path: &Path) -> String {
+    let paths = intent_paths(project);
+    format!("{}\n\n{}\n\n{}", index_section(&paths, path), hld_section(&paths), guidance_section(project))
+}
+
+/// Every `docs/intent` document in the workspace: the HLD at the workspace root
+/// and under each member, and every slice's `<slice>/lld.md` under either,
+/// sorted, so that one run's index and the next's agree.
+#[implements(
+    spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace,
+    spec::TheIntentIndexIsSortedSoTwoRunsAgree,
+)]
+pub fn intent_paths(project: &Project) -> Vec<PathBuf> {
+    todo!("the workspace's intent documents, sorted")
+}
+
+/// The index as the opening lists it: those paths and not their text — a first
+/// message carrying twelve documents buries the one that mattered — with the row
+/// naming `path`, this run's own document, marked as the one the model is about
+/// to write rather than consult.
+#[implements(
+    spec::ThisRunsOwnDocumentIsMarkedInTheIndex,
+    spec::TheDocumentsTheIndexNamesAreNamedAndNotCarried,
+)]
+pub fn index_section(paths: &[PathBuf], path: &Path) -> String {
+    todo!("the index, this run's own document marked")
+}
+
+/// The HLD the opening carries — the one decision over how many the index
+/// found: exactly one, and it is carried whole, being the design every slice
+/// sits inside; none or several, and none is carried, which of several governs
+/// this slice being a design question with a human's answer rather than one a
+/// coach may make silently. The count is the whole of the decision, so it is
+/// made where the paths are.
+#[implements(
+    spec::TheOpeningCarriesTheSoleHldWhole,
+    spec::AnIndexWithoutExactlyOneHldCarriesNoHld,
+)]
+pub fn hld_section(paths: &[PathBuf]) -> String {
+    todo!("the sole HLD whole, or nothing")
+}
+
+/// The project's guidance, whole: `AGENTS.md` at the workspace root, else its
+/// `CLAUDE.md` — for a project that arrived at the methodology by another road —
+/// else nothing.
+#[implements(
+    spec::TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole,
+    spec::ClaudeMdIsTheGuidanceWhenThereIsNoAgentsFile,
+    spec::NeitherGuidanceFileCarriesNoGuidance,
+)]
+pub fn guidance_section(project: &Project) -> String {
+    todo!("AGENTS.md, else CLAUDE.md, else nothing")
 }
 
 /// The document already at that path, whole; none when there is none to read.
@@ -553,27 +637,32 @@ pub fn existing(path: &Path) -> Option<String> {
     std::fs::read_to_string(path).ok()
 }
 
-/// The opening for a slice with no document: what the slice is, and that the
-/// model is writing its LLD.
-#[implements(spec::TheOpeningNamesTheSlice)]
-pub fn writing(slice: &str) -> String {
+/// The opening for a slice with no document: what the repository holds, and
+/// then what the slice is and that the model is writing its LLD — the
+/// repository first, because it is what makes the questions aimable.
+#[implements(spec::TheOpeningNamesTheSlice, spec::TheOpeningLeadsWithWhatTheRepositoryHolds)]
+pub fn writing(repository: &str, slice: &str) -> String {
     format!(
-        "You are writing the LLD for the slice `{slice}`, which has no document yet. Read what the repository already \
-         answers, then interview me one decision at a time, and draft when you can write a section without inventing \
-         anything."
+        "{repository}\n\nYou are writing the LLD for the slice `{slice}`, which has no document yet. Read what the \
+         repository already answers, then interview me one decision at a time, and draft when you can write a section \
+         without inventing anything."
     )
 }
 
-/// The opening for a slice whose document already exists: what the slice is,
-/// that document whole, and that the model is amending it rather than writing
-/// one — which is how a Phase 8 amendment is drafted, the commit still being
-/// the human's.
-#[implements(spec::TheOpeningNamesTheSlice, spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
-pub fn amending(slice: &str, document: &str) -> String {
+/// The opening for a slice whose document already exists: what the repository
+/// holds, then what the slice is, that document whole, and that the model is
+/// amending it rather than writing one — which is how a Phase 8 amendment is
+/// drafted, the commit still being the human's.
+#[implements(
+    spec::TheOpeningNamesTheSlice,
+    spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment,
+    spec::TheOpeningLeadsWithWhatTheRepositoryHolds,
+)]
+pub fn amending(repository: &str, slice: &str, document: &str) -> String {
     format!(
-        "You are amending the LLD for the slice `{slice}`, which already exists. Read what the repository already \
-         answers, then interview me one decision at a time, and draft the whole document when you can write the \
-         amendment without inventing anything. The document as it stands follows.\n\n{document}"
+        "{repository}\n\nYou are amending the LLD for the slice `{slice}`, which already exists. Read what the \
+         repository already answers, then interview me one decision at a time, and draft the whole document when you \
+         can write the amendment without inventing anything. The document as it stands follows.\n\n{document}"
     )
 }
 
@@ -583,8 +672,11 @@ pub fn amending(slice: &str, document: &str) -> String {
 /// settled answer — the model speaks first, this being an interview — and a run
 /// whose input is already at end of file still opens, settles one turn and ends,
 /// rather than returning before a turn exists. Thereafter each message is landed
-/// ([`next_message`]), a model turn is driven with this module's own executor,
-/// the model's settled answer is printed, and what follows that turn is decided
+/// ([`next_message`]), a model turn is driven with this module's own executor
+/// ([`executed`]) and this module's own narrator ([`narrate`]) — an interview
+/// being watched, so a turn that spends minutes on tool calls shows its work
+/// rather than going silent — the model's settled answer is printed, and what
+/// follows that turn is decided
 /// from the [`Noted`] its executor kept ([`next_after`]) — never from the
 /// model's words. It ends when the human ends it, at a prompt or inside `ask`,
 /// or with the halt that reached it.
@@ -611,6 +703,7 @@ pub fn amending(slice: &str, document: &str) -> String {
 #[implements(
     spec::TheFirstTurnSettlesOnTheOpeningBeforeTheHumanIsRead,
     spec::TheModelsSettledAnswerIsPrinted,
+    spec::TheCoachingSessionsNarratorPrintsTheModelsText,
     spec::TheConversationEndsAtDoneOrEndOfFile,
     spec::ThatATurnDraftedIsRecordedByTheExecutorNotInferred,
     spec::TheJudgesAreLandedAsOneUserMessageUnderAHeading,
@@ -626,8 +719,8 @@ pub fn converse(project: &Project, coach: &mut Coach, opening: &str) -> Result<O
         verdict = landed.holds.or(verdict);
         let mut noted = Noted::default();
         let settled = {
-            let mut executor = |running: &Project, _: &Session, op: &str, args: &Value| execute(running, &path, &mut noted, op, args);
-            drive(project, &mut coach.session, &mut executor, &mut silent(), &landed.text)?
+            let mut executor = |running: &Project, _: &Session, op: &str, args: &Value| executed(running, &path, &mut noted, op, args);
+            drive(project, &mut coach.session, &mut executor, &mut narrate, &landed.text)?
         };
         println!("{}", settled.text);
         message = next_message(project, coach, next_after(noted, landed.answering));
@@ -783,51 +876,62 @@ pub fn human_turn(line: Option<String>) -> Option<String> {
     }
 }
 
-/// The coach's three tools: a set of its own, not the canopy client's five.
+/// The coach's four tools: a set of its own, not the canopy client's five,
+/// whose `edit` and `write` a coach that writes one document must not hold.
 /// [`COACH_TOOLS`] is the set itself, and both what the session declares
 /// ([`declarations`]) and what its dispatch admits ([`declared`]) are derived
 /// from it, so no second list of names can drift from this one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
+#[implements(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
 pub enum Tool {
     /// A file's text or a directory's entries, through the canopy client's own
     /// read over its own confinement.
     Read,
+    /// A literal, case-sensitive substring search, through that client's own
+    /// grep under the same confinement.
+    Grep,
     /// The slice's LLD, replaced whole.
     Draft,
     /// One question put to the human, answered with what they typed.
     Ask,
 }
 
-/// The tools a coaching session declares: exactly these three, in the order
+/// The tools a coaching session declares: exactly these four, in the order
 /// they are declared. The closed set both [`declarations`] and [`declared`]
 /// are built from.
-pub const COACH_TOOLS: [Tool; 3] = [Tool::Read, Tool::Draft, Tool::Ask];
+pub const COACH_TOOLS: [Tool; 4] = [Tool::Read, Tool::Grep, Tool::Draft, Tool::Ask];
 
 impl Tool {
-    /// The tool's `op` on the wire — `read`, `draft`, `ask` — which is also
-    /// the name the model calls it by and the name [`declared`] matches a
+    /// The tool's `op` on the wire — `read`, `grep`, `draft`, `ask` — which is
+    /// also the name the model calls it by and the name [`declared`] matches a
     /// forwarded `op` against.
-    #[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
+    #[implements(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
     pub fn op(self) -> &'static str {
         match self {
             Tool::Read => "read",
+            Tool::Grep => "grep",
             Tool::Draft => "draft",
             Tool::Ask => "ask",
         }
     }
 
     /// The JSON schema of the tool's arguments, its description in the
-    /// schema's `description`: `path` with optional `offset` and `limit`;
-    /// `content` alone, since the one path `draft` can write is the slice's
-    /// LLD and no argument of its can name another; `question` with optional
-    /// `options`.
-    #[implements(spec::DraftWritesTheSlicesLldAndNoOtherPath)]
+    /// schema's `description`. `read` and `grep` take the canopy client's own
+    /// [`schema_of`](crate::headless_canopy_agent::tools::schema_of) for that
+    /// tool, since they are that client's tools whole and two descriptions of
+    /// one tool are two things nothing keeps in step. `draft` and `ask` are the
+    /// coach's own and have no other home: `content` alone, since the one path
+    /// `draft` can write is the slice's LLD and no argument of its can name
+    /// another; `question` with optional `options`.
+    #[implements(
+        spec::ReadAndGrepAreDeclaredWithTheCanopyClientsSchemas,
+        spec::DraftWritesTheSlicesLldAndNoOtherPath,
+    )]
     pub fn schema(self) -> Value {
         let string = json!({ "type": "string" });
-        let count = json!({ "type": "integer" });
         match self {
-            Tool::Read => json!({ "type": "object", "description": "Read a file's text with line numbers, or list a directory's entries. Every path is relative to the workspace root.", "properties": { "path": string, "offset": count.clone(), "limit": count }, "required": ["path"] }),
+            Tool::Read => schema_of(CanopyTool::Read),
+            Tool::Grep => schema_of(CanopyTool::Grep),
             Tool::Draft => json!({ "type": "object", "description": "Replace the slice's LLD whole with `content`, creating its directory. The path is this run's own: no argument of yours names a file.", "properties": { "content": string }, "required": ["content"] }),
             Tool::Ask => json!({ "type": "object", "description": "Put one question to the human and answer with what they typed. With `options` they are printed numbered, and a bare number answers with that option; anything else is answered as typed.", "properties": { "question": string.clone(), "options": json!({ "type": "array", "items": string }) }, "required": ["question"] }),
         }
@@ -835,9 +939,9 @@ impl Tool {
 }
 
 /// The coaching session's declarations: one [`declaration`] for each of
-/// [`COACH_TOOLS`], and so exactly `read`, `draft` and `ask` — a set of the
-/// coach's own rather than the canopy client's five.
-#[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
+/// [`COACH_TOOLS`], and so exactly `read`, `grep`, `draft` and `ask` — a set of
+/// the coach's own rather than the canopy client's five.
+#[implements(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
 pub fn declarations() -> Vec<ToolDecl> {
     COACH_TOOLS.map(declaration).to_vec()
 }
@@ -846,7 +950,7 @@ pub fn declarations() -> Vec<ToolDecl> {
 /// calls it by, and which here is the tool's own `op` — the requestee this
 /// program answers as, that `op`, and the schema of its arguments
 /// ([`Tool::schema`]).
-#[implements(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
+#[implements(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
 pub fn declaration(tool: Tool) -> ToolDecl {
     ToolDecl { name: tool.op().to_string(), requestee: REQUESTEE.to_string(), op: tool.op().to_string(), schema: tool.schema() }
 }
@@ -858,13 +962,13 @@ pub fn declaration(tool: Tool) -> ToolDecl {
 /// rather than a request to interpret.
 #[implements(
     spec::AnOpTheCoachDidNotDeclareIsRefusedWithItsName,
-    spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools,
+    spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools,
 )]
 pub fn declared(op: &str) -> Result<Tool, String> {
     COACH_TOOLS
         .into_iter()
         .find(|tool| tool.op() == op)
-        .ok_or_else(|| format!("`{op}` is not a tool this session declared: the coach declares `read`, `draft` and `ask`"))
+        .ok_or_else(|| format!("`{op}` is not a tool this session declared: the coach declares `read`, `grep`, `draft` and `ask`"))
 }
 
 /// `draft`'s arguments: the document's content and nothing else, the one path
@@ -887,28 +991,108 @@ pub struct AskArgs {
     pub options: Vec<String>,
 }
 
-/// The coach's tool dispatch, handed to [`drive`](crate::headless_canopy_agent::turn::drive)
-/// as the turn's executor — the one decision over which of its three tools a
-/// forward names ([`declared`], which refuses an `op` the coach did not
-/// declare): `read` goes to the canopy client's own read over that client's
-/// own confinement ([`read_call`]), so what a read answers is asserted once,
-/// there; `draft` is given `path` — the one document this run has, whatever a
-/// call's arguments carry, which is why no call of it can reach the module,
-/// the claims or a manifest ([`draft_call`]); `ask` is given the same record
-/// the turn keeps, an ending typed there having nowhere else to go
-/// ([`ask_call`]). It takes the project because its `read` route needs the
-/// workspace root a confinement is made against.
+/// What [`drive`](crate::headless_canopy_agent::turn::drive) is handed for one
+/// coaching turn: the call announced ([`announce`]), then routed
+/// ([`execute`]). Two statements rather than one, so that neither the
+/// announcing nor the dispatch is the other's condition — a call whose line
+/// says nothing is still routed, and a call that fails was still announced.
+#[implements(spec::EveryToolCallIsAnnouncedBeforeItIsRouted)]
+pub fn executed(project: &Project, path: &Path, noted: &mut Noted, op: &str, args: &Value) -> ToolResult {
+    announce(path, op, args);
+    execute(project, path, noted, op, args)
+}
+
+/// The line a call is announced with, printed when there is one
+/// ([`announced`]) — a human watching an interview that has gone silent cannot
+/// tell reading from a hang, and a call whose arguments do not carry what its
+/// line would name is about to fail and say so in its own sentence. This is
+/// where announcing nothing is *nothing*: `announced` gives no line for `ask`
+/// or for a call missing its subject, and no line is what is printed for it.
+#[implements(
+    spec::AskAnnouncesNothing,
+    spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
+)]
+pub fn announce(path: &Path, op: &str, args: &Value) {
+    if let Some(line) = announced(path, op, args) {
+        println!("{line}");
+    }
+}
+
+/// What one call is announced with, or nothing: a `read`'s path, a `grep`'s or
+/// a `glob`'s pattern ([`argument_named`]), the document a `draft` is about to
+/// replace — which is the coach's own path rather than an argument of the call
+/// — and nothing for `ask`, whose printed question is its own announcement, or
+/// for a call whose arguments do not carry the subject its line would name.
+///
+/// It is written over the `op` as a string rather than over [`Tool`], because a
+/// reader session's calls are announced by it too and that session calls
+/// `glob`, which this host does not declare.
+#[implements(
+    spec::AReadIsAnnouncedByThePathItNames,
+    spec::AGrepOrGlobIsAnnouncedByThePatternItNames,
+    spec::ADraftIsAnnouncedByTheDocumentItReplaces,
+    spec::AskAnnouncesNothing,
+    spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
+)]
+pub fn announced(path: &Path, op: &str, args: &Value) -> Option<String> {
+    todo!("the line this call is announced with, or none")
+}
+
+/// One string argument out of a call's JSON, which is where every
+/// announcement's subject comes from; none when the arguments do not carry it,
+/// or carry something that is not a string — which is the whole of how a call
+/// whose arguments lack its subject comes to be announced with nothing.
+#[implements(spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing)]
+pub fn argument_named(args: &Value, key: &str) -> Option<String> {
+    todo!("one string argument of the call")
+}
+
+/// The coaching session's narrator: what the model said before calling a tool,
+/// printed as it said it. That is where a model says what it is about to look
+/// for, and it is worth more to the human than any summary the coach could
+/// invent, so the line is the identity of the text `drive` hands over.
+#[implements(spec::TheCoachingSessionsNarratorPrintsTheModelsText)]
+pub fn narrate(text: &str) {
+    todo!("print the model's own words")
+}
+
+/// The coach's tool dispatch, reached through [`executed`] — the one decision
+/// over which of its four tools a forward names ([`declared`], which refuses an
+/// `op` the coach did not declare): `read` goes to the canopy client's own read
+/// over that client's own confinement ([`read_call`]) and `grep` to that
+/// client's own grep under the same confinement ([`grep_call`]), so what a read
+/// or a grep answers is asserted once, there; `draft` is given `path` — the one
+/// document this run has, whatever a call's arguments carry, which is why no
+/// call of it can reach the module, the claims or a manifest ([`draft_call`]);
+/// `ask` is given the same record the turn keeps, an ending typed there having
+/// nowhere else to go ([`ask_call`]). It takes the project because its `read`
+/// and `grep` routes need the workspace root a confinement is made against.
 #[implements(
     spec::AnOpTheCoachDidNotDeclareIsRefusedWithItsName,
     spec::AReadIsRoutedToTheCanopyClientsReadOverItsConfinement,
+    spec::AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement,
     spec::DraftWritesTheSlicesLldAndNoOtherPath,
 )]
 pub fn execute(project: &Project, path: &Path, noted: &mut Noted, op: &str, args: &Value) -> ToolResult {
     match declared(op)? {
         Tool::Read => read_call(project, args),
+        Tool::Grep => grep_call(project, args),
         Tool::Draft => draft_call(path, noted, args),
         Tool::Ask => ask_call(noted, args),
     }
+}
+
+/// `grep` as the coach routes it: the canopy client's own
+/// [`GrepArgs`](crate::headless_canopy_agent::tools::GrepArgs), the directory it
+/// searches through that client's
+/// [`confine`](crate::headless_canopy_agent::tools::confine) against the
+/// workspace root — the same confinement [`read_call`] is bounded by — and that
+/// client's [`grep_tool`](crate::headless_canopy_agent::tools::grep_tool) over
+/// it, so a search reaches the coach exactly as it reaches a phase worker. No
+/// verdict is asked: a coaching session carries no phase.
+#[implements(spec::AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement)]
+pub fn grep_call(project: &Project, args: &Value) -> ToolResult {
+    todo!("the canopy client's grep, confined to the workspace")
 }
 
 /// `read` as the coach routes it: the canopy client's own
@@ -1348,18 +1532,33 @@ pub fn reader_prompt(path: &Path) -> String {
 /// is stopped when it answers. Anything that stops it short — a halt, a
 /// refusal, a quiet tail, a budget — is the error [`judged`] lands in place of
 /// findings rather than one that ends the conversation.
+///
+/// Its calls are announced ([`announce`]) as the coaching session's are, the
+/// judging being the other place a run goes quiet for minutes; the announcement
+/// is written over the `op` as a string precisely so that it can carry this
+/// session's `glob`, which the coach does not declare. Its prose is not
+/// narrated — it is driven with the canopy client's
+/// [`silent`](crate::headless_canopy_agent::turn::silent) — because what the
+/// reader has to say is landed whole a moment later, and the human should read
+/// the findings rather than a draft of them.
 #[implements(
     spec::TheReaderIsAFreshSessionForEveryJudging,
     spec::AReaderSessionDeclaresTheCanopyClientsObservationTools,
     spec::AReaderSessionCarriesNoPhase,
     spec::AReaderTurnIsRunByTheCanopyClientsOwnDispatch,
+    spec::AReaderSessionsToolCallsAreAnnouncedToo,
+    spec::AReaderSessionNarratesNothing,
     spec::TheReaderIsGivenTheDocumentAndAskedForFindings,
     spec::AReaderSessionIsStoppedWhenItAnswers,
 )]
 pub fn reader_findings(project: &Project, coach: &Coach) -> Result<Vec<String>, String> {
     let settings = reader_settings(project, coach.max_cost)?;
     let mut session = Session::open(&coach.door, &settings, None, settings.policy.tools.clone())?;
-    let read = drive(project, &mut session, &mut canopy_execute, &mut silent(), &reader_prompt(&coach.path)).map_err(halt_reason);
+    let mut executor = |running: &Project, reading: &Session, op: &str, args: &Value| {
+        announce(&coach.path, op, args);
+        canopy_execute(running, reading, op, args)
+    };
+    let read = drive(project, &mut session, &mut executor, &mut silent(), &reader_prompt(&coach.path)).map_err(halt_reason);
     let sealed = session.stop().map_err(halt_reason);
     read.and_then(|settled| sealed.map(|()| numbered(&settled.text)))
 }
@@ -1867,40 +2066,42 @@ mod tests {
     #[test]
     #[validates(spec::TheOpeningNamesTheSlice)]
     fn the_opening_names_the_slice() {
-        let root = fixture::scratch("coach-opening-names-the-slice");
+        let (root, project) = scratch_project("coach-opening-names-the-slice");
         let path = root.join("docs/intent/login/lld.md");
-        mentions(&writing("login"), &["login"]);
-        mentions(&amending("login", HOLDS), &["login"]);
-        assert_eq!(opening("login", &path), writing("login"), "a slice with no document is told it is writing one");
-        mentions(&opening("login", &path), &["login"]);
+        let repository = preamble(&project, &path);
+        mentions(&writing(&repository, "login"), &["login"]);
+        mentions(&amending(&repository, "login", HOLDS), &["login"]);
+        assert_eq!(opening(&project, "login", &path), writing(&repository, "login"), "a slice with no document is told it is writing one");
+        mentions(&opening(&project, "login", &path), &["login"]);
     }
 
     #[test]
     #[validates(spec::AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment)]
     fn an_existing_document_is_read_whole_into_the_opening_as_an_amendment() {
-        let root = fixture::scratch("coach-opening-amends");
+        let (root, project) = scratch_project("coach-opening-amends");
         let path = root.join("docs/intent/hello/lld.md");
         assert_eq!(existing(&path), None, "a slice with no document yet is the ordinary case, not a fault");
         write_at(&path, HOLDS);
-        let amendment = opening("hello", &path);
+        let repository = preamble(&project, &path);
+        let amendment = opening(&project, "hello", &path);
         let read_whole = (existing(&path), amendment.clone());
-        assert_eq!(read_whole, (Some(HOLDS.to_string()), amending("hello", HOLDS)));
+        assert_eq!(read_whole, (Some(HOLDS.to_string()), amending(&repository, "hello", HOLDS)));
         mentions(&amendment, &[HOLDS, "amend"]);
-        assert!(!writing("hello").contains(HOLDS), "and a slice with no document carries none");
+        assert!(!writing(&repository, "hello").contains(HOLDS), "and a slice with no document carries none");
     }
 
     #[test]
-    #[validates(spec::TheCoachDeclaresExactlyTheReadDraftAndAskTools)]
-    fn the_coach_declares_exactly_the_read_draft_and_ask_tools() {
-        let (_root, project) = scratch_project("coach-declares-three");
+    #[validates(spec::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools)]
+    fn the_coach_declares_exactly_the_read_grep_draft_and_ask_tools() {
+        let (_root, project) = scratch_project("coach-declares-four");
         let coachs = declarations();
         let ops: Vec<&str> = coachs.iter().map(|tool| tool.op.as_str()).collect();
         let set = (COACH_TOOLS, ops.clone(), coachs.clone());
-        let three = ([Tool::Read, Tool::Draft, Tool::Ask], vec!["read", "draft", "ask"], COACH_TOOLS.map(declaration).to_vec());
-        assert_eq!(set, three, "a set of the coach's own, not the canopy client's five");
+        let four = ([Tool::Read, Tool::Grep, Tool::Draft, Tool::Ask], vec!["read", "grep", "draft", "ask"], COACH_TOOLS.map(declaration).to_vec());
+        assert_eq!(set, four, "a set of the coach's own, not the canopy client's five");
         let admitted: Vec<Tool> = ops.iter().map(|op| declared(op).expect("declared")).collect();
         let named = coachs.iter().all(|tool| tool.requestee == REQUESTEE && tool.name == tool.op);
-        let outside = ["grep", "glob", "edit", "write"].iter().all(|op| declared(op).is_err());
+        let outside = ["glob", "edit", "write"].iter().all(|op| declared(op).is_err());
         assert_eq!((admitted, named, outside), (COACH_TOOLS.to_vec(), true, true), "each under its own `op`; the client's five are another set");
         assert_eq!(coaching_settings(&project, MAX_COST).expect("the dial").policy, policy_for(&coachs));
     }
