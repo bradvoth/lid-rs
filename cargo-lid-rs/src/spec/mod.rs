@@ -48,7 +48,20 @@ pub use coach::{
     TheSystemPromptIsTheSyncedInterviewMethodThenTheGuideline,
     TheOpeningNamesTheSlice,
     AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment,
-    TheCoachDeclaresExactlyTheReadDraftAndAskTools,
+    TheOpeningLeadsWithWhatTheRepositoryHolds,
+    ThePreambleIsTheIndexTheHldThenTheGuidance,
+    TheIntentIndexNamesEveryIntentDocumentInTheWorkspace,
+    TheIntentIndexIsSortedSoTwoRunsAgree,
+    EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot,
+    ThisRunsOwnDocumentIsMarkedInTheIndex,
+    TheDocumentsTheIndexNamesAreNamedAndNotCarried,
+    TheOpeningCarriesTheSoleHldWhole,
+    AnIndexWithoutExactlyOneHldCarriesNoHld,
+    TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole,
+    ClaudeMdIsTheGuidanceWhenThereIsNoAgentsFile,
+    NeitherGuidanceFileCarriesNoGuidance,
+    TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools,
+    ReadAndGrepAreDeclaredWithTheCanopyClientsSchemas,
     EverySessionTheCoachOpensIsDialledWithTheMaxCost,
     TheFirstTurnSettlesOnTheOpeningBeforeTheHumanIsRead,
     TheModelsSettledAnswerIsPrinted,
@@ -61,8 +74,18 @@ pub use coach::{
     TheJudgesAnswerAtMostOneDraftingTurnInARow,
     AHaltReachingTheLoopEndsTheConversationWithItsSentence,
     TheDraftedDocumentSurvivesAHalt,
+    TheCoachingSessionsNarratorPrintsTheModelsText,
+    EveryToolCallIsAnnouncedBeforeItIsRouted,
+    AReadIsAnnouncedByThePathItNames,
+    AGrepOrGlobIsAnnouncedByThePatternItNames,
+    ADraftIsAnnouncedByTheDocumentItReplaces,
+    AskAnnouncesNothing,
+    ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
+    AReaderSessionsToolCallsAreAnnouncedToo,
+    AReaderSessionNarratesNothing,
     AnOpTheCoachDidNotDeclareIsRefusedWithItsName,
     AReadIsRoutedToTheCanopyClientsReadOverItsConfinement,
+    AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement,
     DraftReplacesTheDocumentWholeCreatingItsDirectory,
     DraftWritesTheSlicesLldAndNoOtherPath,
     DraftAnswersWithThePathAndTheBytesWrittenNotAVerdict,
@@ -97,6 +120,13 @@ pub use coach::{
     TheEndingNamesThePhaseOneCommitTheCoachDoesNotMake,
     ARunThatDraftedNothingEndsSayingSo,
 };
+
+/// The name [`TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools`] carried
+/// while the coach's tool set was three. The alias registers no claim, so the
+/// graph sees only the claim it points at; every citation of this name warns
+/// with its replacement, and those citations are the later phases' work list.
+#[deprecated = "replaced by TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools"]
+pub type TheCoachDeclaresExactlyTheReadDraftAndAskTools = coach::TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools;
 
 pub use headless_canopy_agent::{
     CanopyTakesSliceDoorAndMaxCostAsItsFlags,

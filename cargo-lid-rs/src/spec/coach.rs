@@ -4,11 +4,13 @@
 //!
 //! Two boundaries these claims keep. The canopy client's machinery is not
 //! restated: `Door`, `Session`, `drive`, the forward/completion pairing, the
-//! payload digest, `confine`, `read_tool` and the five observation and editing
-//! tools are `headless-canopy-agent`'s claims — so what a read answers and how
-//! it is confined are asserted there, and what is asserted below is what the
-//! coach does with them: which sessions it opens, what it dials them with,
-//! where its own dispatch routes a call, and what it prints. Nor is
+//! payload digest, `confine`, `read_tool`, `grep_tool` and the five observation
+//! and editing tools are `headless-canopy-agent`'s claims — so what a read or a
+//! grep answers, how it is confined, and which of a turn's text `drive` hands a
+//! narrator are asserted there, and what is asserted below is what the coach
+//! does with them: which sessions it opens, what it dials them with, where its
+//! own dispatch routes a call, which narrator each session is driven with, and
+//! what it prints. Nor is
 //! `lld-review`'s machinery: the four document checks, the two artifact checks
 //! and the reader's own behaviour are that slice's claims, and what is
 //! asserted below is that the coach runs them, when, over which document, and
@@ -133,11 +135,90 @@ pub struct TheOpeningNamesTheSlice;
 #[derive(Spec)]
 pub struct AnExistingDocumentIsReadWholeIntoTheOpeningAsAnAmendment;
 
-/// When the coaching session is dialled, it shall declare exactly three tools
-/// — `read`, `draft` and `ask` — a set of the coach's own rather than the
-/// canopy client's five.
+// ---- what the opening carries: the repository, before what this run is ---------
+
+/// When the opening is composed, what the repository holds shall come before
+/// what this run is, so that the walk of directories a model would otherwise
+/// spend its first minutes on is done once, by the coach.
 #[derive(Spec)]
-pub struct TheCoachDeclaresExactlyTheReadDraftAndAskTools;
+pub struct TheOpeningLeadsWithWhatTheRepositoryHolds;
+
+/// When the repository's part of the opening is composed, it shall carry the
+/// intent index, then the HLD, then the project's guidance, in that order.
+#[derive(Spec)]
+pub struct ThePreambleIsTheIndexTheHldThenTheGuidance;
+
+/// When the intent index is built, it shall name every `docs/intent` document
+/// in the workspace: the HLD at the workspace root and under each member, and
+/// every slice's `<slice>/lld.md` under either.
+#[derive(Spec)]
+pub struct TheIntentIndexNamesEveryIntentDocumentInTheWorkspace;
+
+/// When the intent index is built, its paths shall be sorted, so that one run's
+/// index and the next's agree.
+#[derive(Spec)]
+pub struct TheIntentIndexIsSortedSoTwoRunsAgree;
+
+/// When the index renders a row, it shall name that document relative to the
+/// workspace root, which is the form `confine` takes: an absolute path is one
+/// `read` and `grep` refuse as written, so an index in any other form is a list
+/// of paths the one tool it feeds will not accept.
+#[derive(Spec)]
+pub struct EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot;
+
+/// When the index lists the document this run is writing, that row shall be
+/// marked as the one the model is about to write rather than consult.
+#[derive(Spec)]
+pub struct ThisRunsOwnDocumentIsMarkedInTheIndex;
+
+/// When the index names a document that is neither the HLD it carries, the
+/// project's guidance, nor this run's own, the opening shall carry that
+/// document's path and not its text, a first message carrying twelve documents
+/// burying the one that mattered.
+#[derive(Spec)]
+pub struct TheDocumentsTheIndexNamesAreNamedAndNotCarried;
+
+/// When the intent index found exactly one HLD, the opening shall carry that
+/// HLD whole, it being the design every slice sits inside.
+#[derive(Spec)]
+pub struct TheOpeningCarriesTheSoleHldWhole;
+
+/// When the intent index found other than exactly one HLD, the opening shall
+/// carry no HLD, which of several governs this slice being a design question
+/// with a human's answer rather than one a coach may make silently.
+#[derive(Spec)]
+pub struct AnIndexWithoutExactlyOneHldCarriesNoHld;
+
+/// When the workspace root holds an `AGENTS.md`, the opening shall carry it
+/// whole as the project's guidance.
+#[derive(Spec)]
+pub struct TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole;
+
+/// When the workspace root holds no `AGENTS.md`, the opening shall carry its
+/// `CLAUDE.md` whole in place of it, for a project that arrived at the
+/// methodology by another road.
+#[derive(Spec)]
+pub struct ClaudeMdIsTheGuidanceWhenThereIsNoAgentsFile;
+
+/// When the workspace root holds neither `AGENTS.md` nor `CLAUDE.md`, the
+/// opening shall carry no guidance.
+#[derive(Spec)]
+pub struct NeitherGuidanceFileCarriesNoGuidance;
+
+// ---- the tools the session declares ---------------------------------------------
+
+/// When the coaching session is dialled, it shall declare exactly four tools —
+/// `read`, `grep`, `draft` and `ask` — a set of the coach's own, holding
+/// neither of the canopy client's `edit` and `write`, which a coach that writes
+/// one document must not have.
+#[derive(Spec)]
+pub struct TheCoachDeclaresExactlyTheReadGrepDraftAndAskTools;
+
+/// When `read` and `grep` are declared, each shall carry the canopy client's
+/// own `schema_of` for that tool, two descriptions of one tool being two things
+/// nothing keeps in step.
+#[derive(Spec)]
+pub struct ReadAndGrepAreDeclaredWithTheCanopyClientsSchemas;
 
 /// When the coach opens any session — the coaching session, or a reader's — it
 /// shall dial it with the run's budget, so the run is bounded one session at a
@@ -207,7 +288,59 @@ pub struct AHaltReachingTheLoopEndsTheConversationWithItsSentence;
 #[derive(Spec)]
 pub struct TheDraftedDocumentSurvivesAHalt;
 
-// ---- the three tools: `execute` and what it routes to ---------------------------
+// ---- what the human sees while a turn runs --------------------------------------
+
+/// When the coaching session's turn is driven, its narrator shall print what
+/// the model said before calling a tool, that being where a model says what it
+/// is about to look for and worth more to the human than any summary the coach
+/// could invent.
+#[derive(Spec)]
+pub struct TheCoachingSessionsNarratorPrintsTheModelsText;
+
+/// When a tool call reaches the coach's executor, it shall be announced before
+/// it is routed.
+#[derive(Spec)]
+pub struct EveryToolCallIsAnnouncedBeforeItIsRouted;
+
+/// When a `read` is announced, its line shall name the path that call names.
+#[derive(Spec)]
+pub struct AReadIsAnnouncedByThePathItNames;
+
+/// When a call naming a pattern — a `grep`'s or a `glob`'s — is announced, its
+/// line shall name that pattern.
+#[derive(Spec)]
+pub struct AGrepOrGlobIsAnnouncedByThePatternItNames;
+
+/// When a `draft` is announced, its line shall name the document it is about to
+/// replace, which is the coach's own path rather than an argument of the call.
+#[derive(Spec)]
+pub struct ADraftIsAnnouncedByTheDocumentItReplaces;
+
+/// When `ask` is called, nothing shall be announced for it, the question it
+/// prints being its own announcement and a line above it only pushing that
+/// question up the screen.
+#[derive(Spec)]
+pub struct AskAnnouncesNothing;
+
+/// When a call's arguments do not carry the subject its line would name,
+/// nothing shall be announced for it, a line guessing at what it meant being a
+/// second, worse account of one fault.
+#[derive(Spec)]
+pub struct ACallWhoseArgumentsLackItsSubjectAnnouncesNothing;
+
+/// When a reader session's turn calls a tool, that call shall be announced as
+/// the coaching session's calls are, the judging being the other place a run
+/// goes quiet for minutes.
+#[derive(Spec)]
+pub struct AReaderSessionsToolCallsAreAnnouncedToo;
+
+/// When a reader session's turn is driven, it shall be driven with the canopy
+/// client's silent narrator, what the reader has to say being landed whole a
+/// moment later and the human owing it a reading rather than a draft of it.
+#[derive(Spec)]
+pub struct AReaderSessionNarratesNothing;
+
+// ---- the four tools: `execute` and what it routes to ----------------------------
 
 /// When a forward names an `op` the coach did not declare, the coach's
 /// executor shall refuse it naming that `op`.
@@ -220,6 +353,13 @@ pub struct AnOpTheCoachDidNotDeclareIsRefusedWithItsName;
 /// answers is asserted once, there.
 #[derive(Spec)]
 pub struct AReadIsRoutedToTheCanopyClientsReadOverItsConfinement;
+
+/// When a forward names `grep`, the coach's executor shall answer it with the
+/// canopy client's `grep_tool` over that client's `confine`, under the same
+/// confinement its `read` is bounded by, so what a grep answers is asserted
+/// once, there.
+#[derive(Spec)]
+pub struct AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement;
 
 /// When `draft` is called, it shall replace the document whole, creating its
 /// directory, there being no partial edit of it.
