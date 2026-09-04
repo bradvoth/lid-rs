@@ -199,14 +199,31 @@ clamped to the credential's remaining life), and acts on records by kind.
   admit. Nothing to execute; it is counted as a refusal and the requestor
   tells the model.
 - `inference.responded`: with `tool_uses`, the model has asked for tools
-  and the forwards follow; without, the turn is settled and
-  `response.text` is the model's final message. A body carrying
+  and the forwards follow, and its `response.text` — what the model said
+  before calling them — goes to the turn's narrator; without, the turn is
+  settled and `response.text` is the model's final message. A body carrying
   `terminal` is a turn that failed at the provider: the user message is
   landed once more, and a second terminal stops the run naming the
   provider's sentence.
 - `app.session.halted`: the session is over — a budget the config set was
   reached, or a stall the platform detected — and the run stops with the
   halt's reason as the decision.
+
+A turn is driven for a host that cannot see it, and two parameters are
+everything that host is shown. The executor is one: every tool call passes
+through it, so a host knows what ran. The narrator is the other, and it
+carries the part that would otherwise be dropped — the text of a response
+that asked for tools is read past where that record is classified, and it
+is the only account the model gives of why it is about to spend four
+minutes reading. A response that said nothing is not narrated, having
+nothing to say, and neither is the settling one, whose text the turn
+answers with.
+
+What a host does with it is the host's. The phase worker narrates nothing:
+it runs unattended, its output is its sessions and its ending, and a
+narrating worker would contradict that. A host with a human watching prints
+it, because a turn that reads twenty files and prints nothing is
+indistinguishable from a turn that has died.
 
 A session whose tail delivers nothing for fifteen minutes (canopy's own
 invoke-stall window) is stopped by the client and the run ends the same
@@ -414,7 +431,8 @@ What changes is confidentiality, and it changes materially:
 | `Tool::{Read, Grep, Glob, Edit, Write}`, `Tool::of(op) -> Option<Tool>` (its own claim: the five names map to their tools, any other `op` to none), `Tool::hook_name(self) -> &str`, `ReadArgs` … `WriteArgs`, `ToolResult`, `declarations(tools) -> Vec<ToolDecl>` | The closed set; the forward's `op` classified into it (an unknown `op` is none); the name the phase library's verdict knows the tool by (`Read`, `Grep`, `Glob`, `Edit`, `Write`); each tool's typed arguments (the boundary over the payload's `args`); their JSON schemas with descriptions |
 | `Session`, `Session::open(door, settings, phase, declarations) -> Result<Session, String>` | One open session: the door, the `Started` credential, the phase — `None` for a host that runs no phase, which then asks no pre-tool verdict and keeps no tally — the declarations its policy carries, the cursor, held payloads, the tally key `canopy:<id>`; `open` dials and prints `opened_line(id)`, so every session a phase opens is printed as it opens and `build` prints only the ending — and, for a phase already committed, `skipped_line(phase)`; the two rendering leaves are what a test observes |
 | `Payload { to, args }`, `Forward { to, op, payload_digest }`, `Responded { text, tool_uses, terminal }`, `Denied`, `Halted { reason }` | The record bodies the client acts on, decoded from `Record.body` once, by kind, where `drive` classifies the record; nothing past that point indexes JSON |
-| `drive(project, session, executor, message) -> Result<Settled, Halt>` | Lands a user message and follows the tail until the turn settles: one `match` over record kinds |
+| `drive(project, session, executor, narrator, message) -> Result<Settled, Halt>` | Lands a user message and follows the tail until the turn settles: one `match` over record kinds |
+| `Narrator<'a> = &'a mut dyn FnMut(&str)`, `silent()` | What a host is shown of a turn still running: the text of each `inference.responded` that carried tool uses, when it carried any. A parameter for the reason the executor is one — how a host shows its work is not the session's to hold — and `FnMut`, so a narrator may keep what it has been told. `silent` is the narrator a host that shows nothing passes, this host's own |
 | `Settled { text }`, `Halt::{Halted(reason), Terminal(sentence), Quiet, Refused(sentence)}` | A settled turn, or why the session ended without one: the platform's halt, the provider's second terminal, a quiet tail, the door's refusal |
 | `pair(held: &[Held], forward: &Forward) -> Option<Pairing>`, `Held { cursor, producer, payload }` | The first held payload whose digest equals the forward's and whose addressee is this program |
 | `payload_digest(to, args) -> String` | `sha256` of canopy's canonical JSON; pinned to canopy's published vector |
@@ -447,6 +465,7 @@ What changes is confidentiality, and it changes materially:
 | Reads | Confined to the workspace root by every tool | Unbounded, as the phase slice leaves them | On this host a read is transmitted to and stored by the platform; confinement bounds what can leave to what the repository holds. The phase slice's "reads are never refused" is a statement about the hook's verdict, which this host still gets — the confinement happens before the verdict is asked, in the tool. |
 | Tool set | `read`, `grep`, `glob`, `edit`, `write` | `read`, `write`, `edit` alone, with `read` listing directories; the Claude Code agents' set including LSP | Parity with the phase agents' definitions minus LSP, whose only operations (hover, definition, references) the reviewer can do by reading. Three tools would make search a sequence of reads, each of which is a record. |
 | `grep` semantics | Literal, case-sensitive substring; 200-line cap; `target/` and `.git/` skipped by `grep` and `glob` alike | A regex engine; walking everything | A dependency for a POC's search tool; the model can read the file when the literal finds it. Build output and git's objects are gigabytes no search of the source wants and would swamp the 200-line cap with noise. Revisit if the reviewer's findings show it hunting. |
+| How a host sees a turn still running | A narrator `drive` hands the pre-call text of each `inference.responded` to | Printing it in `drive`; returning it beside `Settled`; a field on `Session`; one `Host` trait replacing the executor | Printing in `drive` would change what a phase prints, which `EveryPhasePrintsItsSessionsAndItsEnding` fixes, and would take the decision away from the host that owns its own output. Returning it beside `Settled` arrives when the turn is over, and the whole value is arriving before that. A field on `Session` widens this client's type for one host's benefit, which is the reason the executor is a parameter rather than a field. A trait bundles two independent things — running tools and showing work — that a host may want one of. |
 | Turn settlement | `inference.responded` without `tool_uses`, with one user message outstanding | The idempotency-chain correlation canopy's load driver uses | Canopy lands no "awaiting user" record; the driver's correlation exists because it runs many messages concurrently. One outstanding message per session makes the log's order the correlation. |
 | Pairing a forward with its payload | By `payload_digest` computed here, plus the addressee check on both records | By adjacency on the tail; skipping the addressee check as the TS SDK does | The digest is the only correlation canopy defines; the SDK's missing addressee check is a documented defect that lands duplicate completions when another executor serves the session. |
 | A failed check | The reason landed as the next user message in the same session, up to eight refusals | A fresh session per attempt; refuse forever | The same session keeps the model's context of what it wrote, which is what the harness's "kept running with the reason" preserved; eight is the harness's cap and the phase LLD's budget. |
@@ -466,6 +485,12 @@ client" — with these consequences: `hook_pre_tool`, `hook_post_edit`, and
 `hook_stop` become `pub`; `tally::trailers` takes the agent id and writes
 `Lid-Rs-Agent`; the phase LLD's "What the commit body carries" shows the
 new line. No claim changes meaning.
+
+Into the coach slice, which is gated above this one: it passes a narrator
+that prints, and is why the parameter exists. Nothing this host asserts
+changes — `silent` is what its own two `drive` calls pass — and the
+narrated text is not new data leaving the workspace, being the model's own
+words on their way back to it.
 
 Into the skill and the README: none for the POC. The interactive mode,
 the workflow, and the agents are unchanged; a proven client would be a

@@ -29,6 +29,15 @@ findings as the next turn, so the document is revised against its own
 judges rather than against the model's memory of them. The loop ends when
 the human ends it.
 
+An interview is watched, which is the other thing that shapes this slice.
+Every other host in this crate runs unattended, and silence costs it
+nothing; here a person is sitting in front of a terminal deciding whether
+the thing is still alive. So the run shows its work — the model's own words
+before each tool call, and a line naming every call — and it spends as few
+of those calls as it can, by landing what the repository holds in the
+opening rather than making the model go and find it one directory listing
+at a time.
+
 Two things it deliberately does not do. It does not commit: Phase 1 is
 human-owned, and a coach that commits the LLD has approved it. And it
 does not decide: every answer it writes into the document came from an
@@ -76,6 +85,50 @@ that place, because a virtual manifest defines no package, so `--workspace`
 names it instead, and the two flags refuse each other. The path is printed
 when the session opens and again at the end, because it is the one thing a
 human can get wrong here that no later check would question.
+
+### What the opening carries
+
+The coach reads through a tool, one call at a time, and every call is a
+record landed on a tail the client then waits for. A model that must find
+the workspace's documents before it can ask anything spends its first
+minutes walking directories — `.`, then a member, then `docs`, then
+`intent` — because a listing is what `read` answers for a directory and
+there is no cheaper way to learn a path. That walk is the same walk on
+every run in a given project, and it produces the same answer every time.
+
+So the coach does it once, and the opening carries what it found. Before
+what this run is, the first user message carries three things about the
+repository the coach is standing in:
+
+1. **The intent index** — every `docs/intent` document in the workspace:
+   for the workspace root and for each member, the HLD if one is there and
+   each slice's `<slice>/lld.md`. Paths, not documents; the point is that a
+   `read` can be aimed rather than searched for. The row naming this run's
+   own document is marked as such — it is the one path in the index the
+   model is about to write rather than consult.
+
+   Each row names its document **relative to the workspace root**, which is
+   the form `read` and `grep` take: `confine` refuses an absolute path as
+   written, before it resolves anything. An index in any other form would
+   cost the model a refused call per row until it worked out what to strip,
+   which is the search this section exists to remove.
+2. **The HLD, whole**, when the index found exactly one. It is the design
+   every slice sits inside, it is read on every run that goes well, and it
+   is short enough to hand over. When the index found several — a workspace
+   whose members each carry one — the opening carries none: which of them
+   governs this slice is a design question with a human's answer, and a
+   coach that picks one has decided it silently. Named in the index, it is
+   one `read` and one `ask` away.
+3. **The project's guidance, whole**: `AGENTS.md` at the workspace root, or
+   `CLAUDE.md` when there is no `AGENTS.md`, or nothing when there is
+   neither. `init` writes the first and a `CLAUDE.md` that imports it, so
+   the fallback is for a project that arrived at the methodology by another
+   road, this workspace among them.
+
+Nothing else is landed unread. The neighbouring LLDs are named and not
+carried: which of them this slice sits beside is exactly the thinking the
+interview is for, and a first message carrying twelve documents buries the
+one that mattered.
 
 ### The conversation
 
@@ -130,13 +183,52 @@ else in the turn can carry that fact, because `ask` answers the provider
 and returns nothing to the loop, so the record the executor already keeps
 is where it goes.
 
-### The three tools
+### What the human sees while a turn runs
+
+A turn can spend minutes on tool calls, and until it settles the coach has
+nothing of its own to print. A human watching an interview that has gone
+silent cannot tell reading from a hang, and the honest answer is to show
+the work rather than to claim it is happening.
+
+Two things are printed while the turn runs. The model's own text, whenever
+it says something before calling a tool — the canopy client's turn loop
+hands that text to a narrator, and the coach's narrator prints it — because
+that is where a model says what it is about to look for, and it is worth
+more to the human than any summary the coach could invent. And one line per
+tool call, printed by this module's executor before it routes the call: the
+path a `read` names, the pattern a `grep` names, the document a `draft` is
+about to replace. `ask` announces nothing; the question it prints is its
+announcement, and a line above it would only push the question up the
+screen.
+
+A call whose arguments do not carry what its line would name announces
+nothing. It is a call about to fail and say so in its own sentence, and a
+line guessing at what it meant would be a second, worse account of one
+fault.
+
+The reader's session is announced the same way and narrates nothing. Its
+calls are printed, because the judging is the other place a run goes quiet
+for minutes; its prose is not, because what the reader has to say is landed
+whole a moment later, and the human should read the findings rather than a
+draft of them.
+
+### The four tools
 
 | Tool | Arguments | Does |
 |---|---|---|
 | `read` | `path`, optional `offset`, `limit` | The canopy client's own read, over a path its own `confine` has bounded — the same answer a phase worker gets, because there is no reason for two |
+| `grep` | `pattern`, optional `path`, `glob` | That client's own grep, under the same confinement: a literal, case-sensitive substring, at most two hundred lines |
 | `draft` | `content` | Replaces the slice's LLD with `content`, creating its directory; answers with the path and the bytes written |
 | `ask` | `question`, optional `options` | Puts one question to the human and answers with what they typed. Given `options`, they are printed numbered beneath the question and a bare number answers with the option it names; anything else is answered verbatim, because a closed question the human wants to answer differently is a question that was wrong |
+
+`read` and `grep` are the client's tools whole, schema included: the
+description the model reads comes from that client's `schema_of`, two
+descriptions of one tool being two things nothing keeps in step. `draft`
+and `ask` are the coach's own and have no other home.
+
+The two the coach must not have are that client's `edit` and `write`.
+Everything this run writes is one document, through `draft`; a coach
+holding a general write is a coach that can produce work no gate has seen.
 
 `draft` writes one path and no other: not the module, not the claims, not
 a manifest. What the coach produces is a document, and the phases produce
@@ -288,8 +380,14 @@ being told, and canopy cannot host a conversation without storing it. It
 is stated here so that a human choosing to run `coach` is choosing it,
 and so that a project deciding whether to allow the subcommand has the
 fact in front of it rather than in a transcript. The bound that remains
-is the client's: `read` reaches nothing outside the workspace, and
+is the client's: `read` and `grep` reach nothing outside the workspace, and
 `draft` writes one path inside it.
+
+What the opening carries widens nothing. The index, the HLD and the
+project's guidance are files the repository holds and a `read` would have
+fetched a turn later; landing them early changes when they are transmitted
+and not whether. What is narrated is the model's own words on their way
+back to the human, which the log already holds.
 
 ## Shape
 
@@ -302,16 +400,26 @@ is the client's: `read` reaches nothing outside the workspace, and
 | `Coach { door, session, path, max_cost }` | One coaching run: the door, the session it holds, the document it writes, and the budget every session it opens is dialled with |
 | `Noted { drafted, wrote, ended }` | What one turn's executor records: whether `draft` was called, whether it succeeded, and whether a tool learned the conversation is over — the facts the loop reads after the turn settles, held by the turn rather than by the session |
 | `coaching_system(project) -> Result<String, String>` | The system prompt: the synced interview method, then the synced guideline, in that order |
-| `opening(slice, path) -> String` | The first user message: what the slice is, and an existing document read in whole when there is one. The loop is handed it, having no slice of its own to build it from |
+| `opening(project, slice, path) -> String` | The first user message: what the repository holds (`preamble`), then what the slice is, and an existing document read in whole when there is one. The loop is handed it, having no slice of its own to build it from |
+| `preamble(project, path) -> String` | The three repository sections in the order the opening carries them: the index, the sole HLD, the project's guidance |
+| `intent_paths(project) -> Vec<PathBuf>` | Every `docs/intent` document in the workspace — the root's and each member's HLD, and each slice's `lld.md` — sorted, so one run's index and the next's agree |
+| `index_section(root, paths, path) -> String` | Those paths as the opening lists them, each rendered relative to the workspace root, the row naming this run's own document marked as the one it writes. It takes the root because the paths do not carry their own relation to it |
+| `hld_section(paths) -> String` | The HLD whole when `paths` holds exactly one, and nothing when it holds none or several — the count is the whole of the decision, so it is made where the paths are |
+| `guidance_section(project) -> String` | `AGENTS.md` at the workspace root whole, else `CLAUDE.md` whole, else nothing |
 | `converse(project, coach, opening) -> Result<Option<bool>, Halt>` | The loop: a human turn, a model turn, and the judges' turn when the turn drafted. It lands the opening as the first user message and settles a turn on it before reading the human. It answers with the last judging's verdict, or none when the conversation never drafted — the fact the ending needs and only the loop saw. A halt leaves it unanswered and the document where it was written |
 | `human_turn(line) -> Option<String>` | What the human typed, or none at `done` or end of file. It is handed the line rather than reading it, so that the classifying is measurable and the read is the only thing that is not |
-| `Tool::{Read, Draft, Ask}`, `declarations()` | The coach's three tools and their schemas — a set of its own, not the canopy client's five |
-| `execute(project, path, noted, op, args) -> ToolResult` | The coach's tool dispatch, handed to `drive` for one turn; refuses an `op` it did not declare, and records what the turn did in `noted`. It takes the project because its `read` route is `read_tool` over `confine`, and a confinement needs the workspace root |
+| `Tool::{Read, Grep, Draft, Ask}`, `declarations()` | The coach's four tools — a set of its own, and not the canopy client's five, whose `edit` and `write` it must not hold. `Read` and `Grep` take that client's `schema_of`; `Draft` and `Ask` carry their own |
+| `executed(project, path, noted, op, args) -> ToolResult` | What `drive` is handed for one turn: the call announced (`announce`), then routed (`execute`). Two statements rather than one, so that neither the announcing nor the dispatch is the other's condition |
+| `execute(project, path, noted, op, args) -> ToolResult` | The coach's tool dispatch; refuses an `op` it did not declare, and records what the turn did in `noted`. It takes the project because its `read` and `grep` routes are that client's over `confine`, and a confinement needs the workspace root |
+| `grep_call(project, args) -> ToolResult` | `grep` routed to the canopy client's `grep_tool` under the same confinement `read` is bounded by |
+| `announce(path, op, args)`, `announced(path, op, args) -> Option<String>` | The line a call is announced with, printed when there is one: a `read`'s path, a `grep`'s or a `glob`'s pattern, the document a `draft` replaces, and none for `ask` or for a call whose arguments do not carry what its line would name. It is written over the `op` rather than over `Tool`, because the reader's session is announced by it too and calls tools this one does not declare |
+| `argument_named(args, key) -> Option<String>` | One string argument out of a call's JSON, which is where every announcement's subject comes from |
+| `narrate(text)` | The coaching session's narrator: what the model said before a tool call, printed as it said it. The reader's session is driven with the canopy client's `silent`, its account being the findings it is about to land |
 | `draft(path, content) -> Result<usize, String>` | Replaces the document, creating its directory; the bytes written |
 | `ask(question, options, noted) -> ToolResult` | Prints the question with the stall window beside it and reads the answer; a human who ends the conversation is a tool error saying so, since a tool has no other channel, and is recorded in `noted` so the loop can end without reading them again |
 | `Judging { holds, message }` | What one judging produced: whether the four document checks hold, and the message landed as the next user message. The verdict is the reader's neighbour, not its subject — a reader that could not be consulted has no bearing on whether the checks held |
 | `judged(project, coach) -> Judging` | The four document checks and one reader session, as one message, and the verdict beside it |
-| `reader_findings(project, coach) -> Result<Vec<String>, String>` | One fresh reader session over the document, stopped when it answers |
+| `reader_findings(project, coach) -> Result<Vec<String>, String>` | One fresh reader session over the document, stopped when it answers. It drives its turn with the canopy client's own dispatch behind an announcement, and with that client's `silent`: the judging's calls are printed, its prose is not. The announcing executor is a closure and not an item of its own, as `converse`'s executor is |
 | `setup(project) -> Result<Vec<String>, String>` | The artifact checks before the interview: a guideline that cannot be read is the error, and everything else — a drifted checklist, a reader declaring too much — is a warning the human is told |
 | `owed(path, holds) -> String` | The path, the verdict, and the commit the human must make. The slice it names in `phase 1: LLD for <slice>` is the document path's parent directory, which `document_path` built from the slice and so cannot disagree with it |
 
@@ -320,6 +428,12 @@ is the client's: `read` reaches nothing outside the workspace, and
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
 | How the document's package is chosen | Named by `--package`, defaulting to the sole member of a one-member workspace | Inferred from the directory the command was run in; inferred from the slice's name; always the workspace root | `cargo metadata` reports no current package, so inferring means `cargo locate-project` — a contract with no provenance here — or a walk up the filesystem, which is another slice's module. And a guess is not caught later: `slice_crate` takes the first member holding a document of that name, so a document under the wrong package silently becomes the crate the slice is built in. Naming it costs one flag and removes a failure no check would question. |
+| What the human sees while a turn runs | The model's text before each tool call, and one line per call | Nothing, as the phase worker prints nothing; a spinner or an elapsed clock; the model's text alone; the tool lines alone | A phase worker runs unattended and its silence costs nobody who is watching; an interview is watched, and a silent minute is indistinguishable from a dead one. A spinner needs a clock running beside a blocking read — the machinery the stall warning was already refused — and says only that time is passing. Either half alone leaves the other silent: the model's text without the calls hides the long part, and the calls without the text say what was read and never why. |
+| How the repository reaches the model | An index of paths, the sole HLD and the project's guidance, landed in the opening | Left to `read`, one directory listing at a time; every LLD landed whole; the same three in the system prompt | The walk that finds a path is the same walk on every run and yields the same answer, which makes it the coach's to do once rather than the model's to repeat through a tail. Landing every LLD whole buries the slice that matters and spends the context on documents nobody chose. The system prompt is what the coach *is* — two synced artifacts the sync rule keeps honest — and what the repository holds is a fact about this run, which is the opening's subject. |
+| What form the index's paths take | Relative to the workspace root, rendered at the row | Absolute, as the run holds them; workspace-relative throughout, `intent_paths` answering in that form | `confine` refuses an absolute path as written, so an absolute index is a list of paths the tool it feeds will not accept. Relativising at the row rather than at `intent_paths` keeps the paths a filesystem walk answers with in the form the walk produced — which `hld_section` opens and which this run's own document is compared against — and puts the one conversion where the one reader is. |
+| Which HLD the opening carries | The one the index found; none when it found several | The first; the one under this run's own package; every one | Which HLD governs a slice in a workspace carrying several is a design question with a human's answer, and a coach that picks one has decided it where nobody can see. Named in the index and unread, it is one `read` and one `ask` away. |
+| The tool set | Four: `read`, `grep`, `draft`, `ask` | Three, without `grep`; the canopy client's five; adding its `glob` as well | The method's central question is "what already answers this?", and asking it through `read` alone means walking directories to find the file to read. `grep` is already built, confined and capped at two hundred lines. `glob` is what the index has just answered, so it would arrive with its work done. `edit` and `write` are the two the coach must not hold: what it writes is one document, through `draft`. |
+| Where `read` and `grep` get their schemas | The canopy client's `schema_of` | A copy in this module, as `read`'s was | Two descriptions of one tool are two things nothing keeps in step — the failure the sync rule exists to prevent, one layer down. `draft` and `ask` are the coach's own and have no other home. |
 | How the loop knows a turn drafted | The coach executes its own tools through a closure that records the call | Scanning the model's settled text; comparing the document's modification time; a flag on the shared session type | The two inferences are guesses about a fact the client already holds — it ran the tool. A flag on the session would widen the canopy client's type for one host's benefit; a closure is the parameter that host already needs. |
 | What `draft` answers with | The path and the bytes written | The document checks' verdict | The judges' turn runs the same four checks a moment later; answering with them would run and read them twice per drafting turn, and Phase 2 would have to decide whether that is one rule or two. |
 | Whether the coach commits | No | Commit as `phase 1:` when the checks hold | Phase 1 is human-owned (README §8) and a coach that commits it has approved it. The human reading it once more is the only review this document gets. |
@@ -367,20 +481,42 @@ prints unconditionally, so a coach's reader sessions print an opening line
 too, which that claim does not cover and which the coach's own output must
 account for rather than contradict.
 
+**Into the canopy client, a second time: `drive` gains a narrator.** A
+response that asks for tools carries text as well, and that text is read
+past where the record is classified — so the model's account of what it is
+about to do exists on the tail and reaches no host. `drive` takes
+`Narrator<'a> = &'a mut dyn FnMut(&str)` beside its executor and hands it
+that text when there is any; the client passes its own `silent` at both of
+its call sites, so what a phase prints is unchanged and
+`EveryPhasePrintsItsSessionsAndItsEnding` still holds. A parameter rather
+than a field on `Session`, for the reason the executor is one: how a host
+shows its work is not the session's to hold. That edit is this slice's to
+make, its LLD and its claims cascaded with it.
+
 The coach reuses `Door`, `Session`, `drive`, the pairing, the digest,
-`confine` and `read_tool` unchanged — its `read` is that client's read
-over that client's confinement, so a file reaches the coach exactly as it
-reaches a phase worker, and nothing here restates what those answer. The
-coach's own dispatch is what routes a call to them, which is why this slice is nineteen Shape rows rather than
-forty. What a phaseless session gives up — no path policy in front of its
-edits, no measurement of them — that host's Security posture now states,
-and this slice's says what bounds its own three tools instead.
+`confine`, `read_tool`, `grep_tool` and `schema_of` unchanged — its `read`
+and `grep` are that client's, over that client's confinement and under that
+client's descriptions, so a file reaches the coach exactly as it reaches a
+phase worker, and nothing here restates what those answer. The coach's own
+dispatch is what routes a call to them, which is why this slice's Shape is
+what it is rather than twice the size. What a phaseless session gives up —
+no path policy in front of its edits, no measurement of them — that host's
+Security posture states, and this slice's says what bounds its own four
+tools instead.
 
 **Into the skill**: `skill/references/coach.md`, the interview method, is
-a new file under an already-mirrored directory — the sync rule covers it
+a file under an already-mirrored directory — the sync rule covers it
 without changing. It is prose in the `lid-rs` crate, outside this slice's
 path policy, so it is the human's to write, and it must exist before
 Phase 5, because `coaching_system` has nothing to read until it does.
+
+Its reading section is the half this slice's opening has changed. A method
+that says "read the neighbouring slices' LLDs" to a model with no index was
+asking for the walk; with the index, the HLD and the guidance in front of
+it, the instruction is to aim rather than to search — the index says what
+exists, `grep` says which of them mentions the thing, and the first `ask`
+should arrive within a few calls rather than after a survey. The method
+still owns *what* to read for; only the cost of finding it has changed.
 
 **Into the lld-review slice**: its `GUIDELINE` and `READER` path
 constants become public, and so does `rendered`, the renderer that puts
@@ -404,10 +540,12 @@ been.
 ## Open Questions & Future Decisions
 
 ### Deferred
-1. Whether the coach should read a sibling slice's LLD unprompted. It can,
-   through `read`, but nothing tells it to, and a coach that reads the
-   whole workspace before its first question is expensive and probably
-   worse at listening.
+1. Whether the coach should read a sibling slice's LLD unprompted. The
+   opening names every one of them and carries none, and nothing tells the
+   model which to open; a coach that read the whole workspace before its
+   first question would be expensive and probably worse at listening. What
+   would force the question is an interview whose first `ask` is still
+   preceded by a survey, which the index was meant to remove.
 2. Whether the reader's findings should be summarised before they are
    landed. Today they are landed whole, because a summary is a judgment
    about which findings matter and that judgment is the human's.
@@ -418,9 +556,17 @@ been.
    well as the document. It would make the front of the walk one command,
    and it would also make the coach the thing that decides a slice's
    boundary, which is the human's first decision.
-5. Whether the two claims about printing should gain seams a test can
+5. Whether the index should carry more than a path — each document's title
+   line, say, so that "what already answers this?" could be asked of the
+   index rather than of `grep`. Today it is paths alone, because a title is
+   a read of every document in the workspace on every run, and `grep`
+   answers the same question against the whole text rather than the
+   heading. What would force it is an interview that greps for a slice by
+   name and finds it filed under another.
+6. Whether the claims about printing should gain seams a test can
    observe. `TheModelsSettledAnswerIsPrinted` prints the model's text
-   verbatim, so the line function that would carry it is the identity;
+   verbatim, so the line function that would carry it is the identity, and
+   the narrator prints what it is handed for the same reason;
    `TheJudgingsHeadingIsPrintedBeforeAReaderSessionOpens` is an ordering
    against a print `Session::open` makes unconditionally, which nothing
    in-process can see. Both are asserted as far as they can be — the
@@ -433,6 +579,18 @@ been.
    force the question is a surviving mutant at the gate: check 12 mutating
    either print has nothing to fail, and a survivor there is the evidence
    that the seam is worth its ceremony.
+
+   The announcements join this company rather than escaping it. `announced`
+   decides what a call is announced with and answers with it, so what a line
+   says is measurable; the printing of it is not, and neither is
+   `EveryToolCallIsAnnouncedBeforeItIsRouted`, which is an ordering inside
+   `executed` between a print and a call and has no value for a test to
+   observe. Both are asserted as far as they honestly can be — the line
+   `announced` answers with, and the dispatch `execute` performs — and the
+   ordering between them is left to the reviewer's eye, as the ending's and
+   the heading's are. A mutant surviving at any of these print sites is the
+   evidence this question asks for, and never a reason to suppress the
+   mutant, raise a threshold, or work the gate around.
 
    Four more claims rest on the same limit in a milder form, and the
    accounting should say so rather than name only the two.
