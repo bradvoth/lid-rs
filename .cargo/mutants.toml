@@ -14,4 +14,14 @@ exclude_re = [
     # See `cargo-lid-rs/docs/intent/coach/lld.md` § Decisions & Alternatives,
     # "Measuring the terminal read".
     'coach\.rs.*\bread_line\b',
+    # `coach::announce` and `coach::narrate`: a print has nothing in-process to
+    # observe, and neither function holds a branch of the slice's own — every
+    # decision is in `announced`, `announcing` and `argument_named`, and
+    # `narrate` is the identity of the text `drive` hands it. `narrate`'s
+    # signature is the canopy client's `Narrator`, which answers with nothing,
+    # so no seam is reachable without widening that slice's type for this one.
+    # See `cargo-lid-rs/docs/intent/coach/lld.md` § Decisions & Alternatives,
+    # "Measuring the two prints".
+    'coach\.rs.*\bannounce\b',
+    'coach\.rs.*\bnarrate\b',
 ]

@@ -106,8 +106,8 @@ use serde_json::{Value, json};
 use crate::headless_canopy_agent::door::{Door, Settings, ToolDecl, policy_for};
 use crate::headless_canopy_agent::ending::{halt_reason, numbered, without_frontmatter};
 use crate::headless_canopy_agent::tools::{
-    REQUESTEE, ReadArgs, Tool as CanopyTool, ToolResult, arguments, confine, declarations as canopy_declarations, execute as canopy_execute, read_tool,
-    schema_of,
+    GrepArgs, REQUESTEE, ReadArgs, Tool as CanopyTool, ToolResult, arguments, confine, declarations as canopy_declarations, execute as canopy_execute,
+    grep_tool, read_tool, schema_of, search_dir,
 };
 use crate::headless_canopy_agent::turn::{Halt, Session, drive, silent};
 use crate::headless_canopy_agent::{DEFAULT_MAX_COST, KEY_VARIABLE, PRODUCTION_DOOR, api_key};
@@ -624,7 +624,11 @@ pub fn intent_paths(project: &Project) -> Vec<PathBuf> {
 /// every one being under it.
 #[implements(spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace)]
 pub fn intent_dirs(project: &Project) -> Vec<PathBuf> {
-    todo!("the workspace root's `docs/intent` and each member's")
+    let under = |root: PathBuf| -> Vec<PathBuf> {
+        let dirs = members(project).into_iter().map(|member| member.dir);
+        std::iter::once(root).chain(dirs).map(|dir| dir.join("docs/intent")).collect()
+    };
+    project.root().map(under).unwrap_or_default()
 }
 
 /// The intent documents in one `docs/intent` directory: its [`HLD_FILE`], and
@@ -633,7 +637,8 @@ pub fn intent_dirs(project: &Project) -> Vec<PathBuf> {
 /// intent documents rather than a fault.
 #[implements(spec::TheIntentIndexNamesEveryIntentDocumentInTheWorkspace)]
 pub fn documents_in(intent: &Path) -> Vec<PathBuf> {
-    todo!("that directory's HLD and each slice's LLD, of those that are there")
+    let llds = subdirectories(intent).into_iter().map(|slice| slice.join("lld.md"));
+    std::iter::once(intent.join(HLD_FILE)).chain(llds).filter(|document| document.is_file()).collect()
 }
 
 /// The directories directly under `dir` — a `docs/intent`'s slice directories —
@@ -642,7 +647,8 @@ pub fn documents_in(intent: &Path) -> Vec<PathBuf> {
 /// a package with no documents rather than a fault, as [`members`] treats a
 /// member with no manifest name.
 pub fn subdirectories(dir: &Path) -> Vec<PathBuf> {
-    todo!("the directories directly under it")
+    let entries = std::fs::read_dir(dir).into_iter().flatten();
+    entries.filter_map(Result::ok).map(|entry| entry.path()).filter(|entry| entry.is_dir()).collect()
 }
 
 /// The heading the index is carried under, so that a model reading the opening
@@ -689,7 +695,8 @@ pub fn index_section(root: &Path, paths: &[PathBuf], path: &Path) -> String {
     spec::TheDocumentsTheIndexNamesAreNamedAndNotCarried,
 )]
 pub fn index_row(root: &Path, document: &Path, own: &Path) -> String {
-    todo!("the document named against the root, marked when it is this run's own")
+    let named = relative_to(root, document);
+    if document == own { format!("{named} — {THIS_RUNS_DOCUMENT}") } else { named }
 }
 
 /// A document as a row names it: its path relative to the workspace root, which
@@ -703,7 +710,7 @@ pub fn index_row(root: &Path, document: &Path, own: &Path) -> String {
 /// the model can see it, which a dropped row or an empty name would not allow.
 #[implements(spec::EveryIndexRowNamesItsDocumentRelativeToTheWorkspaceRoot)]
 pub fn relative_to(root: &Path, document: &Path) -> String {
-    todo!("the document relative to the root, or as it stands when it is not under it")
+    document.strip_prefix(root).unwrap_or(document).display().to_string()
 }
 
 /// The heading the sole HLD is carried under.
@@ -732,7 +739,7 @@ pub fn hld_section(paths: &[PathBuf]) -> String {
 /// [`hld_section`] counts. Read out of the index rather than walked again, so
 /// that the HLD the opening carries is one the index named.
 pub fn hlds(paths: &[PathBuf]) -> Vec<&Path> {
-    todo!("those of the index's paths that are an HLD")
+    paths.iter().filter(|document| document.ends_with(HLD_FILE)).map(PathBuf::as_path).collect()
 }
 
 /// The HLD as the opening carries it: where it was read from, and its text
@@ -741,7 +748,7 @@ pub fn hlds(paths: &[PathBuf]) -> Vec<&Path> {
 /// `read` can be aimed at it, which is what the opening is for.
 #[implements(spec::TheOpeningCarriesTheSoleHldWhole)]
 pub fn hld_carried(hld: &Path) -> String {
-    todo!("the HLD's path and its text whole, under the heading")
+    format!("{HLD_HEADING}\n\n{}\n\n{}", hld.display(), std::fs::read_to_string(hld).unwrap_or_default())
 }
 
 /// The files the project's guidance is looked for in, in the order it prefers
@@ -768,14 +775,15 @@ pub const GUIDANCE_HEADING: &str = "## The project's guidance";
     spec::NeitherGuidanceFileCarriesNoGuidance,
 )]
 pub fn guidance_section(project: &Project) -> String {
-    todo!("the first of the guidance files that reads, whole; else nothing")
+    let read = |name: &'static str| synced_text(project, name).ok().map(|guidance| guidance_carried(name, &guidance));
+    GUIDANCE_FILES.into_iter().find_map(read).unwrap_or_default()
 }
 
 /// The guidance as the opening carries it: the file it came from, and its text
 /// whole — [`hld_carried`]'s shape for the other document the opening carries.
 #[implements(spec::TheProjectsGuidanceIsTheWorkspacesAgentsFileWhole)]
 pub fn guidance_carried(name: &str, guidance: &str) -> String {
-    todo!("the file it came from and its text, under the heading")
+    format!("{GUIDANCE_HEADING}\n\n{name}\n\n{guidance}")
 }
 
 /// The document already at that path, whole; none when there is none to read.
@@ -1078,8 +1086,8 @@ impl Tool {
     pub fn schema(self) -> Value {
         let string = json!({ "type": "string" });
         match self {
-            Tool::Read => todo!("the canopy client's own `schema_of` for its `read`"),
-            Tool::Grep => todo!("the canopy client's own `schema_of` for its `grep`"),
+            Tool::Read => schema_of(CanopyTool::Read),
+            Tool::Grep => schema_of(CanopyTool::Grep),
             Tool::Draft => json!({ "type": "object", "description": "Replace the slice's LLD whole with `content`, creating its directory. The path is this run's own: no argument of yours names a file.", "properties": { "content": string }, "required": ["content"] }),
             Tool::Ask => json!({ "type": "object", "description": "Put one question to the human and answer with what they typed. With `options` they are printed numbered, and a bare number answers with that option; anything else is answered as typed.", "properties": { "question": string.clone(), "options": json!({ "type": "array", "items": string }) }, "required": ["question"] }),
         }
@@ -1156,6 +1164,13 @@ pub fn executed(project: &Project, path: &Path, noted: &mut Noted, op: &str, arg
 /// line would name is about to fail and say so in its own sentence. This is
 /// where announcing nothing is *nothing*: `announced` gives no line for `ask`
 /// or for a call missing its subject, and no line is what is printed for it.
+///
+/// A print has nothing in-process to observe, and every decision behind the
+/// line is [`announced`]'s, [`announcing`]'s and [`argument_named`]'s — which
+/// leaves this holding no branch of the slice's own, the pure I/O sequencing
+/// `docs/intent/coach/lld.md` § Decisions & Alternatives, "Measuring the two
+/// prints", exempts from measurement. Answering with the line it printed would
+/// buy a test that asserts what `announced` already answers.
 #[implements(
     spec::AskAnnouncesNothing,
     spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
@@ -1177,6 +1192,11 @@ pub fn announce(path: &Path, op: &str, args: &Value) {
 /// than composing a sentence, and the rule that a missing subject is no line at
 /// all is stated once instead of four times.
 ///
+/// `ask` is answered by the arm that names no subject, and is not an arm of its
+/// own: a call with nothing to name is announced with nothing however it came
+/// to have nothing, and an arm answering exactly what the arm below it answers
+/// is a decision the code only appears to make.
+///
 /// It is written over the `op` as a string rather than over [`Tool`], because a
 /// reader session's calls are announced by it too and that session calls
 /// `glob`, which this host does not declare.
@@ -1188,7 +1208,12 @@ pub fn announce(path: &Path, op: &str, args: &Value) {
     spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
 )]
 pub fn announced(path: &Path, op: &str, args: &Value) -> Option<String> {
-    todo!("the line this call is announced with, or none")
+    match op {
+        "read" => announcing(op, argument_named(args, "path")),
+        "grep" | "glob" => announcing(op, argument_named(args, "pattern")),
+        "draft" => announcing(op, Some(path.display().to_string())),
+        _ => announcing(op, None),
+    }
 }
 
 /// The line a call is announced with once its subject is known: the `op` and
@@ -1196,9 +1221,14 @@ pub fn announced(path: &Path, op: &str, args: &Value) -> Option<String> {
 /// next. A call whose arguments did not carry a subject has no line — the whole
 /// of that rule, kept here rather than in each of [`announced`]'s arms, since
 /// what is missing is the same thing however it was named.
-#[implements(spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing)]
+#[implements(
+    spec::AReadIsAnnouncedByThePathItNames,
+    spec::AGrepOrGlobIsAnnouncedByThePatternItNames,
+    spec::ADraftIsAnnouncedByTheDocumentItReplaces,
+    spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing,
+)]
 pub fn announcing(op: &str, subject: Option<String>) -> Option<String> {
-    todo!("the op and its subject, or no line at all")
+    subject.map(|named| format!("{op} {named}"))
 }
 
 /// One string argument out of a call's JSON, which is where every
@@ -1207,16 +1237,22 @@ pub fn announcing(op: &str, subject: Option<String>) -> Option<String> {
 /// whose arguments lack its subject comes to be announced with nothing.
 #[implements(spec::ACallWhoseArgumentsLackItsSubjectAnnouncesNothing)]
 pub fn argument_named(args: &Value, key: &str) -> Option<String> {
-    todo!("one string argument of the call")
+    args.get(key).and_then(Value::as_str).map(str::to_string)
 }
 
 /// The coaching session's narrator: what the model said before calling a tool,
 /// printed as it said it. That is where a model says what it is about to look
 /// for, and it is worth more to the human than any summary the coach could
 /// invent, so the line is the identity of the text `drive` hands over.
+///
+/// Its signature is the canopy client's `Narrator`, which answers with nothing,
+/// so there is no seam here short of widening that slice's type for this host's
+/// benefit — which its LLD refuses, and which is why this is exempt from
+/// measurement by `docs/intent/coach/lld.md` § Decisions & Alternatives,
+/// "Measuring the two prints" rather than given one.
 #[implements(spec::TheCoachingSessionsNarratorPrintsTheModelsText)]
 pub fn narrate(text: &str) {
-    todo!("print the model's own words")
+    println!("{text}");
 }
 
 /// The coach's tool dispatch, reached through [`executed`] — the one decision
@@ -1255,7 +1291,10 @@ pub fn execute(project: &Project, path: &Path, noted: &mut Noted, op: &str, args
 /// verdict is asked: a coaching session carries no phase.
 #[implements(spec::AGrepIsRoutedToTheCanopyClientsGrepOverItsConfinement)]
 pub fn grep_call(project: &Project, args: &Value) -> ToolResult {
-    todo!("the canopy client's grep, confined to the workspace")
+    let args: GrepArgs = arguments(args)?;
+    let root = project.root()?;
+    let under = confine(&root, search_dir(args.path.as_deref()))?;
+    grep_tool(&root, &under, &args)
 }
 
 /// `read` as the coach routes it: the canopy client's own
