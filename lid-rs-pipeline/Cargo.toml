@@ -1,0 +1,13 @@
+[package]
+name = "lid-rs-pipeline"
+version.workspace = true
+description = "The LID-rs pipeline: a slice built unattended from a draft PR, gated by the cargo-lid-rs catalog."
+publish = false
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+
+[lints]
+workspace = true

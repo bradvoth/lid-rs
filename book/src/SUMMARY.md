@@ -8,7 +8,7 @@
 - [What this is for](spec/purpose.md)
 - [Design constraints](spec/constraints.md)
 - [Concept → mechanism](spec/mapping.md)
-- [The twelve checks](spec/gates.md)
+- [The twenty-six checks](spec/gates.md)
 - [The registry](spec/registry.md)
 - [Traced and untraced code](spec/traced.md)
 - [Configuration](spec/configuration.md)
@@ -40,3 +40,4 @@
 # Operating It
 
 - [The skill](skill.md)
+- [The pipeline](pipeline.md)

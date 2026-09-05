@@ -2,8 +2,9 @@
 
 This workspace builds the LID-rs toolchain (`lid-rs`, `lid-rs-macros`, `cargo-lid-rs`, `xtask`, and the
 operating skill) **using the LID-rs methodology on itself**. `README.md` is the
-methodology's living specification; `lid-rs/docs/intent/hld.md` is this workspace's
-implementation design. When implementation reveals a flaw in the README, the
+methodology's living specification; `lid-rs-pipeline/docs/intent/pipeline.md`
+is the pipeline's — how the phases run unattended; `lid-rs/docs/intent/hld.md`
+is this workspace's implementation design. When implementation reveals a flaw in the README, the
 README is revised, not silently diverged from; git history is the revision record.
 
 ## LID Mode: Full

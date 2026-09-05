@@ -17,7 +17,9 @@ its build.
   methodology to itself. Their Decisions & Alternatives tables record
   what building it disproved and revised.
 - **Operating It** — [the skill](skill.md) an agent follows to run the
-  phase flow on a Rust codebase.
+  phase flow on a Rust codebase, and [the pipeline](pipeline.md): the
+  living specification of building a slice unattended, from a draft PR
+  to a signed squash merge.
 
 Read [LID](https://linked-intent.dev/) for the *why* of intent arrows;
 read this book for what happens when the arrow is made of Rust items and

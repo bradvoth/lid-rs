@@ -381,6 +381,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "lid-rs-pipeline"
+version = "0.2.7"
+
+[[package]]
 name = "linkme"
 version = "0.3.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"

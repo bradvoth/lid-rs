@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "xtask"]
+members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "lid-rs-pipeline", "xtask"]
 
 [workspace.package]
 version = "0.2.7"

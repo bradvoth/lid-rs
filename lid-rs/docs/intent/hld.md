@@ -15,14 +15,21 @@ graph, and gate every structural property so reviewer attention lands on
 semantics alone. This workspace builds the toolchain the specification
 requires: the `lid-rs` and `lid-rs-macros` crates, the published `cargo-lid-rs`
 subcommand, the gate self-test `xtask`, and the operating skill — the standing instruction document an AI
-coding agent loads to run the methodology's flow.
+coding agent loads to run the methodology's flow — and, as the specification
+grew past what the compiler alone can check, the `lid-rs-shape` and
+`lid-rs-site` libraries the later checks need and the `lid-rs-pipeline`
+harness that runs the phases unattended. The pipeline has its own living
+specification, `lid-rs-pipeline/docs/intent/pipeline.md`: `README.md` says
+what is checked; the pipeline document says how a slice is built without a
+human at the keyboard.
 
 ## Approach
 
 Build the toolchain as a Cargo workspace that applies LID-rs to itself from the
 first commit. Self-hosting is not a stunt: it is the end-to-end proof. The
-system is judged working when its own twelve checks run green over its own
-intent graph, and when each gate demonstrably fails on a deliberate violation.
+system is judged working when every check README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)
+defines and this workspace has built runs green over its own intent graph,
+and when each gate demonstrably fails on a deliberate violation.
 
 Three mechanisms carry it:
 
@@ -31,8 +38,13 @@ Three mechanisms carry it:
 - **Link-time enumeration.** `linkme` distributed slices collect every spec,
   citation, and validation into the test binary with no source parsing
   (README [§5](https://bradvoth.github.io/lid-rs/spec/registry.html)), guarded by a canary against silently-empty registries.
-- **Gated structure.** Twelve checks (README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)), every one failing the build
+- **Gated structure.** Twenty-six checks (README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)) — twelve built, the
+  rest specified and numbered by seam — every one failing the build
   when its property breaks; anything that can't gate gets deleted.
+- **Claims as structure, then as spans.** The controlled language (README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html))
+  makes a claim's parts comparable to signatures and enums; the runtime
+  (README [§6.4](https://bradvoth.github.io/lid-rs/spec/traced.html)) makes its satisfaction observable in a test's trace and in
+  production.
 
 ### Bootstrap staging
 
@@ -71,13 +83,23 @@ Falsifiable, in delivery order:
    unvalidated spec) over a canary-verified non-empty registry.
 2. `lid-rs-macros` reproduces the hand-expanded canary registrations exactly
    (asserted by test).
-3. Every check has a demonstrated failure: for each of the twelve, a test
+3. Every check has a demonstrated failure: for each check that has landed, a test
    (`trybuild` UI test, lint-fixture, or stripped-registry simulation) proves
    the gate catches its violation — not merely that green code passes.
 4. `cargo lid-rs mutants` (diff-scoped) narrows each mutant's test set through
    the registry, and a vacuous test (executes but doesn't assert) is caught by it.
 5. The skill at `.claude/skills/lid-rs/` walks an agent through the eight
    phases such that a slice of this workspace itself was produced under it.
+6. `#[derive(Spec)]` rejects a malformed claim at compile time (check 13) and
+   extracts `SpecMeta` from a well-formed one, asserted over this workspace's
+   own claims, every one rewritten in the controlled language.
+7. The shape pass classifies every function in this workspace as flow or
+   leaf, and rules A, B, P, and V each have a demonstrated failure.
+8. A validator's captured trace fails checks 23–25 on a demonstrated wrong
+   outcome, and the same spans reach a production subscriber.
+9. A slice of this workspace is built from a draft PR to a ready PR with no
+   human turn between, and `main` receives it as one squash commit whose
+   trailers resolve.
 
 ## Non-Goals
 
@@ -91,7 +113,7 @@ Falsifiable, in delivery order:
   documented rather than engineered around.
 - **No plugin packaging yet.** The skill lives in-repo until proven; promotion
   to a distributable plugin is a later slice.
-- **No support for prototypes.** README [§1.2](https://bradvoth.github.io/lid-rs/spec/purpose.html): the correct amount of LID-rs in
+- **No support for prototypes.** README [§1.3](https://bradvoth.github.io/lid-rs/spec/purpose.html): the correct amount of LID-rs in
   disposable code is zero. Nothing here optimizes for low-ceremony adoption.
 
 ## Tenets
@@ -108,27 +130,35 @@ Ordered; when two conflict, the higher wins.
    reject — including mid-bootstrap.
 3. **Constrained-first dependencies.** `syn`, `quote`, `linkme` are the core;
    any further dependency requires evidence that the constrained option failed,
-   not an ergonomics preference.
+   not an ergonomics preference. `tracing` is the one escalation taken so far;
+   the evidence is in the decisions table.
 
 ## System Design
 
 ```mermaid
 graph TD
     subgraph workspace
-        MACROS["lid-rs-macros (proc-macro)\nderive(Spec) · implements · validates\nimplements_module! · spec"]
-        LID["lid-rs (runtime; ships skill/SKILL.md)\nSpec trait · Edge · SpecMeta\nSPECS / IMPLEMENTATIONS / VALIDATIONS slices\ncanary · __private linkme re-export\nextern crate self as lid_rs"]
-        CARGO["cargo-lid-rs (published)\ncargo lid-rs mutants\nregistry-scoped cargo-mutants orchestration"]
+        MACROS["lid-rs-macros (proc-macro)\nderive(Spec, Traceable, Outcome) · implements · validates\nimplements_module! · spec · flow · leaf"]
+        LID["lid-rs (runtime; ships skill, agents, workflow)\nSpec trait · Edge · SpecMeta · Variant\nSPECS / IMPLEMENTATIONS / VALIDATIONS / OUTCOMES slices\ncanary · Traceable · Outcome · capturing layer\n__private linkme re-export · extern crate self as lid_rs"]
+        SHAPE["lid-rs-shape (planned)\nclassify · check A/B/P/V · signatures\npure syn, no cargo"]
+        SITE["lid-rs-site (planned)\nbuild · pr_body"]
+        CARGO["cargo-lid-rs (published)\nthe command catalog: mutants · phase-check\nsync · init/new · lld-check · coach · canopy"]
+        PIPE["lid-rs-pipeline (planned)\nsessions · fast/gate dispatch · state\nreview · adjudication · the PR"]
         XTASK["xtask (unpublished)\ngate self-test fixtures"]
-        GRAPH["lid-rs/src/graph.rs + intent_graph!()\ncanary check · uncited spec · unvalidated spec"]
+        GRAPH["lid-rs/src/graph.rs + intent_graph!()\ncanary · 10 · 11 · shape · conformance · runtime · regen"]
     end
     SKILL[".claude/skills/lid-rs/\noperates the eight phases"]
-    DOCS["per-crate docs/intent/\nhld.md · per-slice lld.md\n(include_str! into rustdoc)"]
+    DOCS["per-crate docs/intent/\nhld.md · per-slice lld.md · pipeline.md\n(include_str! into rustdoc)"]
 
     MACROS -->|"emits ::lid_rs:: paths"| LID
     LID -->|"registers into slices"| GRAPH
+    SHAPE -->|"classification and signatures"| GRAPH
     LID -->|"dependency (published downstream consumer)"| CARGO
     LID -->|"dependency (in-workspace downstream consumer)"| XTASK
+    SHAPE -->|"shape, standalone"| CARGO
+    SITE -->|"site, pr-body"| CARGO
     CARGO -->|"reads registry dumps to filter tests"| GRAPH
+    CARGO -->|"the catalog, as a library"| PIPE
     DOCS -->|"included as crate/module docs"| LID
     SKILL -.->|"drives phases 0–8 over"| workspace
 ```
@@ -155,6 +185,28 @@ so the gate always exercises the working tree's tool.
 | 8 | "A downstream project runs check 12" | `cargo-lid-rs`: check 12 extracted from `xtask` into a published cargo subcommand with metadata-located root and single-package scope fallback; `xtask` keeps the gate self-test; `cargo-lid-rs/docs/intent/cargo-lid-rs/lld.md` |
 | 9 | "A developer creates a LID-ready project" | `cargo lid-rs init` (augments the package in the current directory: dependency, lint tables, thresholds, HLD, spec module, graph checks, CI gate, agent files, skill) and `cargo lid-rs new <name>`; end-to-end validated by the scaffolded package passing its own gate; `cargo-lid-rs/docs/intent/init/lld.md` |
 | 10 | "A project updates its skill when it updates `lid-rs`" | The skill ships in the `lid-rs` crate (`skill/SKILL.md`); `cargo lid-rs sync` writes a project's copy from its resolved dependency and `sync --check` gates it, strictly; the skill's 0.2 content from the first external deployment's review; `cargo-lid-rs/docs/intent/sync/lld.md` |
+| 11 | "A phase is run by an agent that can only edit, and its commit is the check passing" | The per-phase agents and their hooks (path policy, per-edit clippy, stop = check + commit), `cargo lid-rs phase-check N`, the `lid-rs` workflow, the tally trailers; `cargo-lid-rs/docs/intent/phase/lld.md` |
+| 12 | "A slice is built headless, one session per phase" | `cargo lid-rs canopy`: the harness proof — a session per phase worker and per review, deterministic code between, proven live to the completion the key was not permitted to land; `cargo-lid-rs/docs/intent/headless-canopy-agent/lld.md` |
+| 13 | "An LLD is reviewed before its phases run" | `cargo lid-rs lld-check`, the guideline `skill/references/lld.md`, the advisory `lid-rs-lld-review` agent; `cargo-lid-rs/docs/intent/lld-review/lld.md` |
+| 14 | "A human drafts an LLD with a coach" | `cargo lid-rs coach`: the interview that opens with the repository's intent index; `cargo-lid-rs/docs/intent/coach/lld.md` |
+| 15 | "A claim is written in the controlled language" | `derive(Spec)` enforces README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html) and extracts `SpecMeta`; `docs/intent/lexicon.toml` with templates; checks 13 and 14; the uncitable-claim assertion; **every claim in this workspace rewritten, and the colocated layout (README [§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html)) adopted in the same cascade** — one rename over 369 citations and 376 validations instead of two |
+| 16 | "A slice's nouns are types the LLD links to" | `derive(Traceable)` with its policy attributes; `vocab` modules; LLDs rewritten with vocabulary links (check 2 enforces them) |
+| 17 | "A function is flow or leaf by its shape" | `lid-rs-shape`: F1–F6, rules A/B/P/V, checks 15–18, `#[flow]`/`#[leaf]`, `cargo lid-rs shape`, `shape.level`; the complexity threshold re-measured with the classification in hand |
+| 18 | "A signature keeps the promise its claim makes" | `derive(Outcome)`, `OUTCOMES`, `signatures()`, checks 19–22, `conformance.level` and `aliases` |
+| 19 | "A claim's satisfaction is observable at runtime" | `tracing` spans in `#[implements]`, the capturing layer in `#[validates]`, `Traceable` recording, checks 23–25, `lid_rs::spawn`, `runtime.level`; the test output that reads as the claims exercised |
+| 20 | "The intent graph is readable as a page" | `regen` and `docs/intent/trace.md` with check 26; `lid-rs-site`: claim cards, the observed flow graph, the trace matrix, the glossary |
+| 21 | "A check is a command with a finding" | The `cargo lid-rs` catalog (pipeline §5): atomic commands, the finding schema, exit codes, `--expect`, `validate --claims` and `--red`, composites in workspace metadata; `phase-check N` becomes `gate --phase N` |
+| 22 | "A slice builds itself from a draft PR" | `lid-rs-pipeline`: sessions from the canopy client, `fast`/`gate` dispatch, state and resumption, the phase reviewers' rubrics, adjudication and the registered question, publication, `CODEOWNERS` and the rulesets, the squash message |
+
+Slices 1–14 are delivered. Slices 15–22 are the convergence of this
+workspace with the design it was forked from and then outgrew — the README's
+unbuilt ledger (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html))
+names the same work from the specification's side — in dependency order:
+conformance (18) needs the claim's parts (15) and signatures (17); the runtime
+(19) needs only 15 and 16 and may be pulled ahead of 17–18 if the runtime
+payoff is wanted sooner, with check 25 then landing beside 17; the page (20)
+needs everything it renders; the catalog (21) wraps the checks it runs; the
+pipeline (22) runs the catalog.
 
 Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html); Phase 8 is the post-slice change loop) with stops at every phase boundary.
 
@@ -168,15 +220,22 @@ Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spe
 | Claims are Rust items in `src/spec/`, descriptive names | Prose EARS files with numbered IDs (classic LID, as the installed `linked-intent-dev` skill defaults to) | README [§3.1](https://bradvoth.github.io/lid-rs/spec/mapping.html)–3.2: compiler-resolved citations require items; names make citation sites self-documenting; rename-breaks-citations is the desired re-review behaviour. `#[spec("...")]` aliases cover genuine foreign keys. |
 | `linkme` sections, `inventory` behind a feature flag as fallback | `inventory` primary; build-script codegen; source scanning | Zero runtime cost and no life-before-main on mainstream targets; the escape hatch is a feature flag, not a rewrite (README [§5.4](https://bradvoth.github.io/lid-rs/spec/registry.html)). Source scanning violates constraint 2. |
 | Skill developed in-repo, promoted to plugin later | Plugin-shaped from the start | Dogfood the skill where it's built; packaging before the methodology settles would version-churn the plugin. |
-| Gates on from the first commit | Switch gates on when all twelve exist | Tenet 2; the bootstrap window is when untraced drift would accrete. |
+| Gates on from the first commit | Switch gates on when every check exists | Tenet 2; the bootstrap window is when untraced drift would accrete. |
+| `tracing` for claim spans (slice 19) | A `lid-rs`-owned thread-local recorder; spans behind a feature flag | The feature's payoff is production telemetry in the requirements' language (README [§6.7](https://bradvoth.github.io/lid-rs/spec/traced.html)), which needs an ecosystem subscriber, and span propagation across `await` (README [§6.8](https://bradvoth.github.io/lid-rs/spec/traced.html)), which needs a global layer. A recorder proves checks 23–25 and nothing else, so the constrained option fails at design time rather than after being built twice; a feature flag contradicts "nothing is enforced by opt-in" (README [§2](https://bradvoth.github.io/lid-rs/spec/constraints.html)). Tenet 3's escalation, with the evidence stated. |
+| The colocated slice layout lands with the controlled language (slice 15), not first and not never | Migrate first, as its own slice; keep `src/spec/` | Every claim is rewritten when the language lands, and the move changes every claim's path; together they are one rename cascade over 369 citations and 376 validations instead of two. The layout also answers a measured fault: a claim registered but uncitable because `src/spec/mod.rs` did not re-export it. |
+| The pipeline is its own crate, with its own living specification | Fold the harness into `cargo-lid-rs`; a document with no crate | The harness consumes the catalog as a library, the way the canopy client already does, and its dependencies — HTTP, a door, a PR API — are not the catalog's. Its specification is the crate's front page so check 2 link-checks it from the first commit. |
+| New checks numbered by seam (13–26); 10, 11, 12 keep their numbers | Renumber to the forked design's 1–26 order | 52 sites outside README cite sections and checks by number, and the precedent (the structural pass of 2026-08-25) is seams, not renumbering. A number is a name; renaming names is what this methodology makes expensive on purpose. |
 
 ## Success Metrics
 
 - The [§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) gate passes on this workspace at every slice boundary, and CI runs
   it on every push.
-- Each of the twelve checks has a committed failure demonstration (Goal 3). A
+- Each built check has a committed failure demonstration (Goal 3). A
   check with no demonstrated failure is presumed vacuous and either gets one or
   gets deleted (README constraint 3).
+- The README's unbuilt ledger (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html))
+  shrinks by exactly the slice that lands; a mechanism the README describes
+  as built that is not is a falsification.
 - The canary equivalence test (Goal 2) stays green across `lid-rs-macros` changes.
 - Falsification signals: a registry check passing over an empty registry; a
   gate that must be skipped to land a slice; macro output drifting from what
@@ -189,6 +248,9 @@ Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spe
   workspace implements and, per tenet 1, revises.
 - [`linkme`](https://github.com/dtolnay/linkme) — distributed-slice mechanism.
 - [`cargo-mutants`](https://mutants.rs) — mutation engine under check 12.
+- [`tracing`](https://docs.rs/tracing) — the span mechanism under checks 23–25.
+- `lid-rs-pipeline/docs/intent/pipeline.md` — the pipeline's living
+  specification; the design slices 21 and 22 implement.
 - The installed `linked-intent-dev` skill — supplies the phase-stop and cascade
   process discipline; its classic-LID artifact formats are superseded here (see
   `CLAUDE.md`).
