@@ -45,6 +45,12 @@ function is matched by `edge.file == mutant.file && edge.item` ending in
 different modules; same-named functions in the same file share a test set,
 which over-approximates safely.
 
+A mutant need not have a function at all: the engine mutates the arithmetic
+of a `const` or `static` initialiser too, and lists it with a null
+`function`. Such a mutant is untraced by construction — no `#[implements]`
+can cite an item that is not a function — so it takes the module fallback,
+which is the right answer for an item whose module is its file.
+
 - **Traced mutant**: implementation edges found → specs → validation edges →
   test filters (edge `item` minus the leading `crate::` segment, since
   libtest names are crate-relative). Run with `--cargo-test-arg=--lib` plus

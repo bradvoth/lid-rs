@@ -28,18 +28,20 @@ pub enum TestPlan {
     FullSuite,
 }
 
-/// Chooses the test plan for a mutant identified by `(file, function)`.
+/// Chooses the test plan for a mutant identified by `(file, function)`; a
+/// mutant with no function — the engine lists a `const` initialiser's
+/// arithmetic that way — is untraced by construction.
 #[implements(
     spec::TracedMutantsRunOnlyTheirValidatingTests,
     spec::UntracedMutantsFallBackToModuleTests,
 )]
 pub fn plan_for_mutant(
     file: &str,
-    function: &str,
+    function: Option<&str>,
     impls: &[EdgeRecord],
     validations: &[EdgeRecord],
 ) -> TestPlan {
-    let direct = specs_for_fn(file, function, impls);
+    let direct = function.map_or_else(Vec::new, |name| specs_for_fn(file, name, impls));
     if !direct.is_empty() {
         return non_empty_or_suite(TestPlan::Traced(tests_validating(&direct, validations)));
     }
@@ -128,7 +130,7 @@ mod tests {
     #[validates(spec::TracedMutantsRunOnlyTheirValidatingTests)]
     fn traced_mutants_run_only_their_validating_tests() {
         let (impls, validations) = registry();
-        let plan = plan_for_mutant("xtask/src/a.rs", "f", &impls, &validations);
+        let plan = plan_for_mutant("xtask/src/a.rs", Some("f"), &impls, &validations);
         assert_eq!(
             plan,
             TestPlan::Traced(vec![
@@ -142,7 +144,7 @@ mod tests {
     #[validates(spec::TracedMutantsRunOnlyTheirValidatingTests)]
     fn empty_narrowed_sets_degrade_to_the_full_suite() {
         let (impls, validations) = registry();
-        let plan = plan_for_mutant("xtask/src/c.rs", "h", &impls, &validations);
+        let plan = plan_for_mutant("xtask/src/c.rs", Some("h"), &impls, &validations);
         assert_eq!(
             plan,
             TestPlan::FullSuite,
@@ -154,7 +156,7 @@ mod tests {
     #[validates(spec::UntracedMutantsFallBackToModuleTests)]
     fn untraced_mutants_fall_back_to_module_tests() {
         let (impls, validations) = registry();
-        let fallback = plan_for_mutant("xtask/src/a.rs", "helper", &impls, &validations);
+        let fallback = plan_for_mutant("xtask/src/a.rs", Some("helper"), &impls, &validations);
         assert_eq!(
             fallback,
             TestPlan::ModuleFallback(vec![
@@ -162,7 +164,22 @@ mod tests {
                 "a::tests::t2".to_string(),
             ])
         );
-        let suite = plan_for_mutant("xtask/src/nowhere.rs", "helper", &impls, &validations);
+        let suite = plan_for_mutant("xtask/src/nowhere.rs", Some("helper"), &impls, &validations);
         assert_eq!(suite, TestPlan::FullSuite);
+    }
+
+    #[test]
+    #[validates(spec::UntracedMutantsFallBackToModuleTests)]
+    fn a_mutant_with_no_function_falls_back_to_module_tests() {
+        let (impls, validations) = registry();
+        let plan = plan_for_mutant("xtask/src/a.rs", None, &impls, &validations);
+        assert_eq!(
+            plan,
+            TestPlan::ModuleFallback(vec![
+                "a::tests::t1".to_string(),
+                "a::tests::t2".to_string(),
+            ]),
+            "a const initialiser's mutant has no function and belongs to its file's module"
+        );
     }
 }

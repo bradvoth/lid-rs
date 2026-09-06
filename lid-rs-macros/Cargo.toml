@@ -21,3 +21,8 @@ syn.workspace = true
 
 [lints]
 workspace = true
+
+# A proc-macro crate links into no binary: this slice's claims, companion
+# module, and fixtures live in the crate that re-exports its macros.
+[package.metadata.lid_rs]
+companion = "lid-rs"

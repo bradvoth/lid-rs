@@ -146,6 +146,26 @@ impl Project {
             .collect()
     }
 
+    /// A `[package.metadata.lid_rs]` setting of the package whose manifest
+    /// directory is `dir`, if the package declares it.
+    #[implements(spec::TheCompanionIsTheMemberTheProcMacroCratesMetadataNames)]
+    pub fn package_setting_at(&self, dir: &Path, key: &str) -> Option<String> {
+        self.packages()
+            .find(|package| self.package_dir_is(package, dir))
+            .and_then(|package| setting_in(package, key))
+    }
+
+    /// The manifest directory of the workspace member named `name`, if
+    /// there is one.
+    #[implements(spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit)]
+    pub fn member_dir_named(&self, name: &str) -> Option<PathBuf> {
+        self.packages()
+            .filter(|package| self.is_member(package))
+            .find(|package| package.pointer("/name").and_then(serde_json::Value::as_str) == Some(name))
+            .and_then(|package| package.pointer("/manifest_path").and_then(serde_json::Value::as_str))
+            .and_then(|manifest| Path::new(manifest).parent().map(Path::to_path_buf))
+    }
+
     /// The target kinds (`lib`, `bin`, `proc-macro`, `custom-build`, …) of
     /// the package whose manifest directory is `dir`.
     #[implements(spec::ACompileTimeSliceIsDisclosed)]
@@ -306,6 +326,34 @@ mod tests {
             r#"{{"workspace_root":"/w","target_directory":"/w/target","metadata":{workspace_metadata},"packages":[{}]}}"#,
             packages.join(",")
         )
+    }
+
+    /// Two packages, the second a proc-macro crate naming `lid-rs` as its
+    /// companion. Hand-gated with the accessors themselves: the phase
+    /// slice's companion claims validate `policy::companion`, which reads
+    /// through these.
+    fn with_companion() -> Project {
+        Project::from_json(&doc("null", r#"{"lid_rs":{"companion":"lid-rs"}}"#, &[&["lib"], &["proc-macro"]])).expect("parses")
+    }
+
+    #[test]
+    fn a_package_setting_is_read_from_the_package_it_names() {
+        let project = with_companion();
+        assert_eq!(project.package_setting_at(Path::new("/w/p1"), "companion").as_deref(), Some("lid-rs"));
+    }
+
+    #[test]
+    fn a_package_setting_is_absent_for_an_unset_key_or_an_unknown_directory() {
+        let project = with_companion();
+        assert_eq!(project.package_setting_at(Path::new("/w/p1"), "absent"), None);
+        assert_eq!(project.package_setting_at(Path::new("/w/nowhere"), "companion"), None);
+    }
+
+    #[test]
+    fn a_member_directory_is_found_by_package_name() {
+        let project = with_companion();
+        assert_eq!(project.member_dir_named("p1"), Some(PathBuf::from("/w/p1")));
+        assert_eq!(project.member_dir_named("q"), None);
     }
 
     #[test]

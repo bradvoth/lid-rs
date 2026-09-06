@@ -64,9 +64,9 @@ pub struct MembersWithoutALibraryTargetAreSkipped;
 #[derive(Spec)]
 pub struct TracedMutantsRunOnlyTheirValidatingTests;
 
-/// When a mutant's function has no implementation edge, its test set shall be
-/// the tests validating specs implemented in the same file, or the full suite
-/// when none exist.
+/// When a mutant has no function, or its function has no implementation
+/// edge, its test set shall be the tests validating specs implemented in the
+/// same file, or the full suite when none exist.
 #[derive(Spec)]
 pub struct UntracedMutantsFallBackToModuleTests;
 

@@ -18,8 +18,9 @@ pub struct Mutant {
     pub name: String,
     /// Workspace-relative source file.
     pub file: String,
-    /// Unqualified function name.
-    pub function: String,
+    /// Unqualified function name; absent for a mutant the engine lists with a
+    /// null `function` — one in a `const` or `static` initialiser.
+    pub function: Option<String>,
 }
 
 /// One registered claim: its name and the file it is defined in.
@@ -134,7 +135,7 @@ fn mutant_of(value: &serde_json::Value) -> Result<Mutant, String> {
     Ok(Mutant {
         name: get("/name")?,
         file: get("/file")?,
-        function: get("/function/function_name")?,
+        function: value.pointer("/function/function_name").and_then(serde_json::Value::as_str).map(str::to_string),
     })
 }
 
@@ -199,7 +200,7 @@ fn group_by_plan(mutants: &[Mutant], registry: &Registry) -> BTreeMap<TestPlan, 
     for mutant in mutants {
         let plan = plan_for_mutant(
             &mutant.file,
-            &mutant.function,
+            mutant.function.as_deref(),
             &registry.impls,
             &registry.validations,
         );
