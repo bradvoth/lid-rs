@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
+use super::Phase;
+use super::policy::{SliceCrates, workspace_paths};
 use crate::project::Project;
 use crate::spec;
 use crate::sync;
@@ -15,13 +17,14 @@ pub fn synced_artifacts_match(project: &Project) -> Result<(), String> {
     sync::check(project).map_err(|e| format!("the synced artifacts changed since the phase started — code the check ran may have written them: {e}"))
 }
 
-/// Nothing outside the allowed set (paths relative to the workspace root)
-/// is modified, untracked, or deleted; otherwise the offenders, named.
-#[implements(spec::ChangesOutsideThePolicyRefuseTheStop)]
-pub fn outside_policy_clean(project: &Project, allowed: &[PathBuf]) -> Result<(), String> {
+/// Nothing outside the phase's allowed paths of both crates is modified,
+/// untracked, or deleted; otherwise the offenders, named.
+#[implements(spec::ChangesOutsideThePolicyRefuseTheStop, spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
+pub fn outside_policy_clean(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<(), String> {
+    let allowed = workspace_paths(project, phase, crates)?;
     let outside: Vec<String> = changed_paths(project)?
         .into_iter()
-        .filter(|path| !under_any(path, allowed))
+        .filter(|path| !under_any(path, &allowed))
         .map(|path| path.display().to_string())
         .collect();
     outside.is_empty().then_some(()).ok_or_else(|| {
@@ -86,13 +89,14 @@ mod tests {
     #[validates(spec::ChangesOutsideThePolicyRefuseTheStop)]
     fn changes_outside_the_policy_are_named() {
         let (dir, project) = fixture::copy("integrity-outside");
-        let allowed = paths(&["src/hello.rs", "src/hello"]);
-        outside_policy_clean(&project, &allowed).expect("clean");
+        // Phase 7 of `hello` in the fixture's one crate: `src/hello.rs`, `src/hello`.
+        let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
+        outside_policy_clean(&project, Phase::Seven, &crates).expect("clean");
         std::fs::write(dir.join("src/hello.rs"), "//! changed\n").expect("write");
-        outside_policy_clean(&project, &allowed).expect("a change inside the policy is fine");
+        outside_policy_clean(&project, Phase::Seven, &crates).expect("a change inside the policy is fine");
         std::fs::write(dir.join("src/stray.rs"), "").expect("write");
         std::fs::write(dir.join("Cargo.toml"), "broken").expect("write");
-        let err = outside_policy_clean(&project, &allowed).expect_err("outside changes are refused");
+        let err = outside_policy_clean(&project, Phase::Seven, &crates).expect_err("outside changes are refused");
         assert!(err.contains("src/stray.rs") && err.contains("Cargo.toml") && !err.contains("hello.rs"), "{err}");
     }
 

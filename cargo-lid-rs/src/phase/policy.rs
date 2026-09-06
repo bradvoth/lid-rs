@@ -1,6 +1,6 @@
 //! The per-phase path policy (`docs/intent/phase/lld.md` § `hook pre-tool`):
-//! which files a phase agent may write, where the slice's crate is, and
-//! what kind of execution editing it entails.
+//! which files a phase agent may write, where the slice's crate and its
+//! companion are, and what kind of execution editing it entails.
 
 use std::path::{Path, PathBuf};
 
@@ -32,6 +32,16 @@ pub enum Verdict {
     Refused(String),
 }
 
+/// A policy refusal that is not about one path — the slice's crates
+/// themselves cannot be written in any phase — as distinct from a hook that
+/// cannot decide, which is an error. The pre-tool hook maps it to a denied
+/// edit like any other: tallied, quoting the discipline row.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Refusal {
+    /// Why, for the agent: what the policy found and the key it names.
+    pub reason: String,
+}
+
 /// Whether editing this slice executes the agent's code at compile time.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionClass {
@@ -39,6 +49,46 @@ pub enum ExecutionClass {
     Ordinary,
     /// The slice's crate has a `proc-macro` or `custom-build` target — named.
     CompileTime(String),
+}
+
+/// Which of a slice's crates a path is judged against — one table each.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Seat {
+    /// The slice's own crate, whose manifest directory holds its LLD.
+    Own,
+    /// The companion a proc-macro crate's manifest names, where the slice's
+    /// claims, its citing module, and its fixtures live.
+    Companion,
+}
+
+/// The crates a phase may write for one slice, resolved once per hook call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceCrates {
+    /// The slice, as the branch names it.
+    pub slice: String,
+    /// The slice's own crate.
+    pub own: PathBuf,
+    /// Its companion, when the slice's crate is a proc-macro crate.
+    pub companion: Option<PathBuf>,
+}
+
+impl SliceCrates {
+    /// The slice's crates: its own, and the companion its manifest names.
+    /// The outer error is a hook that cannot decide — no package holds the
+    /// slice's LLD; the inner is the policy's refusal of a proc-macro crate
+    /// with no usable companion, which the pre-tool hook denies the edit
+    /// with and the stop hook and `phase-check` fail with.
+    pub fn resolve(project: &Project, slice: &str) -> Result<Result<Self, Refusal>, String> {
+        let own = slice_crate(project, slice)?;
+        Ok(companion(project, &own).map(|companion| Self { slice: slice.to_string(), own, companion }))
+    }
+
+    /// The crate that holds the slice's claims — where the red run diffs the
+    /// spec file: the companion when there is one, else the slice's own.
+    #[implements(spec::AProcMacroSlicesClaimsAreHeldByItsCompanion)]
+    pub fn claims_crate(&self) -> &Path {
+        todo!()
+    }
 }
 
 /// The kind of a tool by its name.
@@ -62,32 +112,55 @@ pub fn slice_crate(project: &Project, slice: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("no workspace package holds {}: `{slice}` has no crate, so no phase agent can run it", lld.display()))
 }
 
-/// The phase's allowed set, as paths relative to the slice's crate; a
-/// directory entry allows everything under it.
+/// The companion the slice's crate names, when it is a proc-macro crate
+/// (`Project::target_kinds_at`): the workspace member whose name is the
+/// crate's `[package.metadata.lid_rs] companion` setting
+/// (`Project::package_setting_at`), located by that name
+/// (`Project::member_dir_named`) — all from the metadata document, never by
+/// parsing the manifest. None for an ordinary crate, whatever its metadata
+/// carries. A proc-macro crate that names none, or names a package that is
+/// not a workspace member or is itself a proc-macro crate, is refused,
+/// naming the key: no phase of such a slice can produce a claim.
 #[implements(
-    spec::PhaseTwoMayWriteOnlyTheSlicesSpecFiles,
-    spec::PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheSliceModule,
+    spec::AnOrdinaryCrateHasNoCompanion,
+    spec::TheCompanionIsTheMemberTheProcMacroCratesMetadataNames,
+    spec::AProcMacroCrateNamingNoCompanionRefusesEveryEdit,
+    spec::ACompanionThatIsAProcMacroCrateRefusesEveryEdit,
+    spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit,
 )]
-pub fn allowed_paths(phase: Phase, slice: &str) -> Vec<PathBuf> {
-    let module = slice.replace('-', "_");
-    let entries: Vec<String> = match phase {
-        Phase::One => vec![],
-        Phase::Two => vec![format!("src/spec/{module}.rs"), "src/spec/mod.rs".to_string()],
-        Phase::Three | Phase::Four => vec![format!("src/{module}.rs"), format!("src/{module}"), "src/lib.rs".to_string()],
-        Phase::Five | Phase::Seven => vec![format!("src/{module}.rs"), format!("src/{module}")],
-    };
-    entries.into_iter().map(PathBuf::from).collect()
+pub fn companion(project: &Project, crate_root: &Path) -> Result<Option<PathBuf>, Refusal> {
+    todo!()
 }
 
-/// The verdict for a target: normalised against the crate first, then
-/// matched against the phase's set.
-#[implements(spec::PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy)]
-pub fn allowed(phase: Phase, crate_root: &Path, slice: &str, target: &Path) -> Verdict {
-    match within_crate(crate_root, target) {
-        None => Verdict::Refused(format!("`{}` is outside the slice's crate at {}", target.display(), crate_root.display())),
-        Some(relative) => verdict_of(&relative, &allowed_paths(phase, slice)),
-    }
+/// One phase's allowed set for one seat, as paths relative to that seat's
+/// crate; a directory entry allows everything under it. `Seat::Own` is the
+/// LLD's first path table, `Seat::Companion` its second.
+#[implements(
+    spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule,
+    spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles,
+    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot,
+    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
+)]
+pub fn allowed_paths(phase: Phase, slice: &str, seat: Seat) -> Vec<PathBuf> {
+    todo!()
+}
+
+/// The verdict for a target: refused before any table when it has a parent
+/// component or lies outside both crates; otherwise judged by the table of
+/// the seat it lies under, relative to that crate.
+#[implements(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy, spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
+pub fn allowed(phase: Phase, crates: &SliceCrates, target: &Path) -> Verdict {
+    todo!()
+}
+
+/// The phase's allowed paths of both crates — each seat's table relative to
+/// its crate, made relative to the workspace root git runs at — which the
+/// stop hook filters integrity against and stages.
+#[implements(spec::TheStopStagesBothCratesAllowedPaths)]
+pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<Vec<PathBuf>, String> {
+    todo!()
 }
 
 /// Whether a crate-relative path is in the phase's set.
@@ -195,9 +268,14 @@ mod tests {
         list.iter().map(PathBuf::from).collect()
     }
 
-    /// Whether a phase refuses a crate-relative target under `/w/app`.
+    /// The slice `hello` in an ordinary crate at `/w/app`, with no companion.
+    fn own_only() -> SliceCrates {
+        SliceCrates { slice: "hello".to_string(), own: PathBuf::from("/w/app"), companion: None }
+    }
+
+    /// Whether a phase refuses a target under `/w/app`.
     fn refused(phase: Phase, target: &str) -> bool {
-        matches!(allowed(phase, Path::new("/w/app"), "hello", Path::new(target)), Verdict::Refused(_))
+        matches!(allowed(phase, &own_only(), Path::new(target)), Verdict::Refused(_))
     }
 
     #[test]
@@ -213,23 +291,23 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhaseTwoMayWriteOnlyTheSlicesSpecFiles)]
-    fn phase_two_may_write_only_the_slices_spec_files() {
-        assert_eq!(allowed_paths(Phase::Two, "hello"), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
+    #[validates(spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles)]
+    fn phase_two_may_write_only_the_own_crates_spec_files() {
+        assert_eq!(allowed_paths(Phase::Two, "hello", Seat::Own), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
         assert!(!refused(Phase::Two, "/w/app/src/spec/hello.rs"));
         assert!(refused(Phase::Two, "/w/app/src/hello.rs"));
     }
 
     #[test]
-    #[validates(spec::PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot)]
-    fn phases_three_and_four_may_write_the_slice_module_and_the_library_root() {
+    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot)]
+    fn phases_three_and_four_may_write_the_own_crates_slice_module_and_library_root() {
         let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
-        assert_eq!(allowed_paths(Phase::Three, "hello"), expected);
-        assert_eq!(allowed_paths(Phase::Four, "hello"), expected);
+        assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Own), expected);
+        assert_eq!(allowed_paths(Phase::Four, "hello", Seat::Own), expected);
     }
 
     #[test]
-    #[validates(spec::PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot)]
+    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot)]
     fn phases_three_and_four_refuse_the_rest() {
         let cases = [
             (Phase::Three, "/w/app/src/hello/policy.rs", false),
@@ -243,15 +321,15 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheSliceModule)]
-    fn phases_five_and_seven_may_write_only_the_slice_module() {
+    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule)]
+    fn phases_five_and_seven_may_write_only_the_own_crates_slice_module() {
         let expected = paths(&["src/hello.rs", "src/hello"]);
-        assert_eq!(allowed_paths(Phase::Five, "hello"), expected);
-        assert_eq!(allowed_paths(Phase::Seven, "hello"), expected);
+        assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Own), expected);
+        assert_eq!(allowed_paths(Phase::Seven, "hello", Seat::Own), expected);
     }
 
     #[test]
-    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheSliceModule)]
+    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule)]
     fn phases_five_and_seven_refuse_the_rest() {
         let cases = [
             (Phase::Seven, "/w/app/src/hello.rs", false),
@@ -264,8 +342,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy)]
-    fn paths_outside_the_slices_crate_are_refused_before_the_policy() {
+    #[validates(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy)]
+    fn paths_outside_the_slices_crates_are_refused_before_the_policy() {
         let targets = ["/w/app/src/hello/../../Cargo.toml", "/w/app/src/hello/../spec/hello.rs", "/etc/passwd", "/w/other/src/hello.rs", "src/hello.rs"];
         for target in targets {
             assert!(refused(Phase::Three, target), "{target}");
@@ -273,7 +351,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy)]
+    #[validates(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy)]
     fn a_target_is_made_crate_relative_without_parent_components() {
         let root = Path::new("/w/app");
         assert_eq!(within_crate(root, Path::new("/w/app/src/hello.rs")), Some(PathBuf::from("src/hello.rs")));

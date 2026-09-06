@@ -6,6 +6,7 @@ use std::path::Path;
 use lid_rs::implements;
 
 use super::Phase;
+use super::policy::{SliceCrates, workspace_paths};
 use crate::project::Project;
 use crate::spec;
 
@@ -93,13 +94,14 @@ fn subject_of(message: &str) -> &str {
 }
 
 /// The refusal for a failing check: the output, the `gates.md` row for the
-/// check it names, and what the phase permits.
+/// check it names, and what the phase permits in both the slice's crates.
 #[implements(spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves)]
-pub fn refusal_for(project: &Project, phase: Phase, output: &str) -> String {
+pub fn refusal_for(project: &Project, phase: Phase, crates: &SliceCrates, output: &str) -> String {
     let rule = check_of_output(output)
         .map(|check| gates_row(project, check).unwrap_or_else(|e| e))
         .unwrap_or_else(|| "No gate row names this failure: it is a plain compile or test error, to fix where it points.".to_string());
-    format!("The phase's check failed:\n\n{output}\n\nThe skill's response to this check:\n{rule}\n\n{}", permitted_moves(phase))
+    let moves = permitted_moves(project, phase, crates).unwrap_or_else(|e| e);
+    format!("The phase's check failed:\n\n{output}\n\nThe skill's response to this check:\n{rule}\n\n{moves}")
 }
 
 /// The check a failing output names, if it names one.
@@ -172,15 +174,17 @@ fn check_number(check: Check) -> u8 {
     }
 }
 
-/// What the phase's policy lets the agent do about a failure.
-fn permitted_moves(phase: Phase) -> String {
-    let allowed: Vec<String> = super::policy::allowed_paths(phase, "<slice>").iter().map(|p| format!("`{}`", p.display())).collect();
-    format!(
+/// What the phase's policy lets the agent do about a failure: the phase's
+/// allowed paths of both the slice's crates, workspace-relative, as the
+/// edit-refusal path names them.
+fn permitted_moves(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<String, String> {
+    let allowed: Vec<String> = workspace_paths(project, phase, crates)?.iter().map(|p| format!("`{}`", p.display())).collect();
+    Ok(format!(
         "What Phase {} permits: fix it within {} and end again with a ```commit block — the LLD (docs/intent) and the claims \
          are not this phase's to change — or end with a ```stop block naming the decision this needs.",
         super::policy::number_of(phase),
         allowed.join(", ")
-    )
+    ))
 }
 
 /// Stages exactly `paths` and commits `message` with `trailers`; the new
@@ -285,8 +289,9 @@ mod tests {
     #[validates(spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves)]
     fn a_refusal_carries_the_output_the_rule_and_the_permitted_moves() {
         let workspace = fixture::workspace();
+        let crates = SliceCrates { slice: "phase".to_string(), own: std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")), companion: None };
         let output = "error: the function has a cognitive complexity of (5/4)\n  --> src/phase.rs:10:1\n  = note: `-D clippy::cognitive-complexity`";
-        let reason = refusal_for(&workspace, Phase::Seven, output);
+        let reason = refusal_for(&workspace, Phase::Seven, &crates, output);
         let (out_at, rule_at, moves_at) = (
             reason.find("cognitive complexity of (5/4)").expect("the output"),
             reason.find("Return to Phase 1").expect("the gates row for check 7"),
@@ -294,7 +299,7 @@ mod tests {
         );
         assert!(out_at < rule_at && rule_at < moves_at, "in order: {reason}");
         assert!(reason.contains("docs/intent"), "the LLD is not this phase's to edit: {reason}");
-        let unknown = refusal_for(&workspace, Phase::Three, "error[E0308]: mismatched types");
+        let unknown = refusal_for(&workspace, Phase::Three, &crates, "error[E0308]: mismatched types");
         assert!(unknown.contains("E0308") && unknown.contains("```stop"), "{unknown}");
     }
 

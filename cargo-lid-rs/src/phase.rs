@@ -10,7 +10,7 @@ pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
 use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
-use policy::{ExecutionClass, ToolKind, Verdict, allowed, allowed_paths, compile_time_accepted, execution_class, kind_of, refusal_reason, slice_crate};
+use policy::{ExecutionClass, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
 use tally::Event;
 
 use crate::mapping::EdgeRecord;
@@ -296,14 +296,31 @@ fn edit_verdict(project: &Project, phase: Phase, input: &HookInput) -> Result<Ho
     edit_verdict_for(project, phase, &slice, input)
 }
 
-/// The policy verdict for one edit on a named slice: the human's
-/// acceptance of a compile-time slice first, then the path policy.
-#[implements(spec::ARefusedEditQuotesTheDisciplineRow, spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+/// The policy verdict for one edit on a named slice: one decision over the
+/// slice's crates, resolved once per hook call before anything else. A
+/// proc-macro crate with no usable companion is a refusal like any other —
+/// tallied, quoting the discipline row, permitting no path — never a hook
+/// that cannot decide; resolved crates go on to the verdict for them.
+#[implements(
+    spec::ARefusedEditQuotesTheDisciplineRow,
+    spec::AProcMacroCrateNamingNoCompanionRefusesEveryEdit,
+    spec::ACompanionThatIsAProcMacroCrateRefusesEveryEdit,
+    spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit,
+)]
 fn edit_verdict_for(project: &Project, phase: Phase, slice: &str, input: &HookInput) -> Result<HookVerdict, String> {
-    let crate_root = slice_crate(project, slice)?;
     let target = input.tool_path.as_deref().ok_or("an edit without a file path")?;
-    acceptance_gate(project, &crate_root, slice)?
-        .map_or_else(|| path_verdict(project, phase, slice, &crate_root, target, &input.agent_id), |reason| Ok(HookVerdict::Refuse(reason)))
+    match SliceCrates::resolve(project, slice)? {
+        Err(refusal) => refuse_edit(project, phase, &[], target, &refusal.reason, &input.agent_id),
+        Ok(crates) => crate_verdict(project, phase, &crates, target, &input.agent_id),
+    }
+}
+
+/// The verdict once the slice's crates are known: the human's acceptance
+/// of a compile-time slice, then the path policy.
+#[implements(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+fn crate_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: &Path, agent: &str) -> Result<HookVerdict, String> {
+    acceptance_gate(project, &crates.own, &crates.slice)?
+        .map_or_else(|| path_verdict(project, phase, crates, target, agent), |reason| Ok(HookVerdict::Refuse(reason)))
 }
 
 /// The reason a compile-time slice's edits are refused until the human
@@ -323,17 +340,19 @@ fn acceptance_gate(project: &Project, crate_root: &Path, slice: &str) -> Result<
 }
 
 /// The path policy's verdict for one edit, refusals tallied.
-fn path_verdict(project: &Project, phase: Phase, slice: &str, crate_root: &Path, target: &Path, agent: &str) -> Result<HookVerdict, String> {
-    match allowed(phase, crate_root, slice, target) {
+fn path_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: &Path, agent: &str) -> Result<HookVerdict, String> {
+    match allowed(phase, crates, target) {
         Verdict::Allowed => Ok(HookVerdict::Allow),
-        Verdict::Refused(why) => refuse_edit(project, phase, slice, target, &why, agent),
+        Verdict::Refused(why) => refuse_edit(project, phase, &workspace_paths(project, phase, crates)?, target, &why, agent),
     }
 }
 
-/// A refused edit: tallied, and explained with the discipline row.
-fn refuse_edit(project: &Project, phase: Phase, slice: &str, target: &Path, why: &str, agent: &str) -> Result<HookVerdict, String> {
+/// A refused edit: tallied, and explained with the discipline row and the
+/// paths the phase permits — both crates' allowed paths when the crates
+/// resolved, none when the companion is what was refused.
+fn refuse_edit(project: &Project, phase: Phase, permitted: &[PathBuf], target: &Path, why: &str, agent: &str) -> Result<HookVerdict, String> {
     tally::record(project, agent, Event::PolicyRefusal)?;
-    let reason = refusal_reason(project, phase, target, &allowed_paths(phase, slice));
+    let reason = refusal_reason(project, phase, target, permitted);
     Ok(HookVerdict::Refuse(format!("{why}. {reason}")))
 }
 
@@ -362,23 +381,23 @@ fn refuse_stop(project: &Project, input: &HookInput, reason: String) -> Result<H
     Ok(HookVerdict::Refuse(reason))
 }
 
-/// What a phase commit stages: the phase's allowed paths, relative to the
-/// workspace root git runs at.
+/// What a phase commit stages: the phase's allowed paths of the slice's
+/// crates, relative to the workspace root git runs at.
 struct CommitPlan {
-    /// The slice, from the branch.
-    slice: String,
-    /// The allowed set, workspace-relative.
+    /// The slice, from the branch, and its crates.
+    crates: SliceCrates,
+    /// The allowed set of both crates, workspace-relative.
     allowed: Vec<PathBuf>,
 }
 
 impl CommitPlan {
-    /// The plan for the current branch's slice.
+    /// The plan for the current branch's slice; a refused companion is the
+    /// failure, since nothing of such a slice can be staged.
     fn new(project: &Project, phase: Phase) -> Result<Self, String> {
         let slice = resolve_slice(project, None)?.ok_or(NO_SLICE)?;
-        let crate_root = slice_crate(project, &slice)?;
-        let prefix = crate_root.strip_prefix(project.root()?).map_err(|_| "the slice's crate is outside the workspace")?.to_path_buf();
-        let allowed = allowed_paths(phase, &slice).into_iter().map(|p| prefix.join(p)).collect();
-        Ok(Self { slice, allowed })
+        let crates = SliceCrates::resolve(project, &slice)?.map_err(|refusal| refusal.reason)?;
+        let allowed = workspace_paths(project, phase, &crates)?;
+        Ok(Self { crates, allowed })
     }
 }
 
@@ -402,27 +421,28 @@ fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &st
 fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
     subject_matches(phase, message)?;
     synced_artifacts_match(project)?;
-    checked(project, phase, &plan.slice, &input.agent_id)?;
+    checked(project, phase, &plan.crates, &input.agent_id)?;
     synced_artifacts_match(project)?;
-    outside_policy_clean(project, &plan.allowed)?;
+    outside_policy_clean(project, phase, &plan.crates)?;
     let changed = changed_within(project, &plan.allowed)?;
     (!changed.is_empty()).then_some(changed).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())
 }
 
 /// The phase's check, tallied, in a fresh process of this binary so its
 /// output is captured whole (the gate's engines write to stdout, which is
-/// this hook's channel to Claude Code); a failure becomes the refusal.
+/// this hook's channel to Claude Code); a failure becomes the refusal,
+/// naming the permitted paths of both the slice's crates.
 #[implements(spec::ACommitBlockRunsThePhasesCheck)]
-fn checked(project: &Project, phase: Phase, slice: &str, agent: &str) -> Result<(), String> {
+fn checked(project: &Project, phase: Phase, crates: &SliceCrates, agent: &str) -> Result<(), String> {
     tally::record(project, agent, Event::StopCheck)?;
     let n = policy::number_of(phase).to_string();
     let output = self_command()?
-        .args(["phase-check", &n, "--slice", slice])
+        .args(["phase-check", &n, "--slice", &crates.slice])
         .current_dir(project.root()?)
         .output()
         .map_err(|e| format!("running phase-check {n}: {e}"))?;
     let text = format!("{}{}", String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr));
-    output.status.success().then_some(()).ok_or_else(|| refusal_for(project, phase, text.trim()))
+    output.status.success().then_some(()).ok_or_else(|| refusal_for(project, phase, crates, text.trim()))
 }
 
 /// This binary, to run a subcommand in a fresh process. Under `cargo test`
@@ -557,14 +577,15 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
 /// The phase 5 failure when no slice is known.
 const NO_SLICE: &str = "phase 5 needs a slice: the branch is not `lld/<slice>`, and no --slice <name> was given";
 
-/// The phase 5 red run: the slice's claims, the red set among them, its
-/// validations each run alone; fails naming every unvalidated red-set claim
-/// and every green test.
+/// The phase 5 red run: the slice's claims, the red set among them — diffed
+/// in the crate that holds the claims — its validations each run alone;
+/// fails naming every unvalidated red-set claim and every green test.
 #[implements(spec::AGreenValidationFailsTheRedCheck)]
 pub fn check_red(project: &Project, slice: &str) -> Result<(), String> {
     let registries = package_registries(project)?;
     let claims = require_claims(all_slice_claims(&registries, slice), slice)?;
-    let red = red_set(project, &slice_crate(project, slice)?, slice, claims)?;
+    let crates = SliceCrates::resolve(project, slice)?.map_err(|refusal| refusal.reason)?;
+    let red = red_set(project, crates.claims_crate(), slice, claims)?;
     let outcomes = run_validations(project, &registries, &red)?;
     red_verdict(&unvalidated(&red, &outcomes), &outcomes)
 }
@@ -599,8 +620,9 @@ pub fn resolve_slice(project: &Project, given: Option<String>) -> Result<Option<
     Ok(given.or(current_branch(project)?.and_then(|branch| slice_of_branch(&branch))))
 }
 
-/// The slice an `lld/<slice>` branch is for, or none for any other name.
-#[implements(spec::TheSliceComesFromTheBranchName)]
+/// The slice an `lld/<slice>` branch is for — everything after the prefix,
+/// whole — or none for any other name.
+#[implements(spec::TheSliceComesFromTheBranchName, spec::AChangeBranchNamesItsSliceBeforeTheDoubleDash)]
 pub fn slice_of_branch(branch: &str) -> Option<String> {
     branch.strip_prefix("lld/").map(str::to_string)
 }
