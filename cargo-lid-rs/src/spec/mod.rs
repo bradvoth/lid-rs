@@ -258,19 +258,30 @@ pub use phase::{
     ACheckStopsAtTheFirstFailingStep,
     ASlicesClaimsAreTheSpecsInItsSpecFile,
     TheSliceComesFromTheBranchName,
+    AChangeBranchNamesItsSliceBeforeTheDoubleDash,
     ASliceWithNoClaimsFailsTheRedCheck,
     TheBaseIsTheNewestGateCommitReachableFromHead,
     TheRedSetIsTheClaimsAddedSinceTheBase,
+    AProcMacroSlicesClaimsAreHeldByItsCompanion,
     AFreshSliceHasEveryClaimInTheRedSet,
     AnEmptyRedSetAfterAGateFailsTheRedCheck,
     EveryClaimNeedsAValidationBeforePhaseFivePasses,
     EachValidationRunsAloneByExactName,
     AGreenValidationFailsTheRedCheck,
     TheSlicesCrateIsTheOneHoldingItsLld,
-    PhaseTwoMayWriteOnlyTheSlicesSpecFiles,
-    PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot,
-    PhasesFiveAndSevenMayWriteOnlyTheSliceModule,
-    PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy,
+    PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
+    PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot,
+    PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule,
+    PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy,
+    AnOrdinaryCrateHasNoCompanion,
+    TheCompanionIsTheMemberTheProcMacroCratesMetadataNames,
+    AProcMacroCrateNamingNoCompanionRefusesEveryEdit,
+    ACompanionThatIsAProcMacroCrateRefusesEveryEdit,
+    ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit,
+    APathUnderTheCompanionIsJudgedByTheCompanionsTable,
+    PhaseTwoMayWriteOnlyTheCompanionsSpecFiles,
+    PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot,
+    PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
     ARefusedEditQuotesTheDisciplineRow,
     ReadsAreNeverRefused,
     EveryToolCallIsTallied,
@@ -283,19 +294,41 @@ pub use phase::{
     AFailingOutputNamesItsCheck,
     SyncedArtifactsMustMatchAtTheStop,
     ChangesOutsideThePolicyRefuseTheStop,
+    IntegrityFiltersAgainstBothCratesAllowedPaths,
     OnlyThePoliciesPathsAreStaged,
+    TheStopStagesBothCratesAllowedPaths,
     NothingToCommitIsARefusal,
     TheTallyIsWrittenAsTrailers,
     ACompileTimeSliceIsDisclosed, ACompileTimeSliceNeedsTheHumansAcceptance,
     SyncMirrorsEveryArtifactTheDependencyShips,
 };
 
-/// The name [`PhaseTwoChecksTheClaimsBuild`] carried while phase 2's check
-/// also linted. The alias registers no claim, so the graph sees only the
-/// claim it points at; every citation of this name warns with its
-/// replacement, and those citations are the later phases' work list.
-#[deprecated = "replaced by PhaseTwoChecksTheClaimsBuild"]
-pub type PhaseTwoChecksTheClaimsBuildAndLint = phase::PhaseTwoChecksTheClaimsBuild;
+// The names below are the ones the `phase` slice's claims carried before a
+// proc-macro crate's slice had a companion. Each alias registers no claim,
+// so the graph sees only the claim it points at; every citation of the old
+// name warns with its replacement, and those citations are the later phases'
+// work list.
+
+/// The name [`PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles`] carried while the
+/// slice's crate was the only crate a phase could write.
+#[deprecated = "replaced by PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles"]
+pub type PhaseTwoMayWriteOnlyTheSlicesSpecFiles = phase::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
+
+/// The name [`PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot`]
+/// carried while the slice's crate was the only crate a phase could write.
+#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot"]
+pub type PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot =
+    phase::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot;
+
+/// The name [`PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule`] carried
+/// while the slice's crate was the only crate a phase could write.
+#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule"]
+pub type PhasesFiveAndSevenMayWriteOnlyTheSliceModule = phase::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule;
+
+/// The name [`PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy`] carried
+/// while there was one crate to be outside of.
+#[deprecated = "replaced by PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy"]
+pub type PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy = phase::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy;
 
 pub use sync::{
     TheSkillComesFromTheResolvedLidRsDependency,

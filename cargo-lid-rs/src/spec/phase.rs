@@ -59,6 +59,13 @@ pub struct ASlicesClaimsAreTheSpecsInItsSpecFile;
 #[derive(Spec)]
 pub struct TheSliceComesFromTheBranchName;
 
+/// When the branch's name after `lld/` contains `--`, the slice shall be the
+/// part before the first `--` — `lld/phase--companion` is a change to the
+/// slice `phase`, made on its own branch because the branch that built the
+/// slice is kept and git admits no `lld/phase/companion` beside it.
+#[derive(Spec)]
+pub struct AChangeBranchNamesItsSliceBeforeTheDoubleDash;
+
 /// When the slice's spec file registers no claims, the phase 5 check shall
 /// fail naming the slice, never pass vacuously.
 #[derive(Spec)]
@@ -72,9 +79,16 @@ pub struct TheBaseIsTheNewestGateCommitReachableFromHead;
 
 /// When a base exists, the red set shall be those of the slice's registered
 /// claims whose `struct <Name>` line is an added line of `git diff <base> --
-/// src/spec/<slice>.rs` in the slice's crate.
+/// src/spec/<slice>.rs`.
 #[derive(Spec)]
 pub struct TheRedSetIsTheClaimsAddedSinceTheBase;
+
+/// When the slice's crate has a companion, the package that holds the
+/// slice's claims — where the red run diffs the spec file and runs each
+/// validation — shall be the companion, since a proc-macro crate registers
+/// no claim and can cite none.
+#[derive(Spec)]
+pub struct AProcMacroSlicesClaimsAreHeldByItsCompanion;
 
 /// When no gate commit is reachable from `HEAD`, the red set shall be every
 /// claim of the slice.
@@ -111,27 +125,87 @@ pub struct AGreenValidationFailsTheRedCheck;
 #[derive(Spec)]
 pub struct TheSlicesCrateIsTheOneHoldingItsLld;
 
-/// When a Phase 2 agent edits or writes, the target shall be the slice's
-/// spec file or `src/spec/mod.rs` in the slice's crate, and nothing else.
+/// When a Phase 2 agent edits or writes under the slice's own crate, the
+/// target shall be the slice's spec file or `src/spec/mod.rs`, and nothing
+/// else in that crate.
 #[derive(Spec)]
-pub struct PhaseTwoMayWriteOnlyTheSlicesSpecFiles;
+pub struct PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 
-/// When a Phase 3 or 4 agent edits or writes, the target shall be the
-/// slice's module, a file under its directory, or `src/lib.rs` in the
-/// slice's crate, and nothing else.
+/// When a Phase 3 or 4 agent edits or writes under the slice's own crate,
+/// the target shall be the slice's module, a file under its directory, or
+/// `src/lib.rs`, and nothing else in that crate.
 #[derive(Spec)]
-pub struct PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot;
+pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot;
 
-/// When a Phase 5 or 7 agent edits or writes, the target shall be the
-/// slice's module or a file under its directory, and nothing else.
+/// When a Phase 5 or 7 agent edits or writes under the slice's own crate,
+/// the target shall be the slice's module or a file under its directory,
+/// and nothing else in that crate.
 #[derive(Spec)]
-pub struct PhasesFiveAndSevenMayWriteOnlyTheSliceModule;
+pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule;
 
-/// When a target path contains a parent component or resolves outside the
-/// slice's crate, the policy shall refuse it before any allowed set is
-/// consulted.
+/// When a target path contains a parent component or resolves outside both
+/// the slice's crate and its companion, the policy shall refuse it before
+/// any allowed set is consulted.
 #[derive(Spec)]
-pub struct PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy;
+pub struct PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy;
+
+// ---- hook pre-tool: a proc-macro crate's companion ---------------------------
+
+/// When the slice's crate declares no `proc-macro` target, its companion
+/// shall be none, whatever its package metadata carries.
+#[derive(Spec)]
+pub struct AnOrdinaryCrateHasNoCompanion;
+
+/// When the slice's crate is a proc-macro crate whose package metadata, as
+/// `cargo metadata` reports it, names a workspace member under
+/// `lid_rs.companion`, the companion shall be that member's manifest
+/// directory — read from the metadata, never by parsing the manifest.
+#[derive(Spec)]
+pub struct TheCompanionIsTheMemberTheProcMacroCratesMetadataNames;
+
+/// When the slice's crate is a proc-macro crate whose package metadata names
+/// no `lid_rs.companion`, the policy shall refuse every edit naming
+/// `[package.metadata.lid_rs] companion`, since no phase of such a slice can
+/// produce a claim.
+#[derive(Spec)]
+pub struct AProcMacroCrateNamingNoCompanionRefusesEveryEdit;
+
+/// When the named companion is itself a proc-macro crate, the policy shall
+/// refuse every edit naming the key, as it does for a missing companion.
+#[derive(Spec)]
+pub struct ACompanionThatIsAProcMacroCrateRefusesEveryEdit;
+
+/// When the named companion is not a workspace member, the policy shall
+/// refuse every edit naming the key, as it does for a missing companion.
+#[derive(Spec)]
+pub struct ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit;
+
+/// When the slice's crate has a companion and the target path resolves under
+/// the companion, the policy shall judge it by the phase's companion table,
+/// relative to the companion — the allowed set is the union of the two
+/// tables, each relative to its crate.
+#[derive(Spec)]
+pub struct APathUnderTheCompanionIsJudgedByTheCompanionsTable;
+
+/// When a Phase 2 agent edits or writes under the companion, the target
+/// shall be the slice's spec file or `src/spec/mod.rs` there, and nothing
+/// else in the companion.
+#[derive(Spec)]
+pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;
+
+/// When a Phase 3 or 4 agent edits or writes under the companion, the target
+/// shall be the slice's module, a file under its directory, or `src/lib.rs`
+/// there — where the hand-authored edges citing the slice's claims go — and
+/// nothing else in the companion.
+#[derive(Spec)]
+pub struct PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot;
+
+/// When a Phase 5 or 7 agent edits or writes under the companion, the target
+/// shall be the slice's module, a file under its directory, or a file under
+/// `tests/ui/` — the one place a compile-failure fixture can live — and
+/// nothing else in the companion.
+#[derive(Spec)]
+pub struct PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures;
 
 /// When an edit or write is refused, the reason shall quote the
 /// `discipline.md` row for that moment and name what the phase may do
@@ -209,10 +283,22 @@ pub struct SyncedArtifactsMustMatchAtTheStop;
 #[derive(Spec)]
 pub struct ChangesOutsideThePolicyRefuseTheStop;
 
+/// When the slice's crate has a companion, the integrity check shall filter
+/// `git status` against both crates' allowed sets, so a change under the
+/// companion's table is the phase's own and any other is named.
+#[derive(Spec)]
+pub struct IntegrityFiltersAgainstBothCratesAllowedPaths;
+
 /// When the check and both integrity checks pass, the hook shall stage
 /// exactly the phase's allowed paths and commit the block's message.
 #[derive(Spec)]
 pub struct OnlyThePoliciesPathsAreStaged;
+
+/// When the slice's crate has a companion and the check passes, the hook
+/// shall stage the phase's allowed paths of both crates — each table
+/// relative to its crate — and nothing else.
+#[derive(Spec)]
+pub struct TheStopStagesBothCratesAllowedPaths;
 
 /// When nothing under the phase's allowed paths has changed, the stop shall
 /// be refused as having nothing to commit.
