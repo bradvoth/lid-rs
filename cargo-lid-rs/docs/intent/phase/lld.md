@@ -97,7 +97,8 @@ to snake_case module), read from the registry dump the mutation subcommand
 already uses — never from Rust source (README constraint 2). The
 validations citing them are the `VALID` edges on those claims, each
 carrying the test's item path; each test runs alone, `cargo test --lib -p
-<package> -- --exact <path>`, and the outcome is its exit status. A claim
+<package> -- --exact <path>` in the package that holds the slice's claims,
+and the outcome is its exit status. A claim
 with no validation, or a validation that passes, is named in the failure. A
 slice whose spec file registers no claims is a failure too ("no claims for
 slice `<name>`"), never a vacuous pass.
@@ -108,7 +109,8 @@ is the newest commit reachable from `HEAD` whose subject starts `phase 7:`
 it was. The red set is the slice's claims, from the registry as above,
 whose definition the branch added since that base: the claim's name, as
 `struct <Name>`, on an added line of `git diff <base> -- src/spec/<slice>.rs`
-in the slice's crate. With no gate commit in the history the whole file is
+in the crate that holds the slice's claims — the slice's crate, or its
+companion (the path policy, below). With no gate commit in the history the whole file is
 added and the red set is every claim — a fresh slice. On a Phase 8 edit the
 red set is exactly the claims Phase 2 renamed or added, since a reword is a
 rename (the `phase-check` section above); the slice's other claims keep
@@ -119,10 +121,13 @@ changes no claim has no Phases 3–7, and the workflow stops with that
 decision. The graph still comes from the registry alone; the diff decides
 only which of its names are new.
 
-`--slice` defaults to the current branch's name with the `lld/` prefix
-removed, the skill's branch convention; a detached `HEAD` or a branch not of
-that form names no slice, which fails phase 5 naming the convention and is
-irrelevant to the other phases.
+`--slice` defaults to the slice the current branch names: the branch's name
+with the `lld/` prefix removed and, when what remains contains `--`, the
+part before it — `lld/phase--companion` is a change to the slice `phase`,
+made on its own branch because the branch that built the slice is kept, and
+git admits no `lld/phase/companion` beside an `lld/phase`. A detached `HEAD`
+or a branch not of that form names no slice, which fails phase 5 naming the
+convention and is irrelevant to the other phases.
 
 Phase 7 is README §4.5 as the tool runs it: the same commands in the same
 order, `cargo package` for every workspace package whose metadata does not
@@ -174,6 +179,40 @@ by parsing Rust:
 | 5 | `src/<slice>.rs`, `src/<slice>/**` |
 | 7 (with 6) | `src/<slice>.rs`, `src/<slice>/**` |
 | reviewer | nothing |
+
+**A proc-macro crate's slice.** A proc-macro crate links into no binary,
+so a claim defined in it registers nowhere, a `#[validates]` test in it can
+cite nothing, and a fixture that expands its macros must live downstream of
+it. Such a slice keeps those three things in its **companion**: the
+workspace package the proc-macro crate's manifest names under
+`[package.metadata.lid_rs] companion = "<package>"`, read from `cargo
+metadata`'s package metadata, never by parsing the manifest. The slice's
+crate is still the one whose manifest directory holds the LLD; its
+`compile-time-accepted` file stays there; and the phase's allowed set is
+the union of the table above, relative to the slice's crate, and this one,
+relative to the companion:
+
+| Phase | May write, in the companion |
+|---|---|
+| 2 | `src/spec/<slice>.rs`, `src/spec/mod.rs` |
+| 3, 4 | `src/<slice>.rs`, `src/<slice>/**`, `src/lib.rs` |
+| 5 | `src/<slice>.rs`, `src/<slice>/**`, `tests/ui/**` |
+| 7 (with 6) | `src/<slice>.rs`, `src/<slice>/**`, `tests/ui/**` |
+
+So Phase 2 writes the companion's spec files and nothing in the proc-macro
+crate; Phases 3 and 4 write the macro's module and the companion's, whose
+`src/lib.rs` is where the hand-authored edges citing the slice's claims go;
+Phases 5 and 7 write both modules and the companion's `tests/ui`, the one
+place a compile-failure fixture can live. A proc-macro crate whose manifest
+names no companion is refused at every edit, naming the key, since no phase
+of such a slice can produce a claim. A companion that is itself a proc-macro
+crate, or is not a workspace member, is refused the same way. Each of those
+is a policy refusal like any other — tallied, quoting the discipline row,
+naming what the phase may do instead — and not a hook that cannot decide;
+the companion is resolved once per hook call, before the acceptance gate.
+The stop hook stages the allowed paths of both crates, the integrity check
+filters against both, and a refusal for a failed check names the permitted
+paths of both.
 
 Everything else is refused, in every phase — named here because each is a
 rule the skill states and a moment its evidence table records the rule
@@ -307,12 +346,30 @@ decision to run a slice unattended.
   numbered decisions the skill's stop contract requires. A reviewer agent
   reads the commit against the phase's checklist and the `discipline.md`
   rows tagged for that phase, prompted to refute, and returns
-  approve-or-findings. Findings go back to a worker once; a second
-  rejection ends the run with the findings as the human's decisions.
+  approve-or-findings. Findings go back to a worker, and the run carries
+  a budget of six reworks it spends across every phase: a rejection spends
+  one and the phase runs again with the findings; a rejection with the
+  budget spent ends the run with the findings as the human's decisions.
+  The budget is one pool rather than an allowance per phase, because a
+  slice's difficulty is not spread evenly — the run that measured this
+  needed three attempts at one phase and four at another, and a per-phase
+  allowance generous enough for the second would have been a licence
+  everywhere else. Six is that run's five reworks with one to spare. It is
+  not an argument, a flag, or a setting a prompt can carry: a bound given
+  once is a bound, and one that can be raised is not.
 - **Terminal states**: *PR-ready* — every phase committed and the gate
   passed, the run returns the branch and the accumulated decisions for the
   human's PR review; or *stopped at phase N* — with the decisions that
-  stopped it. There is no third state and no waiver argument.
+  stopped it, and, when the budget is what stopped it, that fact. There is
+  no third state and no waiver argument.
+
+A rejection is the only thing the budget pays for. A failing *check* is
+not a rejection: it is refused by the phase's own stop hook, which keeps
+the worker running with the reason, up to the harness's cap of eight —
+two mechanisms with two bounds, and they do not meet. A finding that
+belongs to an earlier phase's artifact still ends the run, as it does
+today: the walk is a line, and the budget buys more attempts at a phase
+rather than a way back to one.
 
 The script sequences and checks the shape of what agents return; it cannot
 run `cargo` or `git` itself. Every check that matters runs in a hook, where
@@ -384,7 +441,9 @@ hold these facts:
   accepted it by committing `docs/intent/<slice>/compile-time-accepted`
   with the LLD — a file in the human-owned path, so acceptance is a human
   commit the hooks verify in both modes, never an argument a model could
-  supply.
+  supply. The companion of a proc-macro slice is an ordinary crate; the
+  acceptance covers the macro's edits, which is where compile-time
+  execution is.
 - **Reads are unbounded** by design; confidentiality is not a property of
   this boundary. Nothing the agent reads leaves through a tool — it has no
   network and no command — but what its code reads at Phase 5 or 7 can.
@@ -413,16 +472,20 @@ document does not imply it.
 | `execute`, `execute_with`, `run_step` | Runs steps in order; the first failure is the result |
 | `check_red`, `slice_claims`, `claim_validations`, `run_test`, `unvalidated`, `red_verdict` | The phase 5 red run over the registry dump |
 | `gate_base(project) -> Option<String>`, `red_set(project, crate_root, slice, claims) -> Vec<String>` | The newest `phase 7:` commit reachable from `HEAD`; the slice's claims whose `struct <Name>` line the diff since it added |
-| `slice_of_branch`, `resolve_slice`, `current_branch` | The slice from `lld/<slice>`; a detached `HEAD` names none |
+| `slice_of_branch`, `resolve_slice`, `current_branch` | The slice from `lld/<slice>` or `lld/<slice>--<change>`; a detached `HEAD` names none |
 | `HookInput` | The boundary type over the hook JSON: `agent_id`, `tool_name`, `tool_input` path, `last_assistant_message`, `stop_hook_active` |
-| `policy::allowed(phase, crate_root, path) -> Verdict` | The path table; `Verdict::Refused(reason)` carries the discipline row |
+| `policy::allowed(phase, crates, path) -> Verdict` | The path tables, over the slice's crate and its companion if any; `Verdict::Refused(reason)` carries the discipline row |
+| `policy::allowed_paths(phase, slice, seat)` | One phase's set for one seat: `Seat::Own` is the first table, `Seat::Companion` the second |
 | `policy::slice_crate(project, slice) -> PathBuf` | The package whose manifest dir holds `docs/intent/<slice>/lld.md` |
+| `policy::companion(project, crate_root) -> Result<Option<PathBuf>, Refusal>` | The package `[package.metadata.lid_rs] companion` names, from `cargo metadata`; none for an ordinary crate; a refusal naming the key for a proc-macro crate without one, or one whose companion is a proc-macro crate or not a member |
+| `Project::package_setting_at(dir, key)`, `Project::member_dir_named(name)` | What `companion` reads: a package's `[package.metadata.lid_rs]` setting, and a member's manifest directory by package name — both from the metadata document `Project` already holds, in `src/project.rs`, which this slice's phases may not write and the human adds by hand |
+| `SliceCrates { slice, own, companion }`, `SliceCrates::resolve`, `claims_crate()` | The crates a phase may write, resolved once per hook call; the crate that holds the slice's claims, where the red run diffs and tests |
 | `Tally`, `tally::record(agent_id, kind)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
 | `hook_pre_tool(phase, input)` | Policy verdict for editing tools, tally for every tool |
 | `hook_post_edit(project, input)` | Clippy, rendered as `additionalContext` |
 | `hook_stop(project, phase, input) -> HookVerdict` | Parse the message; `commit` → integrity → check → integrity → stage → commit → allow; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
-| `integrity::outside_policy_clean(project, phase, crate_root)` | `git status --porcelain` filtered against the allowed set; anything else is named |
+| `integrity::outside_policy_clean(project, phase, crates)` | `git status --porcelain` filtered against both crates' allowed sets; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
 | `compile_time_accepted(crate_root, slice)` | Whether `docs/intent/<slice>/compile-time-accepted` exists |
 | `Ending::{Commit(message), Stop(decisions)}`, `ending_of(message)` | The stop protocol, parsed from the final message |
@@ -444,6 +507,9 @@ document does not imply it.
 | Policy enforcement point | `PreToolUse` on the agent, with reasons quoted from `discipline.md` | Prose in the phase files (the 0.2.1 arrangement); a post-hoc diff check at the stop | A rule in prose is dropped exactly when it is inconvenient (skill LLD, evidence table); a diff check at the stop lets the agent spend a phase on work it must then discard. Refusing at the call is immediate, and quoting the discipline row keeps one source of truth for the rule's wording. |
 | Confused-deputy scope | Writes are bounded; reads are not | Also restrict what the agent may read | The boundary is about what an instruction — from the prompt or from a file — can make the agent *do*; hiding files would make the reviewer's cold reading impossible and gains nothing once writes are bounded. |
 | Runtime tampering | Detected at the stop (synced artifacts and everything outside the policy must be unchanged) and refused; prevented only by isolation | Sandbox every check from the hook (`bwrap`, `sandbox-exec`); ignore it | Detection is cheap, deterministic, and names the event; a sandbox is a control of its own with platform rules, deferred rather than implied. Ignoring it would let a Phase 5 test rewrite the policy the next session loads. |
+| Where a proc-macro crate's slice keeps its claims, companion module, and fixtures | A companion crate, named by the proc-macro crate's `[package.metadata.lid_rs] companion`, with its own per-phase path table | Build such slices by hand, outside the phases; a widened policy for compile-time slices; deriving the companion from the dependency graph (the member that depends on the macro crate and re-exports it) | A proc-macro crate cannot register a claim or cite one, so without a second crate no phase of its slice has an artifact; by hand forgoes the gate for the four slices that extend the derive. A widened policy admits everything. The dependency graph names every dependant, and which one re-exports the macros is a question of Rust source; one line of package metadata, read from `cargo metadata`, is the answer the human gives once. |
+| The branch a change to a delivered slice is made on | `lld/<slice>--<change>`; the slice is the part before the first `--` | `lld/<slice>/<change>`; `lld/<slice>@<change>`; committing to the original `lld/<slice>` | git refuses `lld/<slice>/<change>` while `lld/<slice>` exists, and the original is kept forever as the slice's origin. `@` is legal in a ref but reads as a revision suffix in every git command line. A double dash cannot occur in a kebab-case slice name, so the slice is the part before the first `--`. The original branch is the slice's story; a change branch is the change's. |
+| Shared leaves on a Phase 8 edit | A leaf that also implements a claim outside the red set keeps its body; Phase 3 wipes only leaves whose every claim is in the red set; Phase 5 makes each red-set claim red by validating the delta | Wipe every implementer of a red-set claim; commit every such Phase 5 by hand | Wiping a shared leaf breaks green validations of claims the edit never touched, so Phase 3 could not commit. A reword's delta is observable by construction — it is why the claim was reworded — so a validation of it can be red without un-implementing anything. Hand commits stay for subtractions, whose delta is an absence. |
 | Compile-time slices | Disclosed from `cargo metadata`; edits refused unless `docs/intent/<slice>/compile-time-accepted` exists, a file only the human's Phase 1 commit can add | Refuse them outright; treat them like any slice; a workflow argument (`args.compile_time`) | The tool's own `lid-rs-macros` is such a crate and must be workable; the human, not the workflow, decides to run compile-time code unattended. A workflow argument reaches the hook only through a model's prompt, which is exactly the channel the policy must not trust; a file in a path no agent can write is a decision the hook can verify. |
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
 | The workflow's structured answer | `StructuredOutput` is an observation | A fourth tool kind; a command, with the workflow parsing the worker's final message instead of a `schema` | The call reads and writes nothing, and it arrives after the stop hook has already judged the commit block: refusing it there ends the run with the phase committed and the workflow reporting a failure. A tool kind of its own would count something the tally has no question about. |
@@ -470,9 +536,10 @@ document does not imply it.
    `[workspace.metadata.lid_rs] gate_extra` list `phase-check 7` would run
    after the floor. Until then those steps live in CI only.
 2. Worktree isolation per phase worker (see Decisions).
-3. The workflow's Phase 8 path: the precondition's "first phase without a
-   commit" reading of an existing slice's branch needs the
-   `-<what-changed>` branch convention settled first.
+3. The workflow's Phase 8 path: with `lld/<slice>--<change>` settled, the
+   precondition's "first phase without a commit" reading still counts only
+   commits made on the branch itself, and a change branch cut from a merged
+   `main` needs that reading to start at the branch point.
 4. A documentation phase: the cascade a slice causes in README, CLAUDE.md,
    and the skill is no phase agent's to make under the policy; today it is
    the human's, or the main session's outside a LID phase.
@@ -492,19 +559,16 @@ document does not imply it.
    from `outcomes.json`), or a stop hook that hands the gate to a
    detached process and refuses until it reports, would put Phase 7 back
    under the hook.
-8. A Phase 8 edit that subtracts or rewords has no red run. Phase 5's
-   check demands that every red-set claim's validation fail, and the red
-   set is the claims whose `struct <Name>` line the branch added. On a
-   reword, the renamed claim enters the red set while the one `match` arm
-   that implements it is re-cited by Phase 3 in the same edit; on a
-   subtraction, the behaviour change *is* the shape change, so it lands at
-   Phase 3 and every validation of it is green before Phase 5 writes one.
-   Neither can be made red without deleting working code. The walk needs a
-   stated answer — Phase 3 leaving a red-set claim's leaf unimplemented is
-   not generally available, since a leaf like `plan` is shared with claims
-   outside the red set whose validations would break — and until it has
-   one, such a Phase 5 is committed by hand with the reason in its body,
-   as this slice's was.
+8. A Phase 8 edit that subtracts has no red run: the behaviour change
+   *is* the shape change, so it lands at Phase 3 and every validation of
+   it is green before Phase 5 writes one; such a Phase 5 is committed by
+   hand with the reason in its body. A reword whose delta is observable
+   has one, by the rule in Decisions: a leaf shared with claims outside
+   the red set keeps its body, and Phase 5 writes or rewrites each
+   red-set claim's validations to observe the delta — a companion path
+   judged by the companion's table, a `--` name cut at the dash — so a
+   validation that observed only what the reword kept is rewritten,
+   since a red-set claim with a green validation fails the check.
 9. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.

@@ -105,13 +105,19 @@ if (!state.tree_clean) return stopped('precondition', ['the working tree is not 
 if (state.compile_time && !state.compile_time_accepted) return stopped('precondition', [`"${slice}" is a compile-time slice: editing it executes the agent's code after every edit. To run it unattended, commit docs/intent/${slice}/compile-time-accepted with the LLD; the hooks refuse edits until then`])
 if (state.compile_time) log(`"${slice}" is a compile-time slice; the human's acceptance file is present`)
 
+// The run's rework budget: a rejection spends one, across every phase.
+// One pool rather than an allowance each, because a slice's difficulty is
+// not spread evenly. Not an argument: a bound that can be raised is not one.
+const REWORK_BUDGET = 6
+let budget = REWORK_BUDGET
+
 const decisions = []
 for (const p of PHASES) {
   if (state.committed_phases.includes(p.n)) { log(`${p.title} is already committed on ${branch}; skipping`); continue }
   phase(p.title)
   let findings = []
   let approved = false
-  for (let attempt = 0; attempt < 2 && !approved; attempt++) {
+  for (let attempt = 0; !approved; attempt++) {
     let work
     try {
       work = await agent(workerPrompt(p, state, findings), { label: `phase-${p.n}-worker`, agentType: `lid-rs-phase-${p.n}`, schema: WORK })
@@ -124,7 +130,12 @@ for (const p of PHASES) {
     const review = await agent(reviewerPrompt(p, state), { label: `phase-${p.n}-review`, agentType: 'lid-rs-review', schema: REVIEW })
     if (!review || review.approved) { approved = true; break }
     findings = review.findings
-    log(`${p.title}: the reviewer returned ${findings.length} finding(s); one rework round`)
+    if (budget === 0) {
+      log(`${p.title}: the reviewer returned ${findings.length} finding(s); the run's rework budget is spent`)
+      break
+    }
+    budget -= 1
+    log(`${p.title}: the reviewer returned ${findings.length} finding(s); reworking, ${budget} of ${REWORK_BUDGET} left`)
   }
   if (!approved) return stopped(p.title, findings)
 }
