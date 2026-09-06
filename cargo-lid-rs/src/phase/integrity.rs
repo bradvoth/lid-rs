@@ -101,6 +101,25 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
+    fn integrity_filters_against_both_crates_allowed_paths() {
+        let (dir, project) = fixture::two_member_workspace("integrity-companion", "", "");
+        // Phase 5 of `m`: `src/m.rs` and `src/m` in `owner`; those and `tests/ui` in `app`.
+        let crates = SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) };
+        outside_policy_clean(&project, Phase::Five, &crates).expect("clean");
+        std::fs::write(dir.join("owner/src/m.rs"), "//! m\n").expect("write");
+        std::fs::create_dir_all(dir.join("app/tests/ui")).expect("dir");
+        std::fs::write(dir.join("app/tests/ui/fail.rs"), "").expect("write");
+        outside_policy_clean(&project, Phase::Five, &crates).expect("a change under either crate's table is the phase's own");
+        std::fs::create_dir_all(dir.join("owner/tests/ui")).expect("dir");
+        std::fs::write(dir.join("owner/tests/ui/fail.rs"), "").expect("write");
+        std::fs::write(dir.join("app/src/lib.rs"), "// changed\n").expect("write");
+        let err = outside_policy_clean(&project, Phase::Five, &crates).expect_err("outside either table is named");
+        let named = err.contains("owner/tests/ui/fail.rs") && err.contains("app/src/lib.rs");
+        assert!(named && !err.contains("owner/src/m.rs") && !err.contains("app/tests/ui/fail.rs"), "{err}");
+    }
+
+    #[test]
     #[validates(spec::NothingToCommitIsARefusal)]
     fn what_a_commit_would_stage_is_the_changes_within_the_policy() {
         let (dir, project) = fixture::copy("integrity-within");

@@ -924,6 +924,43 @@ pub(crate) mod fixture {
         (dir, project)
     }
 
+    /// The manifest tail that makes a member a proc-macro crate.
+    pub const PROC_MACRO_LIB: &str = "[lib]\nproc-macro = true\n";
+
+    /// The manifest tail naming `name` as a member's companion.
+    pub fn companion_setting(name: &str) -> String {
+        format!("[package.metadata.lid_rs]\ncompanion = \"{name}\"\n")
+    }
+
+    /// A scratch workspace of two members, committed on `lld/m`: `owner`,
+    /// whose manifest directory holds `docs/intent/m/lld.md`, and `app`.
+    /// Each manifest tail follows the member's `[package]` table. The
+    /// project is loaded without a dependency graph, which the members do
+    /// not have; the root is canonical, as the paths `cargo metadata`
+    /// reports are.
+    pub fn two_member_workspace(name: &str, owner_manifest: &str, app_manifest: &str) -> (PathBuf, Project) {
+        let dir = scratch(name).canonicalize().expect("scratch dir");
+        std::fs::write(dir.join("Cargo.toml"), "[workspace]\nresolver = \"2\"\nmembers = [\"owner\", \"app\"]\n").expect("workspace manifest");
+        std::fs::write(dir.join(".gitignore"), "/target\n").expect("gitignore");
+        member(&dir, "owner", owner_manifest);
+        member(&dir, "app", app_manifest);
+        std::fs::create_dir_all(dir.join("owner/docs/intent/m")).expect("docs");
+        std::fs::write(dir.join("owner/docs/intent/m/lld.md"), "# m\n\nThe m slice.\n").expect("lld");
+        git(&dir, &["init", "-q", "-b", "lld/m"]);
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "phase 1: LLD for m"]);
+        let project = Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata");
+        (dir, project)
+    }
+
+    /// One member of the scratch workspace, with an empty library.
+    fn member(root: &Path, name: &str, manifest: &str) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(dir.join("src")).expect("member dir");
+        std::fs::write(dir.join("Cargo.toml"), format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n{manifest}")).expect("manifest");
+        std::fs::write(dir.join("src/lib.rs"), "").expect("lib");
+    }
+
     /// The fixture's current `HEAD`.
     pub fn head(dir: &Path) -> String {
         let out = std::process::Command::new("git").args(["rev-parse", "HEAD"]).current_dir(dir).output().expect("git");
@@ -1144,6 +1181,23 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::AChangeBranchNamesItsSliceBeforeTheDoubleDash)]
+    fn a_change_branch_names_its_slice_before_the_double_dash() {
+        assert_eq!(slice_of_branch("lld/phase--companion"), Some("phase".to_string()));
+        assert_eq!(slice_of_branch("lld/phase-gate--red-set"), Some("phase-gate".to_string()), "a single dash is the slice's own");
+        assert_eq!(slice_of_branch("lld/phase--a--b"), Some("phase".to_string()), "the part before the first double dash");
+    }
+
+    #[test]
+    #[validates(spec::AChangeBranchNamesItsSliceBeforeTheDoubleDash)]
+    fn a_change_branchs_slice_is_resolved_from_it() {
+        let root = scratch_repo("resolve-slice-change");
+        let project = project_in_repo(&root);
+        git(&root, &["checkout", "-q", "-b", "lld/demo--warmth"]);
+        assert_eq!(resolve_slice(&project, None).expect("git"), Some("demo".to_string()), "the change branch is a change to `demo`");
+    }
+
+    #[test]
     #[validates(spec::TheSliceComesFromTheBranchName)]
     fn phase_check_takes_the_phase_and_an_optional_slice() {
         assert_eq!(parse_args(&strings(&["5"])).expect("parses"), (Phase::Five, None));
@@ -1333,6 +1387,26 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         assert!(diff.contains("+pub struct GreetsWarmly;"), "{diff}");
         let red = red_set(&project, &root, "hello", strings(&["Greets", "GreetsWarmly"])).expect("git");
         assert_eq!(red, strings(&["GreetsWarmly"]));
+    }
+
+    #[test]
+    #[validates(spec::AProcMacroSlicesClaimsAreHeldByItsCompanion)]
+    fn the_red_run_diffs_the_spec_file_in_the_crate_that_holds_the_claims() {
+        let root = scratch_repo("red-set-companion");
+        let project = project_in_repo(&root);
+        let crates = SliceCrates { slice: "hello".to_string(), own: root.join("mac"), companion: Some(root.join("app")) };
+        // The proc-macro crate holds a library and no spec file; the companion holds the claims.
+        std::fs::create_dir_all(root.join("mac/src")).expect("macro crate");
+        std::fs::write(root.join("mac/src/lib.rs"), "").expect("lib");
+        write_hello_spec(&root.join("app"), "/// Says hello.\npub struct Greets;\n");
+        let base = commit_all(&root, "phase 7: 0.1.0: hello gated");
+        write_hello_spec(&root.join("app"), "/// Says hello.\npub struct Greets;\n\n/// Warmly.\npub struct GreetsWarmly;\n");
+        commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
+        let claims = strings(&["Greets", "GreetsWarmly"]);
+        assert_eq!(crates.claims_crate(), root.join("app"), "the companion holds the claims");
+        assert_eq!(red_set(&project, crates.claims_crate(), "hello", claims.clone()).expect("git"), strings(&["GreetsWarmly"]));
+        let err = red_set(&project, &crates.own, "hello", claims).expect_err("diffed in the macro crate, the edit added nothing");
+        assert!(err.contains(&base), "{err}");
     }
 
     #[test]
@@ -1631,5 +1705,47 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         let input = fixture::tool_input("m", "Edit", &target);
         let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
         assert!(refuses(&verdict, "compile-time-accepted"), "{verdict:?}");
+    }
+
+    /// The key a proc-macro crate names its companion under, as a refusal
+    /// must name it.
+    const COMPANION_KEY: &str = "[package.metadata.lid_rs] companion";
+
+    /// The pre-tool verdict for agent `k` editing `relative` in the scratch
+    /// workspace, on the slice `m`.
+    fn edit_verdict_in(dir: &Path, project: &Project, phase: Phase, relative: &str) -> HookVerdict {
+        edit_verdict_for(project, phase, "m", &fixture::tool_input("k", "Edit", &dir.join(relative))).expect("hook")
+    }
+
+    #[test]
+    #[validates(spec::AProcMacroCrateNamingNoCompanionRefusesEveryEdit)]
+    fn a_proc_macro_crate_naming_no_companion_refuses_every_edit() {
+        let (dir, project) = fixture::two_member_workspace("companion-none", fixture::PROC_MACRO_LIB, "");
+        // The paths each phase's own table admits are refused all the same.
+        let spec = edit_verdict_in(&dir, &project, Phase::Two, "owner/src/spec/m.rs");
+        assert!(refuses(&spec, COMPANION_KEY), "{spec:?}");
+        let module = edit_verdict_in(&dir, &project, Phase::Seven, "owner/src/m.rs");
+        assert!(refuses(&module, COMPANION_KEY), "{module:?}");
+        assert_eq!(tally::load(&project, "k").expect("tally").policy_refusals, 2, "a policy refusal like any other");
+    }
+
+    #[test]
+    #[validates(spec::ACompanionThatIsAProcMacroCrateRefusesEveryEdit)]
+    fn a_companion_that_is_a_proc_macro_crate_refuses_every_edit() {
+        let owner = format!("{}{}", fixture::PROC_MACRO_LIB, fixture::companion_setting("app"));
+        let (dir, project) = fixture::two_member_workspace("companion-proc-macro", &owner, fixture::PROC_MACRO_LIB);
+        let verdict = edit_verdict_in(&dir, &project, Phase::Two, "app/src/spec/m.rs");
+        assert!(refuses(&verdict, COMPANION_KEY) && refuses(&verdict, "app"), "{verdict:?}");
+        assert!(refuses(&edit_verdict_in(&dir, &project, Phase::Five, "owner/src/m.rs"), COMPANION_KEY));
+    }
+
+    #[test]
+    #[validates(spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit)]
+    fn a_companion_that_is_not_a_workspace_member_refuses_every_edit() {
+        let owner = format!("{}{}", fixture::PROC_MACRO_LIB, fixture::companion_setting("nowhere"));
+        let (dir, project) = fixture::two_member_workspace("companion-not-a-member", &owner, "");
+        let verdict = edit_verdict_in(&dir, &project, Phase::Five, "owner/src/m.rs");
+        assert!(refuses(&verdict, COMPANION_KEY) && refuses(&verdict, "nowhere"), "{verdict:?}");
+        assert!(refuses(&edit_verdict_in(&dir, &project, Phase::Two, "owner/src/spec/m.rs"), COMPANION_KEY));
     }
 }

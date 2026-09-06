@@ -408,9 +408,27 @@ mod tests {
         SliceCrates { slice: "hello".to_string(), own: PathBuf::from("/w/app"), companion: None }
     }
 
-    /// Whether a phase refuses a target under `/w/app`.
+    /// The slice `hello` in a proc-macro crate at `/w/mac` whose companion
+    /// is `/w/app`.
+    fn with_companion() -> SliceCrates {
+        SliceCrates { slice: "hello".to_string(), own: PathBuf::from("/w/mac"), companion: Some(PathBuf::from("/w/app")) }
+    }
+
+    /// Whether a phase refuses a target for these crates.
+    fn refused_for(crates: &SliceCrates, phase: Phase, target: &str) -> bool {
+        matches!(allowed(phase, crates, Path::new(target)), Verdict::Refused(_))
+    }
+
+    /// Whether a phase refuses a target under `/w/app`, the one crate.
     fn refused(phase: Phase, target: &str) -> bool {
-        matches!(allowed(phase, &own_only(), Path::new(target)), Verdict::Refused(_))
+        refused_for(&own_only(), phase, target)
+    }
+
+    /// Asserts whether each target is refused for these crates at this phase.
+    fn check_refusals(crates: &SliceCrates, phase: Phase, cases: &[(&str, bool)]) {
+        for (target, expected) in cases {
+            assert_eq!(refused_for(crates, phase, target), *expected, "{phase:?} {target}");
+        }
     }
 
     #[test]
@@ -429,8 +447,9 @@ mod tests {
     #[validates(spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles)]
     fn phase_two_may_write_only_the_own_crates_spec_files() {
         assert_eq!(allowed_paths(Phase::Two, "hello", Seat::Own), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
-        assert!(!refused(Phase::Two, "/w/app/src/spec/hello.rs"));
-        assert!(refused(Phase::Two, "/w/app/src/hello.rs"));
+        check_refusals(&own_only(), Phase::Two, &[("/w/app/src/spec/hello.rs", false), ("/w/app/src/hello.rs", true)]);
+        // With a companion, the own crate is still judged by its own row.
+        check_refusals(&with_companion(), Phase::Two, &[("/w/mac/src/spec/mod.rs", false), ("/w/mac/src/lib.rs", true)]);
     }
 
     #[test]
@@ -474,6 +493,8 @@ mod tests {
         for (phase, target, expected) in cases {
             assert_eq!(refused(phase, target), expected, "{phase:?} {target}");
         }
+        // The own crate's row admits no fixtures, even when the companion's does.
+        check_refusals(&with_companion(), Phase::Five, &[("/w/mac/tests/ui/fail.rs", true), ("/w/mac/src/hello/part.rs", false)]);
     }
 
     #[test]
@@ -487,10 +508,124 @@ mod tests {
 
     #[test]
     #[validates(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy)]
-    fn a_target_is_made_crate_relative_without_parent_components() {
-        let root = Path::new("/w/app");
-        assert_eq!(within_crate(root, Path::new("/w/app/src/hello.rs")), Some(PathBuf::from("src/hello.rs")));
-        assert_eq!(within_crate(root, Path::new("/w/app/src/../Cargo.toml")), None);
+    fn a_path_under_neither_crate_is_refused_before_either_table() {
+        // Under neither crate, or reached through a parent component from
+        // either — even one that resolves inside — is refused as outside.
+        let targets = ["/w/other/src/hello.rs", "/w/app/src/hello/../../Cargo.toml", "/w/mac/../app/src/hello.rs", "/w/app/../mac/src/hello.rs"];
+        for target in targets {
+            let Verdict::Refused(why) = allowed(Phase::Three, &with_companion(), Path::new(target)) else { panic!("{target} was allowed") };
+            assert!(why.contains("outside the slice's crates"), "{target}: {why}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy)]
+    fn a_target_is_seated_and_made_crate_relative_without_parent_components() {
+        let crates = with_companion();
+        let cases = [
+            ("/w/mac/src/hello.rs", Some((Seat::Own, PathBuf::from("src/hello.rs")))),
+            ("/w/app/tests/ui/fail.rs", Some((Seat::Companion, PathBuf::from("tests/ui/fail.rs")))),
+            ("/w/mac/src/../Cargo.toml", None),
+            ("/w/app/../mac/src/hello.rs", None),
+        ];
+        for (target, expected) in cases {
+            assert_eq!(crates.seat_of(Path::new(target)), expected, "{target}");
+        }
+        assert_eq!(own_only().seat_of(Path::new("/w/other/src/hello.rs")), None, "no companion: under the own crate or nowhere");
+    }
+
+    #[test]
+    #[validates(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
+    fn a_path_under_the_companion_is_judged_by_the_companions_table() {
+        let crates = with_companion();
+        // At Phase 5 the two rows differ: fixtures are the companion's to write.
+        check_refusals(&crates, Phase::Five, &[("/w/app/tests/ui/fail.rs", false), ("/w/mac/tests/ui/fail.rs", true)]);
+        // Each row is relative to its own crate: the union, not one set.
+        check_refusals(&crates, Phase::Two, &[("/w/app/src/spec/hello.rs", false), ("/w/app/src/hello.rs", true)]);
+        assert_ne!(allowed_paths(Phase::Five, "hello", Seat::Own), allowed_paths(Phase::Five, "hello", Seat::Companion));
+    }
+
+    #[test]
+    #[validates(spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles)]
+    fn phase_two_may_write_only_the_companions_spec_files() {
+        assert_eq!(allowed_paths(Phase::Two, "hello", Seat::Companion), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
+        assert_eq!(allowed_paths(Phase::Two, "phase-gate", Seat::Companion), paths(&["src/spec/phase_gate.rs", "src/spec/mod.rs"]));
+        let cases = [("/w/app/src/spec/mod.rs", false), ("/w/app/src/lib.rs", true), ("/w/app/tests/ui/fail.rs", true)];
+        check_refusals(&with_companion(), Phase::Two, &cases);
+    }
+
+    #[test]
+    #[validates(spec::PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot)]
+    fn phases_three_and_four_may_write_the_companions_slice_module_and_library_root() {
+        let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
+        assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Companion), expected);
+        assert_eq!(allowed_paths(Phase::Four, "hello", Seat::Companion), expected);
+        // `src/lib.rs` is where the hand-authored edges go; fixtures and claims are not this row's.
+        check_refusals(&with_companion(), Phase::Four, &[("/w/app/src/lib.rs", false)]);
+        check_refusals(&with_companion(), Phase::Three, &[("/w/app/tests/ui/fail.rs", true), ("/w/app/src/spec/hello.rs", true)]);
+    }
+
+    #[test]
+    #[validates(spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures)]
+    fn phases_five_and_seven_may_write_the_companions_slice_module_and_ui_fixtures() {
+        let expected = paths(&["src/hello.rs", "src/hello", "tests/ui"]);
+        assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Companion), expected);
+        assert_eq!(allowed_paths(Phase::Seven, "hello", Seat::Companion), expected);
+        // The fixtures are `tests/ui` alone; the library root is not this row's.
+        check_refusals(&with_companion(), Phase::Seven, &[("/w/app/tests/ui/fail.rs", false), ("/w/app/tests/other.rs", true)]);
+        check_refusals(&with_companion(), Phase::Five, &[("/w/app/src/hello/part.rs", false), ("/w/app/src/lib.rs", true)]);
+    }
+
+    #[test]
+    #[validates(spec::AProcMacroSlicesClaimsAreHeldByItsCompanion)]
+    fn a_proc_macro_slices_claims_are_held_by_its_companion() {
+        assert_eq!(with_companion().claims_crate(), Path::new("/w/app"), "the companion, not the macro crate");
+        let ordinary = SliceCrates { slice: "hello".to_string(), own: PathBuf::from("/w/lib"), companion: None };
+        assert_eq!(ordinary.claims_crate(), Path::new("/w/lib"), "an ordinary crate holds its own");
+    }
+
+    #[test]
+    #[validates(spec::AnOrdinaryCrateHasNoCompanion)]
+    fn an_ordinary_crate_has_no_companion() {
+        let (dir, project) = fixture::two_member_workspace("companion-ordinary", &fixture::companion_setting("app"), "");
+        assert_eq!(companion(&project, &dir.join("owner")), Ok(None), "the setting counts only for a proc-macro crate");
+        let crates = SliceCrates::resolve(&project, "m").expect("the LLD is held").expect("no refusal");
+        assert_eq!(crates, SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: None });
+    }
+
+    #[test]
+    #[validates(spec::TheCompanionIsTheMemberTheProcMacroCratesMetadataNames)]
+    fn the_companion_is_the_member_the_proc_macro_crates_metadata_names() {
+        let owner = format!("{}{}", fixture::PROC_MACRO_LIB, fixture::companion_setting("app"));
+        let (dir, project) = fixture::two_member_workspace("companion-named", &owner, "");
+        assert_eq!(companion(&project, &dir.join("owner")), Ok(Some(dir.join("app"))));
+        let crates = SliceCrates::resolve(&project, "m").expect("the LLD is held").expect("no refusal");
+        assert_eq!(crates, SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) });
+    }
+
+    #[test]
+    #[validates(spec::TheStopStagesBothCratesAllowedPaths)]
+    fn the_stop_stages_both_crates_allowed_paths() {
+        let (dir, project) = fixture::two_member_workspace("stage-both", "", "");
+        let crates = SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) };
+        let both = workspace_paths(&project, Phase::Five, &crates).expect("both under the root");
+        assert_eq!(both, paths(&["owner/src/m.rs", "owner/src/m", "app/src/m.rs", "app/src/m", "app/tests/ui"]));
+        // What the commit stages is the changes within that set, and nothing else.
+        std::fs::write(dir.join("owner/src/m.rs"), "//! m\n").expect("write");
+        std::fs::create_dir_all(dir.join("app/tests/ui")).expect("dir");
+        std::fs::write(dir.join("app/tests/ui/fail.rs"), "").expect("write");
+        std::fs::write(dir.join("app/src/lib.rs"), "// changed\n").expect("write");
+        assert_eq!(crate::phase::integrity::changed_within(&project, &both).expect("status"), paths(&["app/tests/ui/fail.rs", "owner/src/m.rs"]));
+        let own = SliceCrates { companion: None, ..crates };
+        assert_eq!(workspace_paths(&project, Phase::Five, &own).expect("under the root"), paths(&["owner/src/m.rs", "owner/src/m"]));
+    }
+
+    #[test]
+    #[validates(spec::TheStopStagesBothCratesAllowedPaths)]
+    fn a_crate_outside_the_root_cannot_be_staged() {
+        assert_eq!(crate_prefix(Path::new("/w"), Path::new("/w/app")).expect("under the root"), PathBuf::from("app"));
+        let err = crate_prefix(Path::new("/w"), Path::new("/elsewhere/app")).expect_err("not under the root");
+        assert!(err.contains("/elsewhere/app") && err.contains("/w"), "names both: {err}");
     }
 
     #[test]
