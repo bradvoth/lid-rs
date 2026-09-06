@@ -587,8 +587,9 @@ how each one was built. The branch is never deleted and its tip is tagged
 
 ### 9.5 Subsequent changes
 
-A change to a merged slice is a new branch `lld/<slice>/<change>` from `main`,
-with an LLD edit as its first commit. Stage A applies; Stage B runs from Phase
+A change to a merged slice is a new branch `lld/<slice>--<change>` from
+`main` — a double dash, because git admits no `lld/<slice>/<change>` beside
+the kept `lld/<slice>` — with an LLD edit as its first commit. Stage A applies; Stage B runs from Phase
 2; the same protections apply. The original `lld/<slice>` stays as the slice's
 origin story. A Phase 8 edit that subtracts or rewords has no red run of its
 own — README §8 — so its Phase 5 is the reviewer's, not the gate's, and the
