@@ -87,7 +87,7 @@ impl SliceCrates {
     /// spec file: the companion when there is one, else the slice's own.
     #[implements(spec::AProcMacroSlicesClaimsAreHeldByItsCompanion)]
     pub fn claims_crate(&self) -> &Path {
-        todo!()
+        self.companion.as_deref().unwrap_or(&self.own)
     }
 
     /// The seats a phase writes in, each with its crate: the slice's own,
@@ -95,7 +95,9 @@ impl SliceCrates {
     /// the integrity check filters in.
     #[implements(spec::TheStopStagesBothCratesAllowedPaths, spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
     pub fn seats(&self) -> Vec<(Seat, &Path)> {
-        todo!()
+        std::iter::once((Seat::Own, self.own.as_path()))
+            .chain(self.companion.as_deref().map(|companion| (Seat::Companion, companion)))
+            .collect()
     }
 
     /// The seat a target lies under, with the target relative to that seat's
@@ -104,7 +106,9 @@ impl SliceCrates {
     /// neither, which is refused before any table is consulted.
     #[implements(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy, spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
     pub fn seat_of(&self, target: &Path) -> Option<(Seat, PathBuf)> {
-        todo!()
+        within_crate(&self.own, target)
+            .map(|relative| (Seat::Own, relative))
+            .or_else(|| self.companion.as_deref().and_then(|companion| within_crate(companion, target)).map(|relative| (Seat::Companion, relative)))
     }
 }
 
@@ -178,7 +182,7 @@ fn usable_companion(project: &Project, name: &str, dir: PathBuf) -> Result<PathB
 /// cite none.
 #[implements(spec::AnOrdinaryCrateHasNoCompanion, spec::ACompanionThatIsAProcMacroCrateRefusesEveryEdit)]
 fn is_proc_macro(project: &Project, crate_root: &Path) -> bool {
-    todo!()
+    project.target_kinds_at(crate_root).iter().any(|kind| kind == "proc-macro")
 }
 
 /// The policy's refusal of a proc-macro crate without a usable companion:
@@ -191,7 +195,13 @@ fn is_proc_macro(project: &Project, crate_root: &Path) -> bool {
     spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit,
 )]
 fn companion_refusal(what: &str) -> Refusal {
-    todo!()
+    Refusal {
+        reason: format!(
+            "`[package.metadata.lid_rs] {COMPANION_KEY}` {what}. The slice's crate is a proc-macro crate, which registers no claim and \
+             can cite none, so no phase of this slice can produce a claim: every edit is refused until the manifest names a workspace \
+             member that is not itself a proc-macro crate as the companion."
+        ),
+    }
 }
 
 /// One phase's allowed set for one seat, as paths relative to that seat's
@@ -242,7 +252,7 @@ fn companion_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
 /// the slice name in snake_case) and `src/spec/mod.rs`.
 #[implements(spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles, spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles)]
 fn spec_files(slice: &str) -> Vec<PathBuf> {
-    todo!()
+    vec![PathBuf::from(super::spec_file_of(slice)), PathBuf::from("src/spec/mod.rs")]
 }
 
 /// The slice's module — `src/<slice>.rs` and the directory `src/<slice>`,
@@ -255,7 +265,10 @@ fn spec_files(slice: &str) -> Vec<PathBuf> {
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
 )]
 fn module_and(slice: &str, extras: &[&str]) -> Vec<PathBuf> {
-    todo!()
+    let module = slice.replace('-', "_");
+    let mut paths = vec![PathBuf::from(format!("src/{module}.rs")), Path::new("src").join(&module)];
+    paths.extend(extras.iter().map(PathBuf::from));
+    paths
 }
 
 /// The verdict for a target: refused before any table when it has a parent
@@ -295,7 +308,10 @@ fn seat_workspace_paths(root: &Path, phase: Phase, slice: &str, seat: Seat, crat
 /// failure naming both when it is not under the root.
 #[implements(spec::TheStopStagesBothCratesAllowedPaths)]
 fn crate_prefix(root: &Path, crate_root: &Path) -> Result<PathBuf, String> {
-    todo!()
+    crate_root
+        .strip_prefix(root)
+        .map(Path::to_path_buf)
+        .map_err(|_| format!("`{}` is not under the workspace root `{}`, so nothing in it can be staged", crate_root.display(), root.display()))
 }
 
 /// Whether a crate-relative path is in the phase's set.
@@ -587,8 +603,11 @@ mod tests {
     #[test]
     #[validates(spec::AnOrdinaryCrateHasNoCompanion)]
     fn an_ordinary_crate_has_no_companion() {
-        let (dir, project) = fixture::two_member_workspace("companion-ordinary", &fixture::companion_setting("app"), "");
+        // Both members carry the setting; only `app` declares the target.
+        let app = format!("{}{}", fixture::PROC_MACRO_LIB, fixture::companion_setting("owner"));
+        let (dir, project) = fixture::two_member_workspace("companion-ordinary", &fixture::companion_setting("app"), &app);
         assert_eq!(companion(&project, &dir.join("owner")), Ok(None), "the setting counts only for a proc-macro crate");
+        assert_eq!(companion(&project, &dir.join("app")), Ok(Some(dir.join("owner"))), "none is for the crate without the target, not for every crate");
         let crates = SliceCrates::resolve(&project, "m").expect("the LLD is held").expect("no refusal");
         assert_eq!(crates, SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: None });
     }

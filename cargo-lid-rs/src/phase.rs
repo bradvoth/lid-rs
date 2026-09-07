@@ -621,10 +621,12 @@ pub fn resolve_slice(project: &Project, given: Option<String>) -> Result<Option<
 }
 
 /// The slice an `lld/<slice>` branch is for — everything after the prefix,
-/// whole — or none for any other name.
+/// cut at the first `--` when there is one, since `lld/<slice>--<change>`
+/// is a change to a delivered slice on its own branch — or none for any
+/// other name.
 #[implements(spec::TheSliceComesFromTheBranchName, spec::AChangeBranchNamesItsSliceBeforeTheDoubleDash)]
 pub fn slice_of_branch(branch: &str) -> Option<String> {
-    branch.strip_prefix("lld/").map(str::to_string)
+    branch.strip_prefix("lld/").map(|name| name.split_once("--").map_or(name, |(slice, _)| slice).to_string())
 }
 
 /// The repository's current branch name, or none on a detached `HEAD`
