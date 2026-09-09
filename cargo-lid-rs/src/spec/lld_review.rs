@@ -17,43 +17,51 @@ use lid_rs::Spec;
 /// When `lld-check` runs, the slice it checks shall be the value of `--slice`,
 /// or, absent that flag, the current branch's name with `lld/` removed.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheSliceIsTheFlagsValueOrTheBranchName;
 
 /// When `lld-check` is given an argument that is not `--slice <name>`, it shall
 /// be rejected by name.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnyOtherArgumentIsRejectedByName;
 
 /// When `lld-check` reads a slice's document, it shall be that slice's
 /// `lld.md` under the workspace package whose manifest directory holds it,
 /// wherever the layout puts that document, found on the filesystem.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt;
 
 /// When no workspace package holds a document for the slice, the document
 /// shall be the layout's answer under the workspace root, where a slice whose
 /// product is the workspace rather than a crate keeps it.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot;
 
 /// When the document the layout answers for the slice cannot be read,
 /// `lld-check` shall fail naming the path it looked for.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnUnreadableLldFailsNamingItsPath;
 
 /// When every check holds on the document, `lld-check` shall exit zero; when
 /// any check fails it shall exit non-zero.
 #[derive(Spec)]
+#[lid(free)]
 pub struct LldCheckExitsZeroOnlyWhenEveryCheckHolds;
 
 /// When more than one check fails, `lld-check` shall report every failure
 /// rather than stopping at the first.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryFailureIsReportedNotOnlyTheFirst;
 
 /// When a check fails, its failure shall name the check, the file and line it is
 /// about, and the sentence the skill states the rule in.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AFailureNamesItsCheckItsFileItsLineAndItsRule;
 
 // ---- the parse the checks share -----------------------------------------------
@@ -62,6 +70,7 @@ pub struct AFailureNamesItsCheckItsFileItsLineAndItsRule;
 /// between that heading and the next heading, less the header row and its
 /// separator.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator;
 
 // ---- the document checks ------------------------------------------------------
@@ -69,31 +78,37 @@ pub struct ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator;
 /// When the document has no `## Decisions & Alternatives` heading with a table
 /// under it, `lld-check` shall fail naming that heading.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ADocumentWithoutADecisionsTableFails;
 
 /// When a row of the decisions table has fewer than four cells, or leaves one of
 /// them empty, `lld-check` shall fail naming that row's line.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryDecisionsRowFillsItsFourCells;
 
 /// When a row of the `## Shape` table names no backticked identifier, or gives
 /// an empty role, `lld-check` shall fail naming that row's line.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryShapeRowNamesAnIdentifierAndARole;
 
 /// When the document has no `## Shape` table, the shape-row check shall hold,
 /// since a slice may name its shape in prose instead.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ADocumentWithNoShapeTableHoldsThatCheck;
 
 /// When an item under `### Deferred` is not a numbered list item, `lld-check`
 /// shall fail naming that item's line.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryDeferredItemIsANumberedListItem;
 
 /// When the document has no `### Deferred` heading, the deferred-numbering check
 /// shall hold, since a document that defers nothing has no item to number.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ADocumentWithNoDeferredHeadingHoldsThatCheck;
 
 // ---- the artifact checks ------------------------------------------------------
@@ -107,6 +122,7 @@ pub struct ADocumentWithNoDeferredHeadingHoldsThatCheck;
 /// every variant of `Check`, `lld-check` shall fail naming each variant the
 /// checklist omits, on the line that file's checklist heading is at.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryCheckIsNamedInTheGuidelinesChecklist;
 
 /// When the frontmatter of `.claude/agents/lid-rs-lld-review.md` declares a set
@@ -114,20 +130,24 @@ pub struct EveryCheckIsNamedInTheGuidelinesChecklist;
 /// naming the tools it declares, on the line that file's `tools:` declaration is
 /// at.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheReaderDeclaresOnlyTheObservationTools;
 
 /// When an artifact check has no such line to point at — the guideline holding
 /// no checklist heading, the reader no `tools:` line — its failure shall point
 /// at that file's first line.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnArtifactFailureWithNoLineToCitePointsAtTheFirstLine;
 
 /// When `lld-check` runs, it shall apply both artifact checks whatever slice is
 /// named, since the files they read do not depend on the slice.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheArtifactChecksRunWhateverSliceIsNamed;
 
 /// When either synced artifact is absent or cannot be read, `lld-check` shall
 /// fail naming the path it looked for.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnUnreadableSyncedArtifactFailsNamingItsPath;

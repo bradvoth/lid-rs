@@ -8,17 +8,20 @@ use lid_rs::Spec;
 /// When `phase-check` is given a phase with no commit of its own — 0, 6, or
 /// any number above 7 — it shall fail naming the phases that have a check.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesWithoutACommitHaveNoCheck;
 
 /// When phase 1 is checked, the tool shall run the LLD's mechanical checks,
 /// then rustdoc with broken intra-doc links denied, then the doctests, in
 /// that order.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhaseOneChecksTheDocs;
 
 /// When phase 2 is checked, the tool shall run `cargo check --all-targets`
 /// and nothing else.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhaseTwoChecksTheClaimsBuild;
 
 /// When the workspace builds with warnings and no error — a skeleton's
@@ -26,22 +29,26 @@ pub struct PhaseTwoChecksTheClaimsBuild;
 /// check shall pass, so a claim the design turns out to need is committable
 /// while the rest of the slice stands.
 #[derive(Spec)]
+#[lid(free)]
 pub struct WarningsDoNotFailPhaseTwosCheck;
 
 /// When phase 3 or 4 is checked, the tool shall run `cargo check
 /// --all-targets` and nothing else.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesThreeAndFourCheckTheSkeletonTypeChecks;
 
 /// When phase 7 is checked, the tool shall run the README §4.5 gate in its
 /// order — check, clippy, doc, doctests, lib tests, `cargo package` for each
 /// package that publishes, `sync --check`, `mutants`.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhaseSevenRunsTheGateInOrder;
 
 /// When a step of a phase's sequence fails, the check shall stop there and
 /// fail naming that step, running no later step.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACheckStopsAtTheFirstFailingStep;
 
 // ---- phase-check 5: the red run ----------------------------------------------
@@ -50,6 +57,7 @@ pub struct ACheckStopsAtTheFirstFailingStep;
 /// specs whose source file is `src/spec/<slice>.rs` — the slice name in
 /// snake_case — read from the registry dump, never from Rust source.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ASlicesClaimsAreTheSpecsInItsSpecFile;
 
 /// When `--slice` is absent, the slice shall be the current branch's name
@@ -57,6 +65,7 @@ pub struct ASlicesClaimsAreTheSpecsInItsSpecFile;
 /// form names no slice, which fails the phase 5 check naming the
 /// convention; any other flag shall be rejected by name.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheSliceComesFromTheBranchName;
 
 /// When the branch's name after `lld/` contains `--`, the slice shall be the
@@ -64,23 +73,27 @@ pub struct TheSliceComesFromTheBranchName;
 /// slice `phase`, made on its own branch because the branch that built the
 /// slice is kept and git admits no `lld/phase/companion` beside it.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AChangeBranchNamesItsSliceBeforeTheDoubleDash;
 
 /// When the slice's spec file registers no claims, the phase 5 check shall
 /// fail naming the slice, never pass vacuously.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ASliceWithNoClaimsFailsTheRedCheck;
 
 /// When the red run locates its base, the base shall be the newest commit
 /// reachable from `HEAD` whose subject starts `phase 7:`, whichever slice
 /// that gate was for.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheBaseIsTheNewestGateCommitReachableFromHead;
 
 /// When a base exists, the red set shall be those of the slice's registered
 /// claims whose `struct <Name>` line is an added line of `git diff <base> --
 /// src/spec/<slice>.rs`.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheRedSetIsTheClaimsAddedSinceTheBase;
 
 /// When the slice's crate has a companion, the package that holds the
@@ -88,33 +101,39 @@ pub struct TheRedSetIsTheClaimsAddedSinceTheBase;
 /// validation — shall be the companion, since a proc-macro crate registers
 /// no claim and can cite none.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AProcMacroSlicesClaimsAreHeldByItsCompanion;
 
 /// When no gate commit is reachable from `HEAD`, the red set shall be every
 /// claim of the slice.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AFreshSliceHasEveryClaimInTheRedSet;
 
 /// When a base exists and the red set is empty, the phase 5 check shall fail
 /// naming the base, never pass vacuously.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnEmptyRedSetAfterAGateFailsTheRedCheck;
 
 /// When a claim in the red set has no validation edge, the phase 5 check
 /// shall fail naming the claim.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryClaimNeedsAValidationBeforePhaseFivePasses;
 
 /// When the red set's validations are run, each shall run alone as `cargo
 /// test --lib -p <package> -- --exact <path>`, with the citing item's path
 /// made libtest-relative, and its exit status shall be its outcome.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EachValidationRunsAloneByExactName;
 
 /// When a validation of a red-set claim passes at phase 5, the check shall
 /// fail naming the test; when every one fails, the check shall pass, whatever
 /// the slice's other validations do.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AGreenValidationFailsTheRedCheck;
 
 // ---- hook pre-tool: the path policy ------------------------------------------
@@ -123,30 +142,35 @@ pub struct AGreenValidationFailsTheRedCheck;
 /// package whose manifest directory holds `docs/intent/<slice>/lld.md`,
 /// found on the filesystem, never by parsing Rust.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheSlicesCrateIsTheOneHoldingItsLld;
 
 /// When a Phase 2 agent edits or writes under the slice's own crate, the
 /// target shall be the slice's spec file or `src/spec/mod.rs`, and nothing
 /// else in that crate.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 
 /// When a Phase 3 or 4 agent edits or writes under the slice's own crate,
 /// the target shall be the slice's module, a file under its directory, or
 /// `src/lib.rs`, and nothing else in that crate.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot;
 
 /// When a Phase 5 or 7 agent edits or writes under the slice's own crate,
 /// the target shall be the slice's module or a file under its directory,
 /// and nothing else in that crate.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule;
 
 /// When a target path contains a parent component or resolves outside both
 /// the slice's crate and its companion, the policy shall refuse it before
 /// any allowed set is consulted.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy;
 
 // ---- hook pre-tool: a proc-macro crate's companion ---------------------------
@@ -154,6 +178,7 @@ pub struct PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy;
 /// When the slice's crate declares no `proc-macro` target, its companion
 /// shall be none, whatever its package metadata carries.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnOrdinaryCrateHasNoCompanion;
 
 /// When the slice's crate is a proc-macro crate whose package metadata, as
@@ -161,6 +186,7 @@ pub struct AnOrdinaryCrateHasNoCompanion;
 /// `lid_rs.companion`, the companion shall be that member's manifest
 /// directory — read from the metadata, never by parsing the manifest.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheCompanionIsTheMemberTheProcMacroCratesMetadataNames;
 
 /// When the slice's crate is a proc-macro crate whose package metadata names
@@ -168,16 +194,19 @@ pub struct TheCompanionIsTheMemberTheProcMacroCratesMetadataNames;
 /// `[package.metadata.lid_rs] companion`, since no phase of such a slice can
 /// produce a claim.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AProcMacroCrateNamingNoCompanionRefusesEveryEdit;
 
 /// When the named companion is itself a proc-macro crate, the policy shall
 /// refuse every edit naming the key, as it does for a missing companion.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACompanionThatIsAProcMacroCrateRefusesEveryEdit;
 
 /// When the named companion is not a workspace member, the policy shall
 /// refuse every edit naming the key, as it does for a missing companion.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit;
 
 /// When the slice's crate has a companion and the target path resolves under
@@ -185,12 +214,14 @@ pub struct ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit;
 /// relative to the companion — the allowed set is the union of the two
 /// tables, each relative to its crate.
 #[derive(Spec)]
+#[lid(free)]
 pub struct APathUnderTheCompanionIsJudgedByTheCompanionsTable;
 
 /// When a Phase 2 agent edits or writes under the companion, the target
 /// shall be the slice's spec file or `src/spec/mod.rs` there, and nothing
 /// else in the companion.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;
 
 /// When a Phase 3 or 4 agent edits or writes under the companion, the target
@@ -198,6 +229,7 @@ pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;
 /// there — where the hand-authored edges citing the slice's claims go — and
 /// nothing else in the companion.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot;
 
 /// When a Phase 5 or 7 agent edits or writes under the companion, the target
@@ -205,24 +237,28 @@ pub struct PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot;
 /// `tests/ui/` — the one place a compile-failure fixture can live — and
 /// nothing else in the companion.
 #[derive(Spec)]
+#[lid(free)]
 pub struct PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures;
 
 /// When an edit or write is refused, the reason shall quote the
 /// `discipline.md` row for that moment and name what the phase may do
 /// instead: proceed within its allowed paths, or end with the decision.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ARefusedEditQuotesTheDisciplineRow;
 
 /// When a phase agent calls a tool that does not edit — Read, Grep, Glob,
 /// LSP, or the workflow's `StructuredOutput` — the hook shall allow it
 /// whatever the path.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ReadsAreNeverRefused;
 
 /// When any tool call reaches the hook, the agent's tally shall count it by
 /// kind — edit, observation, command — and count every refusal, under the
 /// agent's id.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryToolCallIsTallied;
 
 // ---- hook post-edit: clippy after every edit ---------------------------------
@@ -231,6 +267,7 @@ pub struct EveryToolCallIsTallied;
 /// workspace with warnings denied and hand its output, or "clean", back as
 /// additional context, refusing nothing.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryEditIsFollowedByClippy;
 
 // ---- hook stop: the check, then the commit -----------------------------------
@@ -239,28 +276,33 @@ pub struct EveryEditIsFollowedByClippy;
 /// `stop` block, or carries both, the stop shall be refused with the
 /// format.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AFinalMessageCarriesExactlyOneEnding;
 
 /// When the final message carries a `stop` block, the hook shall commit
 /// nothing and allow the stop.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AStopBlockEndsThePhaseWithoutACommit;
 
 /// When a `commit` block's subject does not begin with the agent's own
 /// `phase <n>:` tag, the stop shall be refused naming the expected tag.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACommitSubjectMustCarryThisPhasesTag;
 
 /// When the final message carries a `commit` block with this phase's tag,
 /// the hook shall run the phase's check, and a failing check shall refuse
 /// the stop.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACommitBlockRunsThePhasesCheck;
 
 /// When a check fails, the refusal's reason shall be, in order, the failing
 /// step's output, the `gates.md` row for the check that fired, and what the
 /// phase's policy permits.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ARefusalCarriesTheOutputTheRuleAndThePermittedMoves;
 
 /// When a clippy lint in the failing output is one the gate relies on, it
@@ -269,40 +311,47 @@ pub struct ARefusalCarriesTheOutputTheRuleAndThePermittedMoves;
 /// `wildcard_enum_match_arm` 6, `missing_docs` 3 — and a red-run failure
 /// shall name the Phase 5 rule, a survivor check 12.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AFailingOutputNamesItsCheck;
 
 /// When the synced artifacts differ from the dependency's, before or after
 /// the check, the stop shall be refused naming them, and nothing shall be
 /// committed.
 #[derive(Spec)]
+#[lid(free)]
 pub struct SyncedArtifactsMustMatchAtTheStop;
 
 /// When, after the check, any path outside the phase's allowed set has
 /// changed, the stop shall be refused naming it, and nothing shall be
 /// committed.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ChangesOutsideThePolicyRefuseTheStop;
 
 /// When the slice's crate has a companion, the integrity check shall filter
 /// `git status` against both crates' allowed sets, so a change under the
 /// companion's table is the phase's own and any other is named.
 #[derive(Spec)]
+#[lid(free)]
 pub struct IntegrityFiltersAgainstBothCratesAllowedPaths;
 
 /// When the check and both integrity checks pass, the hook shall stage
 /// exactly the phase's allowed paths and commit the block's message.
 #[derive(Spec)]
+#[lid(free)]
 pub struct OnlyThePoliciesPathsAreStaged;
 
 /// When the slice's crate has a companion and the check passes, the hook
 /// shall stage the phase's allowed paths of both crates — each table
 /// relative to its crate — and nothing else.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheStopStagesBothCratesAllowedPaths;
 
 /// When nothing under the phase's allowed paths has changed, the stop shall
 /// be refused as having nothing to commit.
 #[derive(Spec)]
+#[lid(free)]
 pub struct NothingToCommitIsARefusal;
 
 /// When a phase commit is made, its message shall end with the
@@ -310,6 +359,7 @@ pub struct NothingToCommitIsARefusal;
 /// `Lid-Rs-Refusals` trailers rendered from the agent's tally, the agent
 /// being the id the tally was kept under.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheTallyIsWrittenAsTrailers;
 
 // ---- execution class -----------------------------------------------------------
@@ -318,12 +368,14 @@ pub struct TheTallyIsWrittenAsTrailers;
 /// its execution class shall be compile-time, naming which; otherwise it
 /// shall be ordinary.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACompileTimeSliceIsDisclosed;
 
 /// When the slice is compile-time and `docs/intent/<slice>/compile-time-accepted`
 /// does not exist in the slice's crate, the policy shall refuse every edit,
 /// naming the file the human commits to accept it.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ACompileTimeSliceNeedsTheHumansAcceptance;
 
 // ---- sync: the mirrored artifacts ------------------------------------------------
@@ -333,4 +385,5 @@ pub struct ACompileTimeSliceNeedsTheHumansAcceptance;
 /// place in the project, and `--check` shall hold every one to the skill's
 /// any-difference rule.
 #[derive(Spec)]
+#[lid(free)]
 pub struct SyncMirrorsEveryArtifactTheDependencyShips;

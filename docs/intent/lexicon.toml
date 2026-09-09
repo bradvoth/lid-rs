@@ -1,0 +1,8 @@
+# This workspace's lexicon, added to the base in `lid-rs-macros/lexicon.toml`.
+#
+# It defines no verb: every claim here that is written in the controlled
+# language is in a published crate, and a published crate's claims answer to
+# the base alone. Verbs for the unpublished members go here when they need one.
+
+[prohibited]
+extra = ["promptly", "gracefully", "simply", "obviously"]

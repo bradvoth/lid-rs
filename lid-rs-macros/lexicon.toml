@@ -1,0 +1,74 @@
+# The base lexicon: the verbs every claim may use, wherever it is written.
+#
+# A published crate is built by its consumers with this file and no other, so a
+# claim in `lid-rs`, `lid-rs-macros` or `cargo-lid-rs` uses no verb outside it.
+# A project adds its own in `docs/intent/lexicon.toml`; a verb named in both is
+# the project's, whole.
+#
+# `def` is required and is for the reader of this file: nothing in the derive
+# carries it. `signature` is what a verb promises about an implementer's return
+# type — `*` for a verb that constrains behaviour rather than shape.
+
+[verbs.return]
+def       = "produce as the Ok value of the implementing function"
+signature = ["-> Result<{object}, _>", "-> {object}"]
+
+[verbs.reject]
+def       = "produce as the Err value of the implementing function"
+signature = ["-> Result<_, {owner}>"]
+
+[verbs.emit]
+def       = "send on the named channel or sink; no value returned"
+signature = ["-> Result<(), _>", "-> ()"]
+
+[verbs.log]
+def       = "write to the audit log at the stated level"
+signature = ["-> Result<(), _>", "-> ()"]
+
+[verbs.retain]
+def       = "keep available for at least the stated duration"
+signature = "*"
+
+[verbs.equal]
+def       = "compare as identical under PartialEq"
+signature = "*"
+
+[verbs.be]
+def       = "hold the stated property; the validator observes it"
+signature = "*"
+
+[verbs.fail]
+def       = "not complete; for a derive, a compile error at the item it decorates"
+signature = "*"
+
+[verbs.stop]
+def       = "end the run at the named point, before what would follow"
+signature = "*"
+
+[verbs.refuse]
+def       = "decline the request, naming why"
+signature = "*"
+
+[verbs.end]
+def       = "reach the state from which nothing follows"
+signature = "*"
+
+[verbs.run]
+def       = "execute the named step"
+signature = "*"
+
+[verbs.carry]
+def       = "hold the named part or value, so a reader of the result finds it there"
+signature = "*"
+
+[verbs.name]
+def       = "state the identifier in the message or output"
+signature = "*"
+
+[verbs.report]
+def       = "state in the output, without stopping"
+signature = "*"
+
+[verbs.print]
+def       = "write to standard output"
+signature = "*"

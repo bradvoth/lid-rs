@@ -6,6 +6,7 @@ use lid_rs::Spec;
 /// `lid-rs` package the project's manifest resolves — registry or path —
 /// never from the tool's own build.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheSkillComesFromTheResolvedLidRsDependency;
 
 /// When `sync` writes the skill, it shall write every file under it to
@@ -13,6 +14,7 @@ pub struct TheSkillComesFromTheResolvedLidRsDependency;
 /// directory structure and creating directories as needed, and running it
 /// again shall change nothing.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheSkillCopyLivesAtTheWorkspaceRoot;
 
 /// When `sync --check` runs and the project's copy is missing a file, has an
@@ -20,9 +22,11 @@ pub struct TheSkillCopyLivesAtTheWorkspaceRoot;
 /// it shall fail naming every such file and write nothing; when identical it
 /// shall succeed; any other flag shall be rejected by name.
 #[derive(Spec)]
+#[lid(free)]
 pub struct SyncCheckFailsOnAnyDifferenceAndWritesNothing;
 
 /// When the project resolves no `lid-rs`, or a `lid-rs` that ships no skill
 /// directory, `sync` shall fail naming which.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AMissingSkillSourceFailsByName;

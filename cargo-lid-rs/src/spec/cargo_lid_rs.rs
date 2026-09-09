@@ -9,11 +9,13 @@ use lid_rs::Spec;
 /// on the remaining arguments, so the cargo, alias, and direct invocation
 /// forms behave identically.
 #[derive(Spec)]
+#[lid(free)]
 pub struct CargoInsertedSubcommandNameIsDiscarded;
 
 /// When the subcommand is missing or unknown, the shell shall fail with a
 /// usage message naming the subcommands it accepts.
 #[derive(Spec)]
+#[lid(free)]
 pub struct UnknownSubcommandsFailWithUsage;
 
 /// When the tool locates the project it operates on, it shall use the
@@ -21,6 +23,7 @@ pub struct UnknownSubcommandsFailWithUsage;
 /// invocation from any directory inside the project behaves as invocation
 /// from its root.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TheProjectRootComesFromCargoMetadata;
 
 // ---- Scope ------------------------------------------------------------------
@@ -29,17 +32,20 @@ pub struct TheProjectRootComesFromCargoMetadata;
 /// tool shall read it from the root package's `[package.metadata.lid_rs]`;
 /// when it is absent there too, the scope shall be `diff` against `main`.
 #[derive(Spec)]
+#[lid(free)]
 pub struct MutationScopeFallsBackFromWorkspaceToPackageToDiff;
 
 /// When `--full` is given, the scope shall be the whole tree regardless of
 /// configuration; when `--diff-base <ref>` is given, the scope shall be the
 /// diff against that ref; any other flag shall be rejected by name.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ScopeFlagsOverrideTheConfiguredScope;
 
 /// When mutation scope is `diff`, the generated diff shall be passed through
 /// to the mutation engine's `--in-diff`.
 #[derive(Spec)]
+#[lid(free)]
 pub struct DiffScopePassesThroughToTheEngine;
 
 // ---- Registry collection ----------------------------------------------------
@@ -48,11 +54,13 @@ pub struct DiffScopePassesThroughToTheEngine;
 /// shall come from that crate's own `--lib` test binary, the only binary its
 /// validation edges link into.
 #[derive(Spec)]
+#[lid(free)]
 pub struct ValidationEdgesComeFromTheOwningCrateTestBinary;
 
 /// When a workspace member declares no library target, registry collection
 /// shall skip it rather than run `cargo test --lib` against it.
 #[derive(Spec)]
+#[lid(free)]
 pub struct MembersWithoutALibraryTargetAreSkipped;
 
 // ---- Mutant → test-set mapping and execution --------------------------------
@@ -62,32 +70,38 @@ pub struct MembersWithoutALibraryTargetAreSkipped;
 /// that set is empty, the full suite shall run instead, so zero reachable
 /// tests can never mean zero tests run.
 #[derive(Spec)]
+#[lid(free)]
 pub struct TracedMutantsRunOnlyTheirValidatingTests;
 
 /// When a mutant has no function, or its function has no implementation
 /// edge, its test set shall be the tests validating specs implemented in the
 /// same file, or the full suite when none exist.
 #[derive(Spec)]
+#[lid(free)]
 pub struct UntracedMutantsFallBackToModuleTests;
 
 /// When any mutant survives its test set, the mutants command shall report
 /// failure.
 #[derive(Spec)]
+#[lid(free)]
 pub struct SurvivingMutantsFailTheGate;
 
 /// When the engine's run for a group reports outcomes, only the mutants the
 /// group selected shall be judged from it; any other mutant the engine
 /// included shall be ignored there and judged in its own group.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AMutantsVerdictComesFromItsOwnGroupsRun;
 
 /// When the engine's outcomes carry no verdict, or an unrecognised one, for a
 /// mutant the group selected, the mutants command shall fail naming the
 /// mutant, never treat it as caught.
 #[derive(Spec)]
+#[lid(free)]
 pub struct AnEngineRunWithoutAVerdictIsAFailure;
 
 /// When a group has survivors, the remaining groups shall still run, and the
 /// failure shall name every survivor with the tests it survived.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryGroupRunsBeforeSurvivorsAreReported;
