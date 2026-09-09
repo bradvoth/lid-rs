@@ -8,7 +8,11 @@ mod expand;
 
 /// Derives `lid_rs::Spec` for a unit struct: `NAME` from the definition-site
 /// module path plus the identifier, and a `SPECS` registration.
-#[proc_macro_derive(Spec)]
+///
+/// `#[lid(free)]` is the derive's helper attribute, inert until the derive
+/// reads it: it marks a claim free of the controlled language, and the registry
+/// counts the marks.
+#[proc_macro_derive(Spec, attributes(lid))]
 pub fn derive_spec(input: TokenStream) -> TokenStream {
     expand::derive_spec(input.into())
         .unwrap_or_else(syn::Error::into_compile_error)
