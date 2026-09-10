@@ -1,0 +1,23 @@
+error: lid-rs: a claim names its trigger by a link: When the store is unreachable
+  --> tests/ui/claim/fail/links.rs:19:8
+   |
+19 | struct ATriggerClauseWithoutALink;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim names its trigger by a link: The run
+  --> tests/ui/claim/fail/links.rs:23:8
+   |
+23 | struct AUbiquitousSubjectWithoutALink;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim whose verb names a return shape names its response object by a link: return
+  --> tests/ui/claim/fail/links.rs:27:8
+   |
+27 | struct AShapeVerbWithoutAnObject;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim names its trigger by a link: The run
+  --> tests/ui/claim/fail/links.rs:31:8
+   |
+31 | struct AUbiquitousSubjectLinkedOnlyAfterTheModal;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

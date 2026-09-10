@@ -1,0 +1,7 @@
+# `banned` is a key the format does not admit under `[prohibited]`, which holds
+# `extra` and nothing else. The `extra` above it is well formed, so what the
+# message names is the key the parser reached and not the table.
+
+[prohibited]
+extra  = ["oneterm"]
+banned = ["a key the subset does not admit"]

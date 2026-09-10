@@ -1,0 +1,9 @@
+# `duplicated` opens two tables in one file.
+
+[verbs.duplicated]
+def       = "say once what one table already said"
+signature = "*"
+
+[verbs.duplicated]
+def       = "say it again, differently"
+signature = ["-> {object}"]

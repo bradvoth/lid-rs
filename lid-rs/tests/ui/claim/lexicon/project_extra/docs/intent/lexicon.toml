@@ -1,0 +1,4 @@
+# The project's additions to the prohibited terms.
+
+[prohibited]
+extra = ["promptly"]

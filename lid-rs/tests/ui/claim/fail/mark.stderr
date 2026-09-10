@@ -1,0 +1,5 @@
+error: lid-rs: the mark takes only the word `free`: loose
+  --> tests/ui/claim/fail/mark.rs:14:8
+   |
+14 | struct AMarkThatIsNotFree;
+   |        ^^^^^^^^^^^^^^^^^^

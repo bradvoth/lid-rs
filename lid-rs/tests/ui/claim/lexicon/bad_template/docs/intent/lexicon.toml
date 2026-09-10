@@ -1,0 +1,5 @@
+# `shaped` gives a template that begins with no `->`.
+
+[verbs.shaped]
+def       = "promise a return type the template never spells"
+signature = ["Result<{object}, _>"]

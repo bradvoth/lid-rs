@@ -1,0 +1,8 @@
+# `unglossed` gives no `def`, and a verb gives both keys exactly once.
+#
+# Nothing downstream reads a definition — the parsed lexicon carries only the
+# templates — so a `def` that is required but unused is the branch an
+# implementation drops without noticing. This member is what notices.
+
+[verbs.unglossed]
+signature = "*"

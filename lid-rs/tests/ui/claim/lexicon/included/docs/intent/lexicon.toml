@@ -1,0 +1,5 @@
+# `gather` is defined here and nowhere else in this workspace.
+
+[verbs.gather]
+def       = "bring together into one place, so that one read finds all of it"
+signature = "*"

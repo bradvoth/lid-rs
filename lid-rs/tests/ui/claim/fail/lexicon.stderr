@@ -1,0 +1,23 @@
+error: lid-rs: no lexicon defines the verb `frobnicate`: lid-rs-macros/lexicon.toml
+  --> tests/ui/claim/fail/lexicon.rs:18:8
+   |
+18 | struct AVerbTheBaseDoesNotDefine;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim uses no term of the vague-term list: quickly
+  --> tests/ui/claim/fail/lexicon.rs:22:8
+   |
+22 | struct ABuiltInVagueTerm;
+   |        ^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim uses no term of the vague-term list: quickly
+  --> tests/ui/claim/fail/lexicon.rs:26:8
+   |
+26 | struct ACapitalisedVagueTerm;
+   |        ^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim uses no term of the vague-term list: as needed
+  --> tests/ui/claim/fail/lexicon.rs:30:8
+   |
+30 | struct AMultiWordVagueTerm;
+   |        ^^^^^^^^^^^^^^^^^^^

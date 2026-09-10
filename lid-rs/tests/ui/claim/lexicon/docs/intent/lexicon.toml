@@ -1,0 +1,9 @@
+# The fixture workspace's own lexicon: what a member carrying no lexicon of its
+# own answers to, and what a crate the walk cannot reach from does not.
+
+[verbs.settle]
+def       = "reach the state from which no further turn follows"
+signature = "*"
+
+[prohibited]
+extra = ["rootprohibited"]

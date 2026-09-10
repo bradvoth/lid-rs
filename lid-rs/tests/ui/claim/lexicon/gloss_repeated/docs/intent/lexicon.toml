@@ -1,0 +1,6 @@
+# `restated` gives `def` twice, and a verb gives each key exactly once.
+
+[verbs.restated]
+def       = "say a thing"
+def       = "say the same thing again, so that the file cannot be read"
+signature = "*"

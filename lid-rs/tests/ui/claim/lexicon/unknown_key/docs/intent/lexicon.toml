@@ -1,0 +1,6 @@
+# `note` is a key the format does not admit under a verb.
+
+[verbs.noted]
+def       = "write down, so that a later reader finds it"
+signature = "*"
+remark    = "a key the subset does not admit"

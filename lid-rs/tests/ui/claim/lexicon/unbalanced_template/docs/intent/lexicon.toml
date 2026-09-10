@@ -1,0 +1,5 @@
+# `lopsided` opens a brace its template never closes.
+
+[verbs.lopsided]
+def       = "leave a placeholder open, so that the template cannot be read"
+signature = ["-> Result<{object, _>"]

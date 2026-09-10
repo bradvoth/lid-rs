@@ -1,0 +1,29 @@
+error: lid-rs: a validator is named for a claim it cites: expected `fixture_claim`, found `validated`
+  --> tests/ui/claim/fail/validator.rs:37:4
+   |
+37 | fn validated() {}
+   |    ^^^^^^^^^
+
+error: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `gains`
+  --> tests/ui/claim/fail/validator.rs:40:4
+   |
+40 | fn gains() {}
+   |    ^^^^^
+
+error: lid-rs: a validator is named for a claim it cites: expected `http_server`, found `serves`
+  --> tests/ui/claim/fail/validator.rs:43:4
+   |
+43 | fn serves() {}
+   |    ^^^^^^
+
+error: lid-rs: a validator is named for a claim it cites: expected `phase7_runs`, found `phases`
+  --> tests/ui/claim/fail/validator.rs:46:4
+   |
+46 | fn phases() {}
+   |    ^^^^^^
+
+error: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `neither_cited_name`
+  --> tests/ui/claim/fail/validator.rs:49:4
+   |
+49 | fn neither_cited_name() {}
+   |    ^^^^^^^^^^^^^^^^^^

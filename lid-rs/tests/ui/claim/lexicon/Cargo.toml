@@ -1,0 +1,28 @@
+[workspace]
+resolver = "2"
+members = [
+    "bad_line",
+    "missing_key",
+    "repeated_key",
+    "gloss_missing",
+    "gloss_repeated",
+    "unknown_key",
+    "prohibited_key",
+    "verb_twice",
+    "prohibited_repeat",
+    "bad_template",
+    "unbalanced_template",
+    "bad_placeholder",
+    "project_verb",
+    "verb_replaced",
+    "project_extra",
+    "included",
+    "inherits",
+    "detached/pkg",
+    "outer_pkg",
+]
+
+# `outer_pkg/inner` is not a member: it carries a `[workspace]` table of its
+# own, which is what stops the walk for a project lexicon inside it. It is
+# reached as a path dependency of `outer_pkg`, so one `cargo check` here builds
+# every crate the harness asserts about.

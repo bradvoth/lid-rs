@@ -1,0 +1,5 @@
+error: lid-rs: a claim is one sentence and ends with a period: When the [`Turn`] ends, the run shall frobnicate the [`Log`] quickly
+  --> tests/ui/claim/fail/order.rs:13:8
+   |
+13 | struct AClaimWithThreeFaults;
+   |        ^^^^^^^^^^^^^^^^^^^^^

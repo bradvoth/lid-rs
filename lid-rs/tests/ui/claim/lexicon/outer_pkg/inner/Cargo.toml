@@ -1,0 +1,12 @@
+[package]
+name = "claim-fixture-inner"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+lid-rs = { path = "../../../../../.." }
+
+# This table is the point of the fixture: it makes this directory a workspace
+# root, and the walk for a project lexicon stops after examining it.
+[workspace]

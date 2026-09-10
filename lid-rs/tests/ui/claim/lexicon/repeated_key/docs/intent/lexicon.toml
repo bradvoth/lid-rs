@@ -1,0 +1,6 @@
+# `doubled` gives `signature` twice, and a verb gives each key exactly once.
+
+[verbs.doubled]
+def       = "say a thing twice, so that the file cannot be read"
+signature = "*"
+signature = ["-> {object}"]

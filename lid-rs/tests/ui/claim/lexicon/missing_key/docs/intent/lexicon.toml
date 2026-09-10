@@ -1,0 +1,4 @@
+# `partial` gives no `signature`, and a verb gives both keys exactly once.
+
+[verbs.partial]
+def = "leave something out, so that the file cannot be read"

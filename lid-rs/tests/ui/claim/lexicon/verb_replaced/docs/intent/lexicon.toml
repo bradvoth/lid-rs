@@ -1,0 +1,6 @@
+# `report` is a base verb, and this file redefines it: `*` in the base, a
+# template here.
+
+[verbs.report]
+def       = "produce the stated summary as the value of the implementing function"
+signature = ["-> {object}"]

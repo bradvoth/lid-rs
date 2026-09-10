@@ -1,0 +1,5 @@
+# `stage` is the project's own verb, and it names a return shape.
+
+[verbs.stage]
+def       = "add to the index, so the next commit carries it"
+signature = ["-> Result<{object}, _>"]

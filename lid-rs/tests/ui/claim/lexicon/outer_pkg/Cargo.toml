@@ -1,0 +1,9 @@
+[package]
+name = "claim-fixture-outer-pkg"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[dependencies]
+lid-rs = { path = "../../../../.." }
+claim-fixture-inner = { path = "inner" }

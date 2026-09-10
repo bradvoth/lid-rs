@@ -1,0 +1,41 @@
+error: lid-rs: a claim is one sentence and ends with a period: When the [`Turn`] ends, the run shall stop
+  --> tests/ui/claim/fail/sentence.rs:23:8
+   |
+23 | struct NoTerminator;
+   |        ^^^^^^^^^^^^
+
+error: lid-rs: a claim is one sentence and holds one terminator: . Then nothing follows.
+  --> tests/ui/claim/fail/sentence.rs:27:8
+   |
+27 | struct ASecondTerminator;
+   |        ^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim is one sentence and holds one terminator: ? The log closes.
+  --> tests/ui/claim/fail/sentence.rs:31:8
+   |
+31 | struct AQuestionMarkTerminator;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim is one sentence and holds one terminator: ! The log closes.
+  --> tests/ui/claim/fail/sentence.rs:35:8
+   |
+35 | struct AnExclamationMarkTerminator;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: a claim holds `shall` exactly once, not 2: When the [`Turn`] ends, the run shall stop and the log shall close.
+  --> tests/ui/claim/fail/sentence.rs:39:8
+   |
+39 | struct TwoModals;
+   |        ^^^^^^^^^
+
+error: lid-rs: a claim holds `shall` exactly once, not 0: When the [`Turn`] ends, the run stops.
+  --> tests/ui/claim/fail/sentence.rs:43:8
+   |
+43 | struct NoModal;
+   |        ^^^^^^^
+
+error: lid-rs: a claim is one sentence and ends with a period: When the [`Turn`] ends, the run shall stop
+  --> tests/ui/claim/fail/sentence.rs:48:8
+   |
+48 | struct JoinedLinesInTheMessage;
+   |        ^^^^^^^^^^^^^^^^^^^^^^^

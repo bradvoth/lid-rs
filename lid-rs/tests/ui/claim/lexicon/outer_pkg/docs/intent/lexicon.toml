@@ -1,0 +1,7 @@
+# `orbit` is defined here and nowhere else in this workspace. The package in
+# `inner/` opens a workspace of its own, so the walk from there stops before
+# this file.
+
+[verbs.orbit]
+def       = "go round the named point without reaching it"
+signature = "*"

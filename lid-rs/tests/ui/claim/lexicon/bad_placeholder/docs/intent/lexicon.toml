@@ -1,0 +1,5 @@
+# `mistaken` names `{subject}`, which is no placeholder the format binds.
+
+[verbs.mistaken]
+def       = "name a part the derive cannot bind, so that the template is empty"
+signature = ["-> Result<{subject}, _>"]

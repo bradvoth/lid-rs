@@ -1,0 +1,6 @@
+# A line that is none of the subset's forms.
+
+[verbs.settle]
+def       = "reach the state from which no further turn follows"
+signature = "*"
+this line belongs to no form

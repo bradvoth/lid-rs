@@ -1,0 +1,5 @@
+# `extra` is given twice under one `[prohibited]` table.
+
+[prohibited]
+extra = ["oneterm"]
+extra = ["another"]

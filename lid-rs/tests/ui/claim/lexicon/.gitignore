@@ -1,0 +1,4 @@
+# The harness resolves and checks this workspace during `cargo test`; its lock
+# file and any target directory are build products, not fixtures.
+Cargo.lock
+target/

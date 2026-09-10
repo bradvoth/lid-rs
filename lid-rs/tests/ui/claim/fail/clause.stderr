@@ -1,0 +1,29 @@
+error: lid-rs: a `When` claim closes its clause with `,` before the modal: When the [`Turn`] ends the run
+  --> tests/ui/claim/fail/clause.rs:12:8
+   |
+12 | struct AnUnclosedWhen;
+   |        ^^^^^^^^^^^^^^
+
+error: lid-rs: a `When` claim closes its clause with `,` before the modal: When the [`Turn`] ends the run
+  --> tests/ui/claim/fail/clause.rs:16:8
+   |
+16 | struct ACommaAfterTheModal;
+   |        ^^^^^^^^^^^^^^^^^^^
+
+error: lid-rs: an `If` claim closes its clause with `, then` before the modal: If the [`Store`] is unreachable, the run
+  --> tests/ui/claim/fail/clause.rs:20:8
+   |
+20 | struct AnIfWithoutThen;
+   |        ^^^^^^^^^^^^^^^
+
+error: lid-rs: a `While` claim closes its clause with `,` before the modal: While the [`Turn`] runs the log
+  --> tests/ui/claim/fail/clause.rs:24:8
+   |
+24 | struct AnUnclosedWhile;
+   |        ^^^^^^^^^^^^^^^
+
+error: lid-rs: a `Where` claim closes its clause with `,` before the modal: Where the [`Feature`] is present the run
+  --> tests/ui/claim/fail/clause.rs:28:8
+   |
+28 | struct AnUnclosedWhere;
+   |        ^^^^^^^^^^^^^^^
