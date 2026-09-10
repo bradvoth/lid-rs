@@ -5,8 +5,40 @@
 //! grep.
 
 mod citation;
+mod claim;
 mod graph;
 mod registry;
+
+pub use claim::{
+    ABareLinkTargetsItsBacktickedText, ABehaviourVerbRecordsTheStarTemplate,
+    AClaimWithoutATerminatorFailsToCompile, AFreeClaimCompilesWhateverItsText,
+    AFreeClaimRecordsEmptyParts, ALexiconLineOutsideTheSubsetFailsEveryDerive,
+    ALinkWithAPathTargetsThePath, AMalformedTemplateFailsEveryDerive,
+    AMemberFindsItsWorkspacesLexicon, AMisnamedValidatorFailsToCompile,
+    AModalCountOtherThanOneFailsToCompile, AParsedClaimIsControlled,
+    AProhibitedTermFailsToCompile, AProjectExtraFailsToCompileNamingTheLexiconFile,
+    AProjectVerbAddsToTheBase, AProjectVerbReplacesTheBasesWhole,
+    ASecondTerminatorFailsToCompile, AShapeVerbWithoutAnObjectLinkFailsToCompile,
+    AShapeVerbsTemplatesAreRecordedAsWritten, ASuffixedValidatorNameIsAdmitted,
+    ATriggerClauseWithoutALinkFailsToCompile, AUbiquitousTriggerIsTheFirstLinkInTheSubject,
+    AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName, AValidatorIsNamedForAnyOneCitedClaim,
+    AVerbMissingOrRepeatingAKeyFailsEveryDerive, AVerbNamedTwiceFailsEveryDerive,
+    AnAdmittedNameCarriesNoAssertion, AnIfClauseIsTheWordsUpToCommaThen,
+    AnUnclosedClauseFailsToCompile, AnUndefinedVerbFailsToCompile,
+    AnUnknownLexiconKeyFailsEveryDerive, AnyOtherOpenerIsUbiquitous,
+    ExtraGivenTwiceFailsEveryDerive, FreeEnumeratesTheMarkedClaims,
+    NoLinkAfterABehaviourVerbLeavesTheObjectEmpty, NotBeforeTheVerbIsRecordedAsNegation,
+    SnakeCaseKeepsADigitWithTheWordBeforeIt, SnakeCaseKeepsARunOfCapitalsAsOneWord,
+    SnakeCaseStartsAWordAtACapitalBeforeALowerCaseLetter, TheBaseLexiconIsCompiledIntoTheDerive,
+    TheClaimIsTheDocLinesJoined, TheClauseIsTheWordsUpToTheFirstCommaOutsideBackticks,
+    TheFirstFailingRuleIsReported, TheFreeConstRecordsTheMark,
+    TheMarkTakesOnlyTheWordFree, TheObjectIsTheFirstLinkAfterTheVerb,
+    TheOpenerDecidesThePattern,
+    TheOwnerIsEmptyForAnObjectWithoutAVariant, TheOwnerIsTheObjectTargetWithItsLastSegmentRemoved,
+    TheProjectLexiconIsIncludedInTheExpansion, TheRegistrationCarriesTheClaimsParts,
+    TheTriggerIsTheFirstLinkInTheClause, TheVerbIsTheFirstWordAfterTheModal,
+    TheWalkStopsAtAWorkspaceManifest, TheWalkStopsBelowADirectoryWithoutAManifest,
+};
 
 pub use graph::{
     CoveredGraphsPassTheGraphCheck, GraphChecksRequireThePresentCanary,
