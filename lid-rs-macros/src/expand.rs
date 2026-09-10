@@ -43,6 +43,9 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
     let item: DeriveInput = syn::parse2(input)?;
     ensure_unit_struct(&item)?;
     let ident = &item.ident;
+    let expanded = crate::claim::expansion(&item)?;
+    let claim = expanded.claim;
+    let free = expanded.free;
     Ok(quote! {
         // The derive's own emissions reference the struct they sit on; when a
         // spec is retired with #[deprecated], only *citation* sites should
@@ -51,11 +54,7 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
         #[allow(deprecated)]
         impl ::lid_rs::Spec for #ident {
             const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
-            // Unwired, like the `claim` literal below: every claim reads as
-            // free until the swap makes `claim::expansion` read the mark. That
-            // is what keeps check 14's misnamed fixture compiling — and so red
-            // — until the swap lands.
-            const FREE: bool = true;
+            const FREE: bool = #free;
         }
         const _: () = {
             #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
@@ -65,18 +64,7 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
                 name: <#ident as ::lid_rs::Spec>::NAME,
                 file: file!(),
                 line: line!(),
-                // Unwired: `claim::expansion` reads the sentence once its
-                // leaves exist, and one hand commit puts the call here.
-                claim: ::lid_rs::claim::ClaimMeta {
-                    language: ::lid_rs::claim::Language::Free,
-                    pattern: ::lid_rs::claim::Pattern::Ubiquitous,
-                    trigger: "",
-                    verb: "",
-                    negated: false,
-                    object: "",
-                    owner: "",
-                    templates: &[],
-                },
+                claim: #claim,
             };
         };
     })
@@ -103,7 +91,9 @@ fn ensure_unit_struct(item: &DeriveInput) -> syn::Result<()> {
 pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result<TokenStream> {
     let paths = parse_spec_paths(args)?;
     if let Ok(f) = syn::parse2::<ItemFn>(item.clone()) {
-        return Ok(cite_fn(f, &paths, &verb));
+        let guard = name_guard(&f.sig.ident, &paths, &verb);
+        let cited = cite_fn(f, &paths, &verb);
+        return Ok(quote!(#cited #guard));
     }
     if let Ok(s) = syn::parse2::<ItemStruct>(item.clone()) {
         return Ok(cite_struct(s, &paths, &verb));
@@ -115,6 +105,20 @@ pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result
         item,
         "lid-rs: citations apply to fns, structs, and enums",
     ))
+}
+
+/// Check 14's guard for the cited fn, which only a validator is held to.
+///
+/// `#[implements]` names the code that keeps a claim and is under no rule about
+/// its name; `#[validates]` names the test that observes one, and a test's name
+/// is what makes `cargo test` print the requirements. See
+/// [`crate::claim::validator_name`], which decides whether a guard is emitted
+/// at all.
+fn name_guard(ident: &syn::Ident, paths: &[Path], verb: &Verb) -> TokenStream {
+    match verb {
+        Verb::Validates => crate::claim::validator_name(ident, paths),
+        Verb::Implements => TokenStream::new(),
+    }
 }
 
 /// Cites a fn by injecting one registration per spec at the top of its body

@@ -115,23 +115,39 @@ const VAGUE: [&str; 21] = [
 /// Reads the `#[lid(free)]` mark, joins and parses the claim against the
 /// lexicon the crate under compilation answers to — [`lexicon::read`] of its
 /// `CARGO_MANIFEST_DIR` — and yields the expression
-/// the registration's `claim` field is initialised with: a block holding the
-/// `ClaimMeta` literal and, when a project lexicon was read, the
-/// `const _: &str = include_str!(…)` that makes editing that file rebuild the
-/// claim. A marked claim yields `Free` parts without reaching [`parse`].
+/// yields the [`Expansion`] the derive emits from: what the registration
+/// carries, and the mark. A marked claim yields `Free` parts without reaching
+/// [`parse`].
 ///
 /// The error is reported at the struct that carries the claim, naming the rule
 /// and the offending text.
-pub fn expansion(item: &DeriveInput) -> syn::Result<TokenStream> {
+pub fn expansion(item: &DeriveInput) -> syn::Result<Expansion> {
     if free_mark(&item.attrs).map_err(|m| error(item, &m))? {
-        return Ok(free_claim());
+        return Ok(Expansion { claim: free_claim(), free: true });
     }
     let claim = sentence(&item.attrs).map_err(|m| error(item, &m))?;
     let lexicon = lexicon::read(&manifest_dir()).map_err(|m| error(item, &m))?;
     let parts = parse(&claim, &lexicon).map_err(|m| error(item, &m))?;
     let include = lexicon_include(lexicon.project());
     let meta = claim_meta(&parts);
-    Ok(quote!({ #include #meta }))
+    Ok(Expansion { claim: quote!({ #include #meta }), free: false })
+}
+
+/// What the derive emits for one claim: what the registration carries, and the
+/// mark it read.
+///
+/// The mark is read once and emitted twice — into `ClaimMeta.language`, which
+/// the registry counts, and into `Spec::FREE`, which a citation projects for
+/// check 14. Returning both is what keeps that one read: recovering `FREE` from
+/// the expression instead would mean re-emitting it, and with it the project
+/// lexicon's `include_str!`, in every claim in the workspace.
+pub struct Expansion {
+    /// The expression the registration's `claim` field is initialised with: a
+    /// block holding the `ClaimMeta` literal and, when a project lexicon was
+    /// read, the `include_str!` that makes editing that file rebuild the claim.
+    pub claim: TokenStream,
+    /// Whether the struct carried `#[lid(free)]`.
+    pub free: bool,
 }
 
 /// Whether the struct carries `#[lid(free)]`: the ramp's mark, read before any
