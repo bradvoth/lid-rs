@@ -1,29 +1,29 @@
-error: lid-rs: a validator is named for a claim it cites: expected `fixture_claim`, found `validated`
-  --> tests/ui/claim/fail/validator.rs:37:4
+error[E0080]: evaluation panicked: lid-rs: a validator is named for a claim it cites: expected `fixture_claim`, found `validated`
+  --> tests/ui/claim/fail/validator.rs:36:1
    |
-37 | fn validated() {}
-   |    ^^^^^^^^^
+36 | #[lid_rs::validates(spec::FixtureClaim)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here
 
-error: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `gains`
-  --> tests/ui/claim/fail/validator.rs:40:4
+error[E0080]: evaluation panicked: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `gains`
+  --> tests/ui/claim/fail/validator.rs:39:1
    |
-40 | fn gains() {}
-   |    ^^^^^
+39 | #[lid_rs::validates(spec::GainALibrary)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here
 
-error: lid-rs: a validator is named for a claim it cites: expected `http_server`, found `serves`
-  --> tests/ui/claim/fail/validator.rs:43:4
+error[E0080]: evaluation panicked: lid-rs: a validator is named for a claim it cites: expected `http_server`, found `serves`
+  --> tests/ui/claim/fail/validator.rs:42:1
    |
-43 | fn serves() {}
-   |    ^^^^^^
+42 | #[lid_rs::validates(spec::HTTPServer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here
 
-error: lid-rs: a validator is named for a claim it cites: expected `phase7_runs`, found `phases`
-  --> tests/ui/claim/fail/validator.rs:46:4
+error[E0080]: evaluation panicked: lid-rs: a validator is named for a claim it cites: expected `phase7_runs`, found `phases`
+  --> tests/ui/claim/fail/validator.rs:45:1
    |
-46 | fn phases() {}
-   |    ^^^^^^
+45 | #[lid_rs::validates(spec::Phase7Runs)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here
 
-error: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `neither_cited_name`
-  --> tests/ui/claim/fail/validator.rs:49:4
+error[E0080]: evaluation panicked: lid-rs: a validator is named for a claim it cites: expected `gain_a_library`, found `neither_cited_name`
+  --> tests/ui/claim/fail/validator.rs:48:1
    |
-49 | fn neither_cited_name() {}
-   |    ^^^^^^^^^^^^^^^^^^
+48 | #[lid_rs::validates(spec::GainALibrary, spec::HTTPServer)]
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ evaluation of `_` failed here

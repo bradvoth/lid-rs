@@ -1070,7 +1070,7 @@ mod tests {
 
     /// The slice's spec file after the reword: one claim, under its new name.
     const REWORDED_SPEC: &str =
-        "//! Claims for hello.\n\n/// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\npub struct GreetsWarmly;\n";
+        "//! Claims for hello.\n\n/// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\n#[lid(free)]\npub struct GreetsWarmly;\n";
 
     /// The slice module part-way through the cascade: a skeleton leaf that
     /// reads none of its parameters, citing the claim name the reword retired.
@@ -1494,11 +1494,11 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     }
 
     /// The fixture slice's spec file at its gate: one claim.
-    const GATED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\npub struct Greets;\n";
+    const GATED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\n#[lid(free)]\npub struct Greets;\n";
 
     /// The spec file after a Phase 8 edit adds a second claim.
-    const EDITED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\npub struct Greets;\n\n\
-                               /// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\npub struct GreetsWarmly;\n";
+    const EDITED_SPEC: &str = "//! Claims for hello.\n\n/// When greeted, the system shall say hello.\n#[derive(lid_rs::Spec)]\n#[lid(free)]\npub struct Greets;\n\n\
+                               /// When greeted warmly, the system shall say hello there.\n#[derive(lid_rs::Spec)]\n#[lid(free)]\npub struct GreetsWarmly;\n";
 
     /// The fixture slice's `greet`, cited, and its validation, green.
     const GREET: &str = "/// Greets.\n#[implements(crate::spec::Greets)]\npub fn greet() -> &'static str {\n    \"hello\"\n}\n";
