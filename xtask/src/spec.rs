@@ -6,4 +6,5 @@ use lid_rs::Spec;
 /// with its designated diagnostic, and a fixture whose gate passes shall fail
 /// the self-test.
 #[derive(Spec)]
+#[lid(free)]
 pub struct EveryGateFixtureFailsItsGate;

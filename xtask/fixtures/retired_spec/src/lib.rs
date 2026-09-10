@@ -8,6 +8,7 @@ pub mod spec {
     /// When invoked, the old behaviour shall apply. (Retired.)
     #[deprecated = "superseded by NewClaim; re-review this citation"]
     #[derive(Spec)]
+    #[lid(free)]
     pub struct RetiredClaim;
 }
 
