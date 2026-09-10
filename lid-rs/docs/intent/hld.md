@@ -192,24 +192,29 @@ so the gate always exercises the working tree's tool.
 | 14 | "A human drafts an LLD with a coach" | `cargo lid-rs coach`: the interview that opens with the repository's intent index; `cargo-lid-rs/docs/intent/coach/lld.md` |
 | 15 | "A claim is written in the controlled language" | `derive(Spec)` enforces README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html) and extracts `SpecMeta`; the base lexicon and `docs/intent/lexicon.toml` with templates; checks 13 and 14; every existing claim marked `#[lid(free)]`, counted and enumerable, burned down per slice; preceded by a `phase` change admitting a proc-macro crate's slice into its companion crate; `lid-rs-macros/docs/intent/claim/lld.md` |
 | 16 | "A slice's artifacts live in one directory" | The colocated layout (README [§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html)): `lld.md`, `spec.rs`, `mod.rs` under `src/<slice>/`; the phase policy, `init`/`new`, `lld-check`, the coach's index, the book, and every citation path moved in one mechanical cascade; the uncitable-claim assertion, whose path the layout defines |
+| 22 | "A check is a command with a finding" | The `cargo lid-rs` catalog (pipeline §5): atomic commands, the finding schema, exit codes, `--expect`, `validate --claims` and `--red`, composites in workspace metadata; `phase-check N` becomes `gate --phase N` |
 | 17 | "A slice's nouns are types the LLD links to" | `derive(Traceable)` with its policy attributes; `vocab` modules; LLDs rewritten with vocabulary links (check 2 enforces them) |
 | 18 | "A function is flow or leaf by its shape" | `lid-rs-shape`: F1–F6, rules A/B/P/V, checks 15–18, `#[flow]`/`#[leaf]`, `cargo lid-rs shape`, `shape.level`; the complexity threshold re-measured with the classification in hand |
 | 19 | "A signature keeps the promise its claim makes" | `derive(Outcome)`, `OUTCOMES`, `signatures()`, checks 19–22, `conformance.level` and `aliases` |
 | 20 | "A claim's satisfaction is observable at runtime" | `tracing` spans in `#[implements]`, the capturing layer in `#[validates]`, `Traceable` recording, checks 23–25, `lid_rs::spawn`, `runtime.level`; the test output that reads as the claims exercised |
 | 21 | "The intent graph is readable as a page" | `regen` and `docs/intent/trace.md` with check 26; `lid-rs-site`: claim cards, the observed flow graph, the trace matrix, the glossary |
-| 22 | "A check is a command with a finding" | The `cargo lid-rs` catalog (pipeline §5): atomic commands, the finding schema, exit codes, `--expect`, `validate --claims` and `--red`, composites in workspace metadata; `phase-check N` becomes `gate --phase N` |
 | 23 | "A slice builds itself from a draft PR" | `lid-rs-pipeline`: sessions from the canopy client, `fast`/`gate` dispatch, state and resumption, the phase reviewers' rubrics, adjudication and the registered question, publication, `CODEOWNERS` and the rulesets, the squash message |
 
 Slices 1–14 are delivered. Slices 15–23 are the convergence of this
 workspace with the design it was forked from and then outgrew — the README's
 unbuilt ledger (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html))
-names the same work from the specification's side — in dependency order:
-the layout (16) moves every claim's path before the burn-down of 15's marks
-rewrites any claim's text; conformance (19) needs the claim's parts (15) and
-signatures (18); the runtime (20) needs only 15 and 17 and may be pulled
-ahead of 18–19 if the runtime payoff is wanted sooner, with check 25 then
-landing beside 18; the page (21) needs everything it renders; the catalog
-(22) wraps the checks it runs; the pipeline (23) runs the catalog.
+names the same work from the specification's side. **The rows are in delivery
+order and the numbers are stable**, which is why 22 now sits third: a slice's
+number is its name, and the seam rule that kept checks 10–12 in place keeps
+these too — renumbering to close the gap would rename six slices to move one.
+
+In dependency order: the layout (16) moves every claim's path before the
+burn-down of 15's marks rewrites any claim's text; the catalog (22) wraps
+checks that already exist and so is blocked by nothing, which is what lets it
+move; conformance (19) needs the claim's parts (15) and signatures (18); the
+runtime (20) needs only 15 and 17 and may be pulled ahead of 18–19 if the
+runtime payoff is wanted sooner, with check 25 then landing beside 18; the page
+(21) needs everything it renders; the pipeline (23) runs the catalog.
 
 Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html); Phase 8 is the post-slice change loop) with stops at every phase boundary.
 
@@ -228,6 +233,7 @@ Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spe
 | The colocated slice layout is its own slice (16), after the language lands strict and before its marks are burned down | With the controlled language, as one cascade; keep `src/spec/` | The language lands by marking every claim `#[lid(free)]`, not by rewriting it, so there is no rename cascade for the layout to ride; the burn-down that follows rewrites claims slice by slice, and each rewrite is cheaper once a slice's claims already sit beside its module. The layout also answers a measured fault: a claim registered but uncitable because `src/spec/mod.rs` did not re-export it. |
 | A proc-macro crate's slice keeps its claims, companion module, and fixtures in the crate that re-exports its macros | Build such slices by hand, as the macros slice was; a phase agent with a widened path policy | The derive, `Traceable`, `Outcome`, and the spans are all proc-macro work, and a proc-macro crate links into no binary a claim could register in. A stated rule of the `phase` slice keeps those four slices under the gate; a widened policy is a hole in the thing the policy exists for. |
 | The pipeline is its own crate, with its own living specification | Fold the harness into `cargo-lid-rs`; a document with no crate | The harness consumes the catalog as a library, the way the canopy client already does, and its dependencies — HTTP, a door, a PR API — are not the catalog's. Its specification is the crate's front page so check 2 link-checks it from the first commit. |
+| The catalog (22) is delivered third, after the layout (16) | Leave it eighth, in the order the convergence first wrote; renumber the slices to close the gap | The claim slice's amendment rate was measured before deciding: of thirteen Phase 1 amendments, three came from vocabulary (17) and two from layout (16), so front-loading the ambiguity slices addresses a minority. The operational failures are the larger cost — every Phase 7 on this project has been killed by the 600 s watchdog and run by hand, and the `cargo package` breakage surfaced only at the Phase 7 gate, long after the change that caused it. The catalog's atomic commands and finding schema are what let a gate run in pieces and fail legibly, and it wraps checks that already exist, so nothing blocks it. Numbers stay put: a number is a name (the seam rule above). |
 | New checks numbered by seam (13–26); 10, 11, 12 keep their numbers | Renumber to the forked design's 1–26 order | 52 sites outside README cite sections and checks by number, and the precedent (the structural pass of 2026-08-25) is seams, not renumbering. A number is a name; renaming names is what this methodology makes expensive on purpose. |
 
 ## Success Metrics
