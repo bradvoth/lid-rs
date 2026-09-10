@@ -1254,6 +1254,18 @@ LLD took after its draft, four were mechanism assumptions that a few lines of
 `rustc` would have refuted before they were written, and one of those stood for
 a week as a design dilemma that dissolved in four lines.
 
+**Read the LLD adversarially before committing it.** `cargo lid-rs lld-check`
+gates the document's mechanical properties; the advisory reviewer reads it for
+what the mechanics cannot see — a section still describing a mechanism a later
+amendment replaced, a rule thin enough that a phase would have to guess, an
+obligation the gate will raise that the document never acknowledges. It reports
+what a phase would predictably stop on. It cannot approve an LLD, which is the
+human's act, and it cannot block a commit; what it produces is a list to decide
+about, not a verdict. Run it on the draft and again whenever amendments have
+accumulated — a document amended a dozen times is no longer the document that
+was reviewed, and accretion, not the original draft, is where inconsistency
+collects.
+
 **Phase 2 — Derive claims.** *(agent proposes, human approves)*
 Agent emits `#[derive(Spec)]` items in the controlled language; the derive
 rejects malformed ones (check 13). Reject claims that restate the LLD rather
