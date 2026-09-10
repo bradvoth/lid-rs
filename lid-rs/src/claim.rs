@@ -95,8 +95,7 @@ pub fn free() -> impl Iterator<Item = &'static SpecMeta> {
 /// counted by: a claim is either the derive's reading of a sentence or an
 /// exemption from reading it, and [`Language`] is where the derive says which.
 fn is_free(meta: &SpecMeta) -> bool {
-    let _ = meta;
-    todo!()
+    meta.claim.language == Language::Free
 }
 
 #[cfg(test)]

@@ -72,8 +72,7 @@ impl Lexicon {
     /// behaviour — so whether the claim needs a response-object link — and the
     /// templates the claim's parts record.
     pub fn verb(&self, name: &str) -> Option<&Verb> {
-        let _ = name;
-        todo!()
+        self.verbs.get(name)
     }
 
     /// The terms the project's file prohibits beyond the built-in list.
@@ -82,7 +81,7 @@ impl Lexicon {
     /// that supplied the term as well as the term, and a match on the built-in
     /// list names only the term.
     pub fn extra(&self) -> &[String] {
-        todo!()
+        &self.extra
     }
 
     /// The project file this lexicon was read from, absent when the walk found
@@ -92,7 +91,7 @@ impl Lexicon {
     /// project `extra` match names, and the file the expansion `include_str!`s
     /// so that editing it rebuilds every claim.
     pub fn project(&self) -> Option<&Path> {
-        todo!()
+        self.project.as_deref()
     }
 }
 
@@ -113,7 +112,7 @@ impl Verb {
     /// whose signature is templates rather than `*` names a return shape, and
     /// a shape has an object.
     pub fn is_shape(&self) -> bool {
-        todo!()
+        self.templates.iter().any(|template| matches!(template, Template::Shape(_)))
     }
 }
 
@@ -155,7 +154,10 @@ impl Template {
     /// unmatched, so the string a later check reads is the string a reader of
     /// the lexicon wrote.
     pub fn as_written(&self) -> &str {
-        todo!()
+        match self {
+            Self::Any => ANY,
+            Self::Shape(entry) => entry,
+        }
     }
 }
 
@@ -170,15 +172,21 @@ fn well_formed(entry: &str) -> bool {
 /// the braces are unbalanced — a `{` no `}` closes, a `}` that closes nothing,
 /// or a `{` inside a `{…}`.
 fn braces(entry: &str) -> Option<Vec<&str>> {
-    let _ = entry;
-    todo!()
+    let mut spans = entry.split('{');
+    spans.next().filter(|opening| !opening.contains('}'))?;
+    spans
+        .map(|span| span.split_once('}').and_then(|(name, rest)| (!rest.contains('}')).then_some(name)))
+        .collect()
 }
 
 /// The template failure: the file, the verb that carried the entry, and the
 /// entry itself — the row of the lexicon's failure table a template takes.
 fn malformed(entry: &str, verb: &str, file: &Path) -> String {
-    let _ = (entry, verb, file);
-    todo!()
+    format!(
+        "lid-rs: {}: a template begins with `->` and names only `{{object}}` and `{{owner}}`, \
+         and the verb `{verb}` gives: {entry}",
+        file.display()
+    )
 }
 
 /// The base lexicon's file, named as a message names it.
@@ -214,8 +222,7 @@ pub fn read(manifest_dir: &Path) -> Result<Lexicon, String> {
 /// The walk found this file, so failing to read it is the file's own failure
 /// and not the absence [`locate`] reports by returning `None`.
 fn contents(file: &Path) -> Result<String, String> {
-    let _ = file;
-    todo!()
+    std::fs::read_to_string(file).map_err(|why| format!("lid-rs: {}: the lexicon cannot be read: {why}", file.display()))
 }
 
 /// The project's lexicon over the base: every verb the project names is
@@ -223,8 +230,9 @@ fn contents(file: &Path) -> Result<String, String> {
 /// the project's `extra` becomes the terms beyond the built-in list, and
 /// `file` becomes the path [`Lexicon::project`] returns.
 fn merged(base: Lexicon, project: Lexicon, file: PathBuf) -> Lexicon {
-    let _ = (base, project, file);
-    todo!()
+    let mut verbs = base.verbs;
+    verbs.extend(project.verbs);
+    Lexicon { verbs, extra: project.extra, project: Some(file) }
 }
 
 /// The project's lexicon file for a crate built at `manifest_dir`: the first
@@ -247,14 +255,22 @@ pub fn locate(manifest_dir: &Path) -> Option<PathBuf> {
 /// examined and then stops the walk, and before a directory holding no
 /// `Cargo.toml`, which is never examined.
 fn walk(manifest_dir: &Path) -> Vec<PathBuf> {
-    let _ = manifest_dir;
-    todo!()
+    manifest_dir
+        .ancestors()
+        .enumerate()
+        .take_while(|(above, dir)| *above == 0 || has_manifest(dir))
+        .scan(false, |stopped, (_, dir)| {
+            let reached = *stopped;
+            *stopped = workspace_root(dir);
+            (!reached).then(|| dir.to_path_buf())
+        })
+        .collect()
 }
 
 /// The `docs/intent/lexicon.toml` under a directory, when the file is there.
 fn lexicon_in(dir: &Path) -> Option<PathBuf> {
-    let _ = dir;
-    todo!()
+    let file = dir.join("docs/intent/lexicon.toml");
+    file.is_file().then_some(file)
 }
 
 /// Whether a directory holds a `Cargo.toml`.
@@ -263,8 +279,7 @@ fn lexicon_in(dir: &Path) -> Option<PathBuf> {
 /// the registry cache — whose parent directories are the cache's, not a
 /// project's — finds no project lexicon and answers to the base alone.
 fn has_manifest(dir: &Path) -> bool {
-    let _ = dir;
-    todo!()
+    dir.join("Cargo.toml").is_file()
 }
 
 /// Whether a directory's `Cargo.toml` has a line that is exactly
@@ -274,8 +289,7 @@ fn has_manifest(dir: &Path) -> bool {
 /// examines it and then stops, so a member finds its workspace's lexicon and
 /// looks no further up.
 fn workspace_root(dir: &Path) -> bool {
-    let _ = dir;
-    todo!()
+    std::fs::read_to_string(dir.join("Cargo.toml")).is_ok_and(|text| text.lines().any(|line| line == "[workspace]"))
 }
 
 /// The TOML subset to a lexicon, or the message naming the file and what in it
@@ -344,16 +358,18 @@ fn line(raw: &str, file: &Path) -> Result<Line, String> {
 /// [`Line::Ignored`] for a comment — `#` to the end of the line — or a blank
 /// line; `None` for anything else.
 fn ignored(text: &str) -> Option<Line> {
-    let _ = text;
-    todo!()
+    (text.is_empty() || text.starts_with('#')).then_some(Line::Ignored)
 }
 
 /// The table a header opens: [`Line::Verb`] for `[verbs.<name>]`, `<name>`
 /// being lower-case letters, and [`Line::Prohibited`] for `[prohibited]`.
 /// `None` when the line opens no table.
 fn header(text: &str) -> Option<Line> {
-    let _ = text;
-    todo!()
+    let named = text.strip_prefix('[')?.strip_suffix(']')?;
+    match named.strip_prefix("verbs.") {
+        Some(verb) => verb.chars().all(|c| c.is_ascii_lowercase()).then(|| Line::Verb(verb.to_string())),
+        None => (named == "prohibited").then_some(Line::Prohibited),
+    }
 }
 
 /// A `key = value` line: the key, and the strings its value holds. `None` when
@@ -374,22 +390,28 @@ fn values(text: &str) -> Option<Vec<String>> {
 /// `None` when the text is not a list, or an element is not a string the
 /// subset admits.
 fn list(text: &str) -> Option<Vec<String>> {
-    let _ = text;
-    todo!()
+    let parts: Vec<&str> = text.strip_prefix('[')?.strip_suffix(']')?.split('"').collect();
+    let gaps: Vec<&str> = parts.iter().copied().step_by(2).collect();
+    let last = gaps.len() - 1;
+    let separated = parts.len() % 2 == 1
+        && gaps.iter().enumerate().all(|(nth, gap)| gap.trim() == if nth == 0 || nth == last { "" } else { "," });
+    let elements: Vec<String> = parts.iter().skip(1).step_by(2).map(|element| (*element).to_string()).collect();
+    (separated && elements.iter().all(|element| !element.contains('\\'))).then_some(elements)
 }
 
 /// The contents of a double-quoted string holding no `"` and no backslash;
 /// `None` for anything else.
 fn quoted(text: &str) -> Option<&str> {
-    let _ = text;
-    todo!()
+    text.strip_prefix('"')?.strip_suffix('"').filter(|inside| !inside.contains(['"', '\\']))
 }
 
 /// The line failure: the file and the line, which is the row of the lexicon's
 /// failure table a line outside the subset takes.
 fn broken_line(raw: &str, file: &Path) -> String {
-    let _ = (raw, file);
-    todo!()
+    format!(
+        "lid-rs: {}: a line of the lexicon is a comment, a table header, or a key and a value, and this one is none: {raw}",
+        file.display()
+    )
 }
 
 /// No entry stands before the file's first table header.
@@ -423,15 +445,37 @@ fn stray<'a>(text: &'a str, lines: &[Line]) -> Option<&'a str> {
 /// Whether a line opens a table, which is where the search for a stray entry
 /// ends: every entry after the first header belongs to the table above it.
 fn opens_table(line: &Line) -> bool {
-    let _ = line;
-    todo!()
+    matches!(line, Line::Verb(_) | Line::Prohibited)
 }
 
 /// Whether a line is a `key = value` entry — the one form that can stand
 /// outside a table, and so the only one a stray can be.
 fn is_entry(line: &Line) -> bool {
-    let _ = line;
-    todo!()
+    matches!(line, Line::Entry(..))
+}
+
+/// The verb a header opens, when the line is one: the name `[verbs.<name>]`
+/// carries.
+///
+/// The one reading of [`Line::Verb`], so that the tables the parse walks and
+/// the names their failures report come from the same place.
+fn verb_named(line: &Line) -> Option<&str> {
+    match line {
+        Line::Verb(name) => Some(name),
+        Line::Ignored | Line::Prohibited | Line::Entry(..) => None,
+    }
+}
+
+/// The key and the values a `key = value` line carries; `None` for any other
+/// form.
+///
+/// The one reading of [`Line::Entry`], shared by the verb tables and the
+/// prohibited table, because an entry means the same thing under either header.
+fn pair(line: &Line) -> Option<(String, Vec<String>)> {
+    match line {
+        Line::Entry(key, values) => Some((key.clone(), values.clone())),
+        Line::Ignored | Line::Verb(_) | Line::Prohibited => None,
+    }
 }
 
 /// The file's verbs: each named at most once, each with `def` and `signature`
@@ -448,15 +492,38 @@ fn verbs(lines: &[Line], file: &Path) -> Result<BTreeMap<String, Verb>, String> 
 /// Each verb table in the file: the verb its header names, and the entries
 /// between that header and the next, in the file's order.
 fn verb_tables(lines: &[Line]) -> Vec<(String, Entries)> {
-    let _ = lines;
-    todo!()
+    lines
+        .iter()
+        .filter(|line| opens_table(line))
+        .zip(lines.split(opens_table).skip(1))
+        .filter_map(|(header, body)| verb_named(header).map(|name| (name.to_string(), entries_of(body))))
+        .collect()
+}
+
+/// The entries of one table: the `key = value` lines between its header and the
+/// next, in the file's order.
+///
+/// [`classify`] yields one [`Line`] per line of the file, so splitting that
+/// sequence at the headers gives each table's body, and a key given twice is
+/// two entries here — which is what lets the rule that rejects the repetition
+/// see it.
+fn entries_of(body: &[Line]) -> Entries {
+    body.iter().filter_map(pair).collect()
 }
 
 /// Every verb is named once; the error names the file and the verb named
 /// twice.
 fn named_once(tables: &[(String, Entries)], file: &Path) -> Result<(), String> {
-    let _ = (tables, file);
-    todo!()
+    let repeated = tables
+        .iter()
+        .enumerate()
+        .find(|(at, (name, _))| tables[..*at].iter().any(|(earlier, _)| earlier == name));
+    match repeated {
+        Some((_, (name, _))) => {
+            Err(format!("lid-rs: {}: the verb `{name}` opens more than one table", file.display()))
+        }
+        None => Ok(()),
+    }
 }
 
 /// One verb's table: its keys are the two the format admits, each given
@@ -477,22 +544,39 @@ fn verb(name: &str, entries: &Entries, file: &Path) -> Result<Verb, String> {
 /// Every key of a table is one the table admits; the error names the file and
 /// the first key that is not.
 fn known_keys(entries: &Entries, admitted: &[&str], file: &Path) -> Result<(), String> {
-    let _ = (entries, admitted, file);
-    todo!()
+    match entries.iter().find(|(key, _)| !admitted.contains(&key.as_str())) {
+        Some((key, _)) => Err(format!("lid-rs: {}: `{key}` is no key this table admits", file.display())),
+        None => Ok(()),
+    }
 }
 
 /// The values of a key given exactly once; the error names the file, the verb,
 /// and the key that is missing or repeated.
 fn once<'a>(entries: &'a Entries, key: &str, verb: &str, file: &Path) -> Result<&'a [String], String> {
-    let _ = (entries, key, verb, file);
-    todo!()
+    let given: Vec<&[String]> = entries.iter().filter(|(k, _)| k == key).map(|(_, values)| values.as_slice()).collect();
+    match given[..] {
+        [only] => Ok(only),
+        _ => Err(format!(
+            "lid-rs: {}: a verb gives `{key}` exactly once, and `{verb}` gives it {} times",
+            file.display(),
+            given.len()
+        )),
+    }
 }
 
 /// The values of a key a table may omit: absent, they are none; repeated, the
 /// error names the file and the key.
 fn at_most_once(entries: &Entries, key: &str, file: &Path) -> Result<Vec<String>, String> {
-    let _ = (entries, key, file);
-    todo!()
+    let given: Vec<&Vec<String>> = entries.iter().filter(|(k, _)| k == key).map(|(_, values)| values).collect();
+    match given[..] {
+        [] => Ok(Vec::new()),
+        [only] => Ok(only.clone()),
+        _ => Err(format!(
+            "lid-rs: {}: a table gives `{key}` once at most, and this one gives it {} times",
+            file.display(),
+            given.len()
+        )),
+    }
 }
 
 /// A verb's `signature` entries as templates, in the file's order.
@@ -510,6 +594,11 @@ fn extra(lines: &[Line], file: &Path) -> Result<Vec<String>, String> {
 
 /// The entries under every `[prohibited]` header, in the file's order.
 fn prohibited_entries(lines: &[Line]) -> Entries {
-    let _ = lines;
-    todo!()
+    lines
+        .iter()
+        .filter(|line| opens_table(line))
+        .zip(lines.split(opens_table).skip(1))
+        .filter(|(header, _)| matches!(header, Line::Prohibited))
+        .flat_map(|(_, body)| entries_of(body))
+        .collect()
 }
