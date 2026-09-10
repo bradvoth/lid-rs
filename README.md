@@ -597,7 +597,7 @@ ledger of which are built.
 | 8 | **Flag argument** | `clippy::fn_params_excessive_bools`, threshold 0 | A `bool` parameter is a branch smuggled into a leaf — two functions in a trench coat. |
 | 9 | **Inlined concept** | `clippy::too_many_lines` | A coherent sub-thought was manually inlined instead of being named. |
 | 13 | **Malformed claim** | `#[derive(Spec)]` ([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) | Compound sentence, unclosed pattern clause, prohibited term, unknown verb, unlinked noun, unlinked condition. |
-| 14 | **Misnamed validator** | `#[validates]` | The test's name is not its claim's name in `snake_case`. |
+| 14 | **Misnamed validator** | `#[validates]` + `cargo check` (const assertion) | The test's name is not its claim's name in `snake_case`. |
 
 Plus the unnumbered type-system property: an untraceable noun at a traced
 boundary fails to compile ([§6.5](https://bradvoth.github.io/lid-rs/spec/traced.html)).
