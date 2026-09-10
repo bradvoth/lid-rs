@@ -32,11 +32,8 @@ slice — the same shape as `#[leaf]` on a public function
 `warn` levels of the later passes. Nothing is enforced by opt-in; the opt-out
 is the one thing the registry counts.
 
-What this slice measured before it was written, at the LLD's first draft
-(`bd1d2c7`) unless another figure says otherwise; §"Landing" recounts against a
-later tree, which is why its totals are larger. Both were taken by reading the
-tree, not by a command that can be re-run — a gap the catalog slice closes when
-`cargo lid-rs` grows a claim census. Of the 275 claims in this workspace, every one already opens with *When … shall …* — the event-driven
+What this slice measured before it was written. Of the 275 claims in this
+workspace, every one already opens with *When … shall …* — the event-driven
 pattern — and none is more than one sentence; 238 carry exactly one *shall*.
 Four link a noun. Their verbs are 64 distinct words, and *be* is a hundred of
 the 275. Of 372 validators, 242 already carry their claim's `snake_case` name
@@ -356,16 +353,7 @@ test that enumerates them, so `cargo test` shows the distance to zero.
 
 Check 13 and check 14 are demonstrated the way check 1 is: fixtures whose
 compilation is the assertion, each failing one pinned by its `.stderr` so the
-words the rules name are what the gate holds.
-
-Check 14's pin is the one exception worth naming: its failure is a const-eval
-panic, not a `compile_error!`, so the file holds rustc's framing —
-`error[E0080]: evaluation panicked:` and `evaluation of `_` failed here` —
-around this project's message, and the span is the `#[validates]` attribute
-rather than the identifier the rule is about. The rule's own words survive
-verbatim, which is what the pin is for; the framing is rustc's to change, and
-`rust-toolchain.toml` is what keeps it still. When that file moves, expect this
-one `.stderr` to need regenerating and do not read it as a regression. There are two kinds, because
+words the rules name are what the gate holds. There are two kinds, because
 one mechanism cannot reach the project lexicon.
 
 **The base's rules — trybuild fixtures** under `lid-rs/tests/ui/claim/{fail,pass}/`,
@@ -385,32 +373,10 @@ claims.
 `lid-rs/tests/ui/claim/lexicon/`, one member per row of the lexicon's failure
 table and per rule about which lexicon governs, each member carrying its own
 `docs/intent/lexicon.toml` and one claim. A second `#[validates]` harness in
-`lid-rs/src/claim.rs` runs `cargo check` over that workspace, with its
+`lid-rs/src/claim.rs` runs **one** `cargo check` over that workspace, with its
 own `CARGO_TARGET_DIR` — cargo locks a target directory, so a build inside
 `cargo test` must not share the outer one — and asserts that each member's
 expected message appears, naming its file and its line.
-
-**Two runs, not one, and the second is forced.** `outer_pkg/inner` demonstrates
-that the walk stops at a directory whose manifest opens a workspace: it carries
-`[workspace]`, no lexicon of its own, and a claim taking `orbit`, the verb its
-parent defines and it therefore cannot reach. A package that opens its own
-workspace can be neither a member of the outer one nor a path dependency of a
-member — cargo loads a member's path dependencies, finds the second
-`[workspace]`, and refuses the whole workspace with *multiple workspace roots
-found in the same workspace*, checking nothing at all. `exclude` does not help,
-because it governs membership and not the dependency graph. So `inner` is a
-path dependency of nothing, and the harness checks it in a run of its own,
-merging both reports before it asserts. Its expected message is
-`` no lexicon defines the verb `orbit` `` naming the base file, which is the
-whole demonstration: the base was the only lexicon read.
-
-This cost the harness its first year of life. Every member's expectation was
-asserted against a report that was always empty, and the failure was invisible
-because the harness was red for the *other* reason the whole time — no rule was
-enforced until the swap, so a red harness was the expected state and nobody
-asked which red it was. A test whose redness is expected verifies nothing until
-the day it is meant to go green, and that is the day to read its output rather
-than its exit code.
 
 The second mechanism exists because the first cannot reach a project lexicon.
 trybuild compiles every fixture as a `[[bin]]` of one generated package under
@@ -422,36 +388,11 @@ is never read, and every trybuild fixture answers to the base alone. A member
 of a real workspace finds its own lexicon in its own manifest directory, which
 is what the rules are about.
 
-The const-assertion amendment added three behaviours, and each needs a fixture
-the enumerations above did not ask for. `pass/free_mark.rs` gains an assertion
-on `<C as Spec>::FREE` for a marked and an unmarked claim (`TheFreeConstRecordsTheMark`).
-`pass/validator_names.rs` gains a correctly-named validator of a *held* claim,
-whose compilation is the demonstration that no assertion was emitted
-(`AnAdmittedNameCarriesNoAssertion`) — an emitted assertion over a held claim
-would fail it. A new `pass/validator_free.rs` carries a deliberately misnamed
-validator citing only free claims (`AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName`);
-it is the one fixture whose *passing* is the whole of its point, and it must
-not be marked free itself for the reason §"Landing" now gives.
-
-**Their edges are Phase 4's, not Phase 7's.** The hand-authored `claim_edge!`
-entries live in `lid-rs/src/lib.rs`, which the policy admits for Phases 3 and 4
-and refuses for 5 and 7. A claim added by an amendment after Phase 4 has run
-therefore has no phase left that can cite it, and check 10 fails at the gate on
-a file the Phase 7 agent may not open. Phase 4 is reopened for the edge, or the
-edge is hand-committed with the amendment that added the claim; it is never
-Phase 7's to discover. `TheFreeConstRecordsTheMark` is kept by
-`claim::expansion`, which reads the mark and emits both; the other two by
-`claim::validator_name`, which decides whether a guard is emitted at all.
-
 Each harness cites every claim its fixtures demonstrate, and each is red until
 the derive enforces the language — the failing fixtures compile, so the
-harness fails. That is also what makes the five claims whose response is that
-something *compiles* or *is admitted* red before Phase 6 — `AFreeClaimCompilesWhateverItsText`,
-`ASuffixedValidatorNameIsAdmitted`, `AValidatorIsNamedForAnyOneCitedClaim`,
-`AnAdmittedNameCarriesNoAssertion` and `AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName`:
-they are cited by a harness whose other fixtures are wrong. They are enumerated
-rather than counted because the count was left at three across an amendment and
-the two it omitted were the two that reached Phase 6 with no validator at all. The cost is that those claims share a
+harness fails. That is also what makes the three claims whose response is that
+something *compiles* or *is admitted* red before Phase 6: they are cited by a
+harness whose other fixtures are wrong. The cost is that those claims share a
 validator with their siblings rather than having one that fails for their own
 reason, and check 12 cannot tell them apart.
 
@@ -465,10 +406,7 @@ exist with `todo!()` bodies and nothing calls them.
 
 Phase 5's red is the fixtures: the failing fixtures compile, because no rule is
 enforced, and the harness fails; the unit tests in `lid-rs` that call the
-companion's `free()` fail because *every* claim reads as free, not because none
-does: the unwired derive emits `Language::Free` for all of them, so `free()`
-returns every registration and the enumeration goes red on finding this slice's
-own claims among the marked.
+companion's `free()` fail against an empty field.
 
 **The swap is a hand commit, and it comes after Phase 6.** `expand.rs` is in no
 phase's path, so the two call sites — `derive_spec` to `expansion`, `citation`
@@ -502,18 +440,9 @@ proc-macro crate's manifest, read from `cargo metadata`. Three more slices
 in the HLD's map extend the same crate and need the same rule.
 
 Outside every policy, and so the human's, committed by hand as `phase 8:`
-edits gated by hand. Numbered in the order they are made, each naming the
-phase boundary it sits at — the list has been reordered by amendment twice,
-and the numbering is the only thing that says when.
+edits gated by hand, in this order:
 
-1. **The lexicon files, before Phase 3.** `lid-rs-macros/lexicon.toml` and
-   `docs/intent/lexicon.toml` are Shape artifacts that no phase may write —
-   for Phases 3 and 4 the policy admits `src/<slice>.rs`, `src/<slice>/` and
-   `src/lib.rs`, and nothing else — so they arrive by hand, with the base's
-   sixteen verbs as §"The lexicon" enumerates them. The bound is *before Phase
-   3*, not before Phase 6: the base's `include_str!` is a `const` in the
-   skeleton, so it must resolve for Phase 3's own `cargo check`.
-2. **The registry's field, after Phase 3.** `ClaimMeta` is this slice's type
+1. **The registry's field, after Phase 3.** `ClaimMeta` is this slice's type
    and Phase 3 is what creates it, so `SpecMeta` cannot carry it before then;
    and `expand.rs`, `graph.rs`, and `registry.rs` are in no phase's
    allowed set. One commit therefore adds `claim: ClaimMeta` to `SpecMeta`,
@@ -524,24 +453,27 @@ and the numbering is the only thing that says when.
    what an unwired derive means and what the ramp already admits. The field
    is a breaking change to every crate whose registrations the derive writes,
    and `cargo package` is what says so.
-3. **The migration, after the lexicon files and before Phase 5**, as below —
-   except its last bullet, the marking of fixture claims, which only a phase
-   that may write `tests/ui` can make and which is therefore Phase 5's.
-4. **The trait's const, after Phase 2's amendment.** `Spec` gains
-   `const FREE: bool` and `derive_spec` emits it as `true`, unwired, exactly as
-   the `claim` field arrived. It lands here and not with the swap because the
-   amended claims link `crate::Spec::FREE`, and an unresolved intra-doc link is
-   check 2 failing — a Tier 0 check, which no phase of a slice may leave
-   failing. Nothing reads the const yet, so it is inert; and reading `true` for
-   every claim is what keeps check 14's misnamed fixture compiling, and so red,
-   until the swap. The trait gains a *required* const, so every hand-written
-   `impl Spec` moves with it, under the same version discipline as the field
-   above.
-5. **The swap, after Phase 6**, once no leaf beneath the call sites is
+1a. **The trait's const, after Phase 2.** `Spec` gains `const FREE: bool` and
+   `derive_spec` emits it as `true`, unwired, exactly as the `claim` field
+   arrived. It lands here and not with the swap because Phase 2's claims link
+   `crate::Spec::FREE`, and an unresolved intra-doc link is check 2 failing —
+   a Tier 0 check, which no phase of a slice may leave failing. Nothing reads
+   the const yet, so it is inert; and reading `true` for every claim is what
+   keeps check 14's misnamed fixture compiling, and so red, until the swap.
+   The trait gains a *required* const, so every hand-written `impl Spec`
+   moves with it, under the same version discipline as the field above.
+1b. **The swap, after Phase 6**, once no leaf beneath the call sites is
    `todo!()`. It makes `expand::derive_spec` and `expand::citation` delegate
    to `claim::expansion` and `claim::validator_name`, and replaces the inline
-   `Free` literal and the `FREE = true` with the two things `expansion` now
-   returns. This is the commit the fixtures turn green in.
+   `Free` literal and the `FREE = true` with what `expansion` returns. This is
+   the commit the fixtures turn green in.
+2. **The lexicon files, before Phase 6.** `lid-rs-macros/lexicon.toml` and
+   `docs/intent/lexicon.toml` are Shape artifacts that no phase may write —
+   the policy admits `src/<slice>.rs`, `src/<slice>/` and `src/lib.rs`, and
+   nothing else — so they arrive by hand, with the base's sixteen verbs as
+   §"The lexicon" enumerates them. `lexicon::parse` cannot be implemented
+   before they exist, and the base's `include_str!` cannot resolve.
+3. **The migration, between the lexicon files and Phase 5**, as below.
 
 ### Landing in this workspace
 
@@ -552,8 +484,7 @@ gate. Both are mechanical and neither changes a claim's meaning:
 
 - every existing claim is marked `#[lid(free)]`, and this slice's own claims
   are written in the language from the first;
-- no validator is renamed now. Recounted at this section's writing — 389
-  validators against the 372 above, the tree having grown in between — 133 would need it, and
+- no validator is renamed now. Measured here, 133 of 389 would need it, and
   every one cites only claims the migration marks free — so check 14 does
   not hold them, and each slice renames its own when it rewrites its claims.
   Renaming them today would have produced names like
@@ -567,20 +498,11 @@ gate. Both are mechanical and neither changes a claim's meaning:
 - every claim inside a trybuild fixture — this slice's own passing fixtures
   and the macros slice's, which the derive compiles like any other — is
   marked `#[lid(free)]` unless the fixture exists to demonstrate the
-  language itself. A fixture's claim is there to exercise a citation or a
-  registration; holding it to a grammar it was not written for
+  language itself. A fixture's claim is there to exercise a citation, a
+  registration, or a name; holding it to a grammar it was not written for
   would make every such fixture a claim about the system, which it is not.
   Only a phase that may write `tests/ui` — 5 or 7 — can do this, so it is
   Phase 5's, not Phase 6's.
-
-  **A check-14 fixture is the exception, and its claims stay held.** The mark
-  is what switches check 14 off: a validator cited against a free claim is not
-  held to its name, so marking the claim of a fixture that demonstrates the
-  name disarms the very rule the fixture exists to show. In `fail/validator.rs`
-  the fixture would stop failing and the harness would fail instead; in
-  `pass/validator_names.rs` the rule would quietly stop being exercised with no
-  test going red. Read the rule as: a fixture's claim is marked free unless the
-  fixture is *about* the claim — its grammar or its name.
 
 ## Shape
 
@@ -592,7 +514,7 @@ gate. Both are mechanical and neither changes a claim's meaning:
 | `lid_rs::claim::free` | The registered claims marked free, from `SPECS`, as an iterator. |
 | `lid_rs::Spec::FREE` | Whether the claim carries `#[lid(free)]`, as a const a citation can project. The trait's second associated const, emitted by `derive(Spec)` from the same read of the mark that yields `ClaimMeta.language`. |
 | `lid_rs::claim` tests | The harness over `lid-rs/tests/ui/`, and the tests over `free()`. |
-| `lid_rs_macros::claim::expansion` | The derive's expansion, in this slice's module: reads `#[lid(free)]`, calls `parse` with the lexicon, and yields **both** what the registration carries — the `ClaimMeta` expression and the `include_str!` of the project lexicon — **and the mark it read, as the `bool` the trait's `FREE` is emitted from**. One read of the mark, two emissions; `derive_spec` names them in one line each. It does not yield the `ClaimMeta` alone, because then `FREE` could only be recovered by re-emitting that expression and matching on its `language`, which duplicates the literal and the `include_str!` in every one of this workspace's claims. |
+| `lid_rs_macros::claim::expansion` | The derive's expansion, in this slice's module: reads `#[lid(free)]`, calls `parse` with the lexicon, and yields the `ClaimMeta` the registration carries and the `include_str!` of the project lexicon. `expand::derive_spec` delegates to it in one line. |
 | `lid_rs_macros::claim::validator_name` | Check 14, in this slice's module: compares the test's identifier with each cited path's `snake_case` and yields the guard the citation emits — nothing when one path is admitted, else the `FREE` assertion naming the expected name. `expand::citation` delegates to it for `#[validates]`; `#[implements]` is untouched. |
 | `lid_rs_macros::claim::parse` | The sentence to its parts, or the first rule it fails; pure over the joined doc text and a lexicon. |
 | `lid_rs_macros::claim::sentence` | The doc attributes joined, trimmed, and checked for one terminator. |
@@ -602,13 +524,13 @@ gate. Both are mechanical and neither changes a claim's meaning:
 | `lid_rs_macros::claim::Parts` | The derive side's own reading of one claim — pattern, trigger, verb, negation, object, owner — which `expansion` renders into the registration's literals. `lid-rs` depends on `lid-rs-macros`, not the reverse, so the macro side cannot name `lid_rs::claim::ClaimMeta`. |
 | `lid_rs_macros::claim::Pattern` | The five patterns on the derive side, for the same reason. |
 | `lid_rs_macros::claim::lexicon::Lexicon` | The admitted verbs with their templates, and the prohibited terms; base merged with project, read through `verb`, `extra`, and `project`. |
-| `lid_rs_macros::claim::lexicon::Verb` | One admitted verb's templates, and whether they are a shape. `is_shape` is where that branch lives, and it is the *only* place it lives. |
+| `lid_rs_macros::claim::lexicon::Verb` | One admitted verb's templates, and whether they are a shape — the branch that decides whether a claim needs a response-object link. |
 | `lid_rs_macros::claim::lexicon::read` | The base, `locate`, and `parse` composed into the lexicon a crate answers to; where a project verb is admitted whole. |
 | `lid_rs_macros::claim::lexicon::Template::parse` | The template syntax check, taking the verb and the file its message names. |
 | `lid_rs_macros::claim::lexicon::BASE_FILE` | The base's name, the other half of "the files the lexicon was read from". |
 | `lid_rs_macros::claim::lexicon::locate` | The walk up from `CARGO_MANIFEST_DIR` to the project's file, if any, with its bound. |
 | `lid_rs_macros::claim::lexicon::parse` | The TOML subset to a `Lexicon`, or the line and key that are outside it. |
-| `lid_rs_macros::claim::lexicon::Template` | One signature template: `Any` for `*`, `Shape` for a template as written. The distinction is data here and a decision only in `Verb::is_shape`, which reads it. |
+| `lid_rs_macros::claim::lexicon::Template` | One signature template: `Any` for `*`, `Shape` for a template as written — the branch that decides whether a claim needs a response-object link. |
 | `lid-rs-macros/lexicon.toml` | The base lexicon. |
 | `docs/intent/lexicon.toml` | This workspace's lexicon: prohibited extras and unpublished members' verbs. |
 | `lid-rs/tests/ui/claim/{fail,pass}` | The trybuild fixtures of *Failure demonstrations*, with their `.stderr` pins. |
@@ -648,21 +570,6 @@ gate. Both are mechanical and neither changes a claim's meaning:
 4. Matching templates against implementer signatures — the conformance slice.
 5. The trace page's column for the free count and the lexicon's verbs — the
    page slice.
-5a. **Check 12's mapping and cost for this slice, unresolved.** `plan_for_mutant`
-   matches an implementation edge by `Edge::file`, and this slice's edges are
-   hand-authored in `lid-rs/src/lib.rs`, so their `file!()` is never
-   `lid-rs-macros/src/claim.rs`. Every mutant in the macro code therefore falls
-   to `TestPlan::FullSuite` and runs the whole workspace suite — which this
-   slice has just extended with a nested `cargo check --workspace` over the
-   fixture workspace's members and a trybuild run over some forty fixtures.
-   With `--baseline skip` cargo-mutants has no measured baseline to scale its
-   timeout from, and a timeout is counted a survivor, so the predictable
-   failure is a wall of false survivors on a gate that already runs seventeen
-   minutes. The fix is a mapping that reaches a hand-authored edge's *subject*
-   rather than its file, which is the catalog slice's or the layout's — under
-   the colocated layout the edge and the code share a directory and the
-   question may dissolve. Named here because it is a cost this slice creates
-   and cannot pay.
 6. `cargo lid-rs init` writing a project lexicon, once a scaffolded
    project's first claim needs a verb the base lacks.
 

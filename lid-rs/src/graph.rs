@@ -138,7 +138,21 @@ mod tests {
 
     /// Synthetic registration at a fixed location.
     fn meta(name: &'static str) -> SpecMeta {
-        SpecMeta { name, file: "synthetic.rs", line: 1 }
+        SpecMeta {
+            name,
+            file: "synthetic.rs",
+            line: 1,
+            claim: crate::claim::ClaimMeta {
+                language: crate::claim::Language::Free,
+                pattern: crate::claim::Pattern::Ubiquitous,
+                trigger: "",
+                verb: "",
+                negated: false,
+                object: "",
+                owner: "",
+                templates: &[],
+            },
+        }
     }
 
     /// Synthetic edge citing `spec`.

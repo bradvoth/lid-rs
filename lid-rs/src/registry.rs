@@ -11,6 +11,13 @@ pub struct SpecMeta {
     pub file: &'static str,
     /// Source line of the registration site.
     pub line: u32,
+    /// What `derive(Spec)` read of the claim's own sentence.
+    ///
+    /// Until the derive is wired to the reading, every registration carries
+    /// [`Language::Free`](crate::claim::Language::Free) with empty parts —
+    /// which is what "no rule of the language was applied" means, and what
+    /// the ramp admits.
+    pub claim: crate::claim::ClaimMeta,
 }
 
 /// One citation: an implementation or validation site naming a claim.

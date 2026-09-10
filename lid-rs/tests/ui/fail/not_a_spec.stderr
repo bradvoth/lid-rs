@@ -10,12 +10,12 @@ help: the trait `Spec` is not implemented for `NotASpec`
 3 | struct NotASpec;
   | ^^^^^^^^^^^^^^^
   = help: the following other types implement trait `Spec`:
-            CanaryConfirmsRegistryPresence
-            CanaryDetectsAStrippedRegistry
-            CoveredGraphsPassTheGraphCheck
-            DerivedSpecsCarryTheirDefinitionPath
-            DerivedSpecsRegisterIntoSpecs
-            GraphChecksRequireThePresentCanary
-            GraphChecksScopeToTheCurrentCrate
-            ImplementsCitationsRegisterEdges
+            ABareLinkTargetsItsBacktickedText
+            ABehaviourVerbRecordsTheStarTemplate
+            AClaimWithoutATerminatorFailsToCompile
+            AFreeClaimCompilesWhateverItsText
+            AFreeClaimRecordsEmptyParts
+            ALexiconLineOutsideTheSubsetFailsEveryDerive
+            ALinkWithAPathTargetsThePath
+            AMalformedTemplateFailsEveryDerive
           and $N others

@@ -165,6 +165,18 @@ pub trait Spec {
     /// every citation agrees on it no matter which path or re-export the
     /// citing site wrote.
     const NAME: &'static str;
+
+    /// Whether the claim carries `#[lid(free)]` — the ramp's mark, exempting
+    /// it from the controlled language.
+    ///
+    /// A citation can project this where it cannot read the mark itself: an
+    /// attribute macro sees the paths it was given and nothing about the items
+    /// they name. `#[validates]` compares the test's name at expansion and,
+    /// when no cited path is admitted, emits a const assertion over the
+    /// conjunction of the cited claims' `FREE` — so a misnamed validator of a
+    /// held claim fails `cargo check` and one citing only free claims compiles
+    /// (check 14).
+    const FREE: bool;
 }
 
 #[doc(hidden)]

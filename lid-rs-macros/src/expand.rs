@@ -51,6 +51,11 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
         #[allow(deprecated)]
         impl ::lid_rs::Spec for #ident {
             const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
+            // Unwired, like the `claim` literal below: every claim reads as
+            // free until the swap makes `claim::expansion` read the mark. That
+            // is what keeps check 14's misnamed fixture compiling — and so red
+            // — until the swap lands.
+            const FREE: bool = true;
         }
         const _: () = {
             #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
@@ -60,6 +65,18 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
                 name: <#ident as ::lid_rs::Spec>::NAME,
                 file: file!(),
                 line: line!(),
+                // Unwired: `claim::expansion` reads the sentence once its
+                // leaves exist, and one hand commit puts the call here.
+                claim: ::lid_rs::claim::ClaimMeta {
+                    language: ::lid_rs::claim::Language::Free,
+                    pattern: ::lid_rs::claim::Pattern::Ubiquitous,
+                    trigger: "",
+                    verb: "",
+                    negated: false,
+                    object: "",
+                    owner: "",
+                    templates: &[],
+                },
             };
         };
     })
