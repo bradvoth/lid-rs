@@ -263,8 +263,9 @@ More importantly, a descriptive name makes every citation site self-documenting.
 content; `#[implements(spec::AuthUi003)]` requires a lookup. A descriptive name is itself a small
 specification — the move stepwise refinement makes with function names,
 applied here to the spec layer. The name follows the claim's own
-subject–verb–object discipline, and the derive checks that it contains a lexicon
-verb ([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)).
+subject–verb–object discipline; no check reads it, because identifiers
+conjugate — *Stops*, *Refused* — and a check that admits every form of every
+verb is one that fires on good names.
 
 The objection is rename cost: rewording a claim should change its name, breaking
 every citation. That's the correct behaviour: a reworded claim *should* force re-review at
@@ -275,8 +276,7 @@ a compliance matrix, a customer's numbered spec document, a regulatory
 requirement — the dash-case ID is a genuine foreign key:
 
 ```rust
-/// The system shall log all authentication attempts with a stable subject
-/// identifier and retain them for 90 days.
+/// The [`AuditLog`] shall retain every [`AuthAttempt`] for 90 days.
 #[derive(Spec)]
 #[spec("SOC2-CC6.1-003")]
 pub struct AuthAttemptsAreAudited;
@@ -415,8 +415,8 @@ the response clause), and the response object's *owner* when the link is a
 variant path (`AuthError` from `AuthError::InvalidCredentials`).
 
 **What the derive rejects** (check 13, a compile error at the spec struct,
-naming the offence): more than one sentence, or a sentence matching no EARS
-pattern; more than one *shall* — a compound claim is two claims; a term from
+naming the offence): more than one sentence, or an opener whose clause is not
+closed as its pattern requires; more than one *shall* — a compound claim is two claims; a term from
 the INCOSE list or the project's `prohibited.extra`; a verb absent from the
 lexicon; a trigger or response slot that is not an intra-doc link to a
 vocabulary type; and, for an *unwanted* claim, a condition clause with no
@@ -596,7 +596,7 @@ ledger of which are built.
 | 7 | **Undeclared decision** | `clippy::cognitive_complexity` | A function does dispatch *and* work, or contains a branch that never appeared in the design. **The structural drift detector.** |
 | 8 | **Flag argument** | `clippy::fn_params_excessive_bools`, threshold 0 | A `bool` parameter is a branch smuggled into a leaf — two functions in a trench coat. |
 | 9 | **Inlined concept** | `clippy::too_many_lines` | A coherent sub-thought was manually inlined instead of being named. |
-| 13 | **Malformed claim** | `#[derive(Spec)]` ([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) | Compound sentence, no EARS pattern, prohibited term, unknown verb, unlinked noun, unlinked condition. |
+| 13 | **Malformed claim** | `#[derive(Spec)]` ([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) | Compound sentence, unclosed pattern clause, prohibited term, unknown verb, unlinked noun, unlinked condition. |
 | 14 | **Misnamed validator** | `#[validates]` | The test's name is not its claim's name in `snake_case`. |
 
 Plus the unnumbered type-system property: an untraceable noun at a traced

@@ -1,0 +1,1 @@
+The claim slice's code is derive(Spec), which runs inside every cargo check; its phases execute the agent's code at every edit with the session's privileges (README §12). Accepted by the human, 2026-09-08.

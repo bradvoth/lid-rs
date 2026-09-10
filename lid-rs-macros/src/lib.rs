@@ -2,6 +2,8 @@
 
 use proc_macro::TokenStream;
 
+#[doc = include_str!("../docs/intent/claim/lld.md")]
+mod claim;
 mod expand;
 
 /// Derives `lid_rs::Spec` for a unit struct: `NAME` from the definition-site

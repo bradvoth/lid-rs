@@ -6,6 +6,7 @@
 extern crate self as lid_rs;
 
 pub mod canary;
+pub mod claim;
 #[doc = include_str!("../docs/intent/intent-graph/lld.md")]
 pub mod graph;
 #[doc = include_str!("../docs/intent/registry/lld.md")]
