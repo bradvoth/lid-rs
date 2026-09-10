@@ -125,6 +125,8 @@ const _: () = {
     claim_edge!(crate::spec::AMisnamedValidatorFailsToCompile, "lid_rs_macros::claim::validator_name");
     claim_edge!(crate::spec::ASuffixedValidatorNameIsAdmitted, "lid_rs_macros::claim::validator_name");
     claim_edge!(crate::spec::AValidatorIsNamedForAnyOneCitedClaim, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::spec::AnAdmittedNameCarriesNoAssertion, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::spec::AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName, "lid_rs_macros::claim::validator_name");
     claim_edge!(crate::spec::SnakeCaseStartsAWordAtACapitalBeforeALowerCaseLetter, "lid_rs_macros::claim::snake_case");
     claim_edge!(crate::spec::SnakeCaseKeepsARunOfCapitalsAsOneWord, "lid_rs_macros::claim::snake_case");
     claim_edge!(crate::spec::SnakeCaseKeepsADigitWithTheWordBeforeIt, "lid_rs_macros::claim::snake_case");
@@ -132,6 +134,7 @@ const _: () = {
     // The ramp. `FreeEnumeratesTheMarkedClaims` is cited by `claim::free` itself.
     claim_edge!(crate::spec::AFreeClaimCompilesWhateverItsText, "lid_rs_macros::claim::expansion");
     claim_edge!(crate::spec::AFreeClaimRecordsEmptyParts, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::spec::TheFreeConstRecordsTheMark, "lid_rs_macros::claim::expansion");
     claim_edge!(crate::spec::TheMarkTakesOnlyTheWordFree, "lid_rs_macros::claim::expansion");
 
     // The lexicon: base, project, and the walk.

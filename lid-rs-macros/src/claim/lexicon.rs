@@ -16,9 +16,33 @@
 //! how the rules of the language ask it anything: a verb by name, the terms
 //! the project prohibits beyond the built-in list, and the project file the
 //! messages name.
+//!
+//! Below [`read`] the module falls into three: the walk that finds a file
+//! ([`locate`]), the parser that turns one file's text into a [`Lexicon`]
+//! ([`parse`], over the [`Line`] each line is classified as), and the template
+//! syntax check ([`Template::parse`]). Each names the file in its failures,
+//! because a lexicon failure fails every claim in the crate and the reader
+//! needs to know which file did it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+
+/// The base lexicon's text, compiled into this crate at its own build.
+///
+/// A published crate is built by its consumers with this and nothing else, so
+/// the verbs a published claim uses are the verbs in here; the file is
+/// versioned with the crates, and so a published claim always compiles under
+/// the lexicon it was written against.
+const BASE: &str = include_str!("../../lexicon.toml");
+
+/// The `signature` entry that marks a verb's meaning as behaviour rather than
+/// shape: the one string of the format that stands for something instead of
+/// naming it.
+const ANY: &str = "*";
+
+/// The placeholders a template may hold, each binding to a part of the claim
+/// that used the verb.
+const PLACEHOLDERS: [&str; 2] = ["object", "owner"];
 
 /// The admitted verbs and the project's additions to the prohibited terms: the
 /// base merged with the project's file, as one claim is checked against it.
@@ -115,9 +139,46 @@ impl Template {
     /// is here rather than in the enum's shape: a template is the only part of
     /// the format whose failure needs the verb that carried it.
     pub fn parse(entry: &str, verb: &str, file: &Path) -> Result<Self, String> {
-        let _ = (entry, verb, file);
+        if entry == ANY {
+            return Ok(Self::Any);
+        }
+        if well_formed(entry) {
+            return Ok(Self::Shape(entry.to_string()));
+        }
+        Err(malformed(entry, verb, file))
+    }
+
+    /// The entry as the file wrote it: `*` for a behaviour verb, the template
+    /// itself for a shape.
+    ///
+    /// This is what a claim's parts record — the derive carries the templates
+    /// unmatched, so the string a later check reads is the string a reader of
+    /// the lexicon wrote.
+    pub fn as_written(&self) -> &str {
         todo!()
     }
+}
+
+/// Whether a `signature` entry is a template the format admits: it begins with
+/// `->`, its braces are balanced, and every name between them is one of
+/// [`PLACEHOLDERS`].
+fn well_formed(entry: &str) -> bool {
+    entry.starts_with("->") && braces(entry).is_some_and(|names| names.iter().all(|n| PLACEHOLDERS.contains(n)))
+}
+
+/// The name inside each `{…}` of a template, in the order written; `None` when
+/// the braces are unbalanced — a `{` no `}` closes, a `}` that closes nothing,
+/// or a `{` inside a `{…}`.
+fn braces(entry: &str) -> Option<Vec<&str>> {
+    let _ = entry;
+    todo!()
+}
+
+/// The template failure: the file, the verb that carried the entry, and the
+/// entry itself — the row of the lexicon's failure table a template takes.
+fn malformed(entry: &str, verb: &str, file: &Path) -> String {
+    let _ = (entry, verb, file);
+    todo!()
 }
 
 /// The base lexicon's file, named as a message names it.
@@ -138,12 +199,31 @@ pub const BASE_FILE: &str = "lid-rs-macros/lexicon.toml";
 /// files' tables. Where the walk finds no file the base is the whole lexicon —
 /// the case a consumer of a published crate builds in, and the reason a
 /// published claim's verbs are the base's.
-///
-/// The base arrives as an `include_str!` of `lid-rs-macros/lexicon.toml`,
-/// which the hand commit adds: until that file exists there is nothing to
-/// include, so the inclusion lands with it.
 pub fn read(manifest_dir: &Path) -> Result<Lexicon, String> {
-    let _ = manifest_dir;
+    let base = parse(BASE, Path::new(BASE_FILE))?;
+    let Some(file) = locate(manifest_dir) else {
+        return Ok(base);
+    };
+    let project = parse(&contents(&file)?, &file)?;
+    Ok(merged(base, project, file))
+}
+
+/// A lexicon file's text, or the message naming the file and why it could not
+/// be read.
+///
+/// The walk found this file, so failing to read it is the file's own failure
+/// and not the absence [`locate`] reports by returning `None`.
+fn contents(file: &Path) -> Result<String, String> {
+    let _ = file;
+    todo!()
+}
+
+/// The project's lexicon over the base: every verb the project names is
+/// admitted whole — replacing the base's entry rather than merging with it —
+/// the project's `extra` becomes the terms beyond the built-in list, and
+/// `file` becomes the path [`Lexicon::project`] returns.
+fn merged(base: Lexicon, project: Lexicon, file: PathBuf) -> Lexicon {
+    let _ = (base, project, file);
     todo!()
 }
 
@@ -155,7 +235,46 @@ pub fn read(manifest_dir: &Path) -> Result<Lexicon, String> {
 /// line that is exactly `[workspace]`. So a member finds its workspace's file,
 /// and a crate built from the registry cache finds none.
 pub fn locate(manifest_dir: &Path) -> Option<PathBuf> {
+    walk(manifest_dir).into_iter().find_map(|dir| lexicon_in(&dir))
+}
+
+/// The directories the walk examines, nearest first: `manifest_dir` and the
+/// ancestors it is allowed to move to.
+///
+/// The walk is bounded by the path's own ancestors, so it ends at the
+/// filesystem root however the manifests read; it ends earlier at a directory
+/// whose `Cargo.toml` has a line that is exactly `[workspace]`, which is
+/// examined and then stops the walk, and before a directory holding no
+/// `Cargo.toml`, which is never examined.
+fn walk(manifest_dir: &Path) -> Vec<PathBuf> {
     let _ = manifest_dir;
+    todo!()
+}
+
+/// The `docs/intent/lexicon.toml` under a directory, when the file is there.
+fn lexicon_in(dir: &Path) -> Option<PathBuf> {
+    let _ = dir;
+    todo!()
+}
+
+/// Whether a directory holds a `Cargo.toml`.
+///
+/// The walk may not move to one that does not, which is how a crate built from
+/// the registry cache — whose parent directories are the cache's, not a
+/// project's — finds no project lexicon and answers to the base alone.
+fn has_manifest(dir: &Path) -> bool {
+    let _ = dir;
+    todo!()
+}
+
+/// Whether a directory's `Cargo.toml` has a line that is exactly
+/// `[workspace]`.
+///
+/// Such a directory is the top of the project the crate belongs to: the walk
+/// examines it and then stops, so a member finds its workspace's lexicon and
+/// looks no further up.
+fn workspace_root(dir: &Path) -> bool {
+    let _ = dir;
     todo!()
 }
 
@@ -169,9 +288,228 @@ pub fn locate(manifest_dir: &Path) -> Option<PathBuf> {
 /// required, not to be carried, so that the file stays a glossary a reader can
 /// trust while the lexicon holds only what a rule asks.
 ///
+/// The lexicon this returns names no project file: one file's text says
+/// nothing about which of the two files it is, and [`read`] is what knows.
+///
 /// The failure fails every claim in the crate under compilation, which is loud
 /// by design: every claim depends on the file.
 pub fn parse(text: &str, file: &Path) -> Result<Lexicon, String> {
-    let _ = (text, file);
+    let lines = classify(text, file)?;
+    orphans(text, &lines, file)?;
+    Ok(Lexicon {
+        verbs: verbs(&lines, file)?,
+        extra: extra(&lines, file)?,
+        project: None,
+    })
+}
+
+/// One line of the file, classified as one of the subset's forms.
+///
+/// The parse reads the file twice through this enum — once for the verb
+/// tables, once for the prohibited table — so the classification is done once
+/// and the forms are a closed set: a line that is none of them never becomes a
+/// `Line` at all, because [`line`] rejects it naming the file and the line.
+enum Line {
+    /// A comment or a blank line, which the format ignores.
+    Ignored,
+    /// `[verbs.<name>]`, opening the verb it names.
+    Verb(String),
+    /// `[prohibited]`, opening the prohibited table.
+    Prohibited,
+    /// A `key = value` line: the key, and the strings its value holds — one for
+    /// a quoted string, each element for a list.
+    Entry(String, Vec<String>),
+}
+
+/// A table's entries: each key with the strings its value holds, in the file's
+/// order, so a key given twice is two entries and the repetition is visible to
+/// the rule that rejects it.
+type Entries = Vec<(String, Vec<String>)>;
+
+/// Every line of the file, classified, in order; the first line outside the
+/// subset is the failure.
+fn classify(text: &str, file: &Path) -> Result<Vec<Line>, String> {
+    text.lines().map(|raw| line(raw, file)).collect()
+}
+
+/// One line as the form it takes, or the message naming the file and the line.
+fn line(raw: &str, file: &Path) -> Result<Line, String> {
+    let text = raw.trim();
+    ignored(text)
+        .or_else(|| header(text))
+        .or_else(|| entry(text))
+        .ok_or_else(|| broken_line(raw, file))
+}
+
+/// [`Line::Ignored`] for a comment — `#` to the end of the line — or a blank
+/// line; `None` for anything else.
+fn ignored(text: &str) -> Option<Line> {
+    let _ = text;
+    todo!()
+}
+
+/// The table a header opens: [`Line::Verb`] for `[verbs.<name>]`, `<name>`
+/// being lower-case letters, and [`Line::Prohibited`] for `[prohibited]`.
+/// `None` when the line opens no table.
+fn header(text: &str) -> Option<Line> {
+    let _ = text;
+    todo!()
+}
+
+/// A `key = value` line: the key, and the strings its value holds. `None` when
+/// the line is not a key and a value the subset admits.
+fn entry(text: &str) -> Option<Line> {
+    let (key, value) = text.split_once('=')?;
+    Some(Line::Entry(key.trim().to_string(), values(value.trim())?))
+}
+
+/// The strings a value holds: one for a double-quoted string, each element for
+/// a bracketed list of them. `None` when the text is neither, which is what
+/// makes the line one the subset does not admit.
+fn values(text: &str) -> Option<Vec<String>> {
+    quoted(text).map(|s| vec![s.to_string()]).or_else(|| list(text))
+}
+
+/// The strings of a bracketed list: comma-separated, each double-quoted.
+/// `None` when the text is not a list, or an element is not a string the
+/// subset admits.
+fn list(text: &str) -> Option<Vec<String>> {
+    let _ = text;
+    todo!()
+}
+
+/// The contents of a double-quoted string holding no `"` and no backslash;
+/// `None` for anything else.
+fn quoted(text: &str) -> Option<&str> {
+    let _ = text;
+    todo!()
+}
+
+/// The line failure: the file and the line, which is the row of the lexicon's
+/// failure table a line outside the subset takes.
+fn broken_line(raw: &str, file: &Path) -> String {
+    let _ = (raw, file);
+    todo!()
+}
+
+/// No entry stands before the file's first table header.
+///
+/// A key that opens no table belongs to no table, so where it stands it is a
+/// line the subset does not admit — and it fails as one, by [`broken_line`],
+/// naming the file and the line as written. The stray entry is the line rule's
+/// case and not a rule of its own: the format's failures are the rows of the
+/// LLD's table, and a key outside every table adds no row to it.
+fn orphans(text: &str, lines: &[Line], file: &Path) -> Result<(), String> {
+    match stray(text, lines) {
+        Some(raw) => Err(broken_line(raw, file)),
+        None => Ok(()),
+    }
+}
+
+/// The first `key = value` line that no table header precedes, as the file
+/// wrote it.
+///
+/// [`classify`] takes the file's lines in order and yields one [`Line`] each,
+/// so the raw lines and their classifications run in step and the line the
+/// message names is the text the author reads in the file.
+fn stray<'a>(text: &'a str, lines: &[Line]) -> Option<&'a str> {
+    text.lines()
+        .zip(lines)
+        .take_while(|(_, line)| !opens_table(line))
+        .find(|(_, line)| is_entry(line))
+        .map(|(raw, _)| raw)
+}
+
+/// Whether a line opens a table, which is where the search for a stray entry
+/// ends: every entry after the first header belongs to the table above it.
+fn opens_table(line: &Line) -> bool {
+    let _ = line;
+    todo!()
+}
+
+/// Whether a line is a `key = value` entry — the one form that can stand
+/// outside a table, and so the only one a stray can be.
+fn is_entry(line: &Line) -> bool {
+    let _ = line;
+    todo!()
+}
+
+/// The file's verbs: each named at most once, each with `def` and `signature`
+/// given exactly once, and each carrying only the templates a rule reads.
+fn verbs(lines: &[Line], file: &Path) -> Result<BTreeMap<String, Verb>, String> {
+    let tables = verb_tables(lines);
+    named_once(&tables, file)?;
+    tables
+        .iter()
+        .map(|(name, entries)| Ok((name.clone(), verb(name, entries, file)?)))
+        .collect()
+}
+
+/// Each verb table in the file: the verb its header names, and the entries
+/// between that header and the next, in the file's order.
+fn verb_tables(lines: &[Line]) -> Vec<(String, Entries)> {
+    let _ = lines;
+    todo!()
+}
+
+/// Every verb is named once; the error names the file and the verb named
+/// twice.
+fn named_once(tables: &[(String, Entries)], file: &Path) -> Result<(), String> {
+    let _ = (tables, file);
+    todo!()
+}
+
+/// One verb's table: its keys are the two the format admits, each given
+/// exactly once, and its `signature` becomes the templates the verb carries.
+///
+/// `def` is read here to be required and is then dropped, which is the whole
+/// of "the file is the glossary": the reader gets a definition, the derive
+/// gets what a rule asks for.
+fn verb(name: &str, entries: &Entries, file: &Path) -> Result<Verb, String> {
+    known_keys(entries, &["def", "signature"], file)?;
+    once(entries, "def", name, file)?;
+    let signature = once(entries, "signature", name, file)?;
+    Ok(Verb {
+        templates: templates(signature, name, file)?,
+    })
+}
+
+/// Every key of a table is one the table admits; the error names the file and
+/// the first key that is not.
+fn known_keys(entries: &Entries, admitted: &[&str], file: &Path) -> Result<(), String> {
+    let _ = (entries, admitted, file);
+    todo!()
+}
+
+/// The values of a key given exactly once; the error names the file, the verb,
+/// and the key that is missing or repeated.
+fn once<'a>(entries: &'a Entries, key: &str, verb: &str, file: &Path) -> Result<&'a [String], String> {
+    let _ = (entries, key, verb, file);
+    todo!()
+}
+
+/// The values of a key a table may omit: absent, they are none; repeated, the
+/// error names the file and the key.
+fn at_most_once(entries: &Entries, key: &str, file: &Path) -> Result<Vec<String>, String> {
+    let _ = (entries, key, file);
+    todo!()
+}
+
+/// A verb's `signature` entries as templates, in the file's order.
+fn templates(signature: &[String], verb: &str, file: &Path) -> Result<Vec<Template>, String> {
+    signature.iter().map(|entry| Template::parse(entry, verb, file)).collect()
+}
+
+/// The terms the file's `[prohibited]` table adds to the built-in list; none
+/// when the file opens no such table.
+fn extra(lines: &[Line], file: &Path) -> Result<Vec<String>, String> {
+    let entries = prohibited_entries(lines);
+    known_keys(&entries, &["extra"], file)?;
+    at_most_once(&entries, "extra", file)
+}
+
+/// The entries under every `[prohibited]` header, in the file's order.
+fn prohibited_entries(lines: &[Line]) -> Entries {
+    let _ = lines;
     todo!()
 }

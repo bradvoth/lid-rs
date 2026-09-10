@@ -86,5 +86,15 @@ pub struct ClaimMeta {
 /// says how far a project is from having none.
 #[implements(spec::FreeEnumeratesTheMarkedClaims)]
 pub fn free() -> impl Iterator<Item = &'static SpecMeta> {
-    crate::SPECS.iter().filter(|_meta| todo!())
+    crate::SPECS.iter().filter(|meta| is_free(meta))
+}
+
+/// Whether a registration's claim was marked free of the controlled language.
+///
+/// The one question [`free`] asks of each entry, and the one the burn-down is
+/// counted by: a claim is either the derive's reading of a sentence or an
+/// exemption from reading it, and [`Language`] is where the derive says which.
+fn is_free(meta: &SpecMeta) -> bool {
+    let _ = meta;
+    todo!()
 }
