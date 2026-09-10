@@ -1242,6 +1242,18 @@ first commit ([§3.6](https://bradvoth.github.io/lid-rs/spec/mapping.html)). Thi
 is the layer that cannot be recovered from code — rationale, rejected
 alternatives, invariants that aren't type-expressible. Your time goes here.
 
+**Spike before you specify a mechanism.** An LLD may assert what the *system*
+shall do on the author's judgment; it may not assert what a *tool* can do. A
+claim that a macro can read something, that the compiler will reject something,
+that a test harness can reach something — anything whose truth belongs to a
+toolchain rather than to the design — is not written until a throwaway spike
+has compiled and proved it. The spike is deleted; only what it established
+enters the document. This is the cheapest rule in the flow and it was learned
+the expensive way: of the thirteen amendments the controlled-language slice's
+LLD took after its draft, four were mechanism assumptions that a few lines of
+`rustc` would have refuted before they were written, and one of those stood for
+a week as a design dilemma that dissolved in four lines.
+
 **Phase 2 — Derive claims.** *(agent proposes, human approves)*
 Agent emits `#[derive(Spec)]` items in the controlled language; the derive
 rejects malformed ones (check 13). Reject claims that restate the LLD rather
