@@ -39,11 +39,20 @@ pub struct WarningsDoNotFailPhaseTwosCheck;
 pub struct PhasesThreeAndFourCheckTheSkeletonTypeChecks;
 
 /// When phase 7 is checked, the tool shall run the README §4.5 gate in its
-/// order — check, clippy, doc, doctests, lib tests, `cargo package` for each
-/// package that publishes, `sync --check`, `mutants`.
+/// order — check, clippy, doc, doctests, lib tests, one `cargo package`
+/// naming every package that publishes, `sync --check`, `mutants`.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhaseSevenRunsTheGateInOrder;
+pub struct PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce;
+
+/// The name [`PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce`]
+/// carried while the gate's package step was one invocation per package. The
+/// alias registers no claim, so the graph sees only the claim it points at;
+/// every citation of this name warns with its replacement, and those citations
+/// are the later phases' work list.
+#[deprecated = "replaced by PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce"]
+pub type PhaseSevenRunsTheGateInOrder =
+    PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce;
 
 /// When a step of a phase's sequence fails, the check shall stop there and
 /// fail naming that step, running no later step.
