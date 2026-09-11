@@ -703,6 +703,13 @@ mod tests {
     //! and the companion directories hold no `lld.md`, which is the whole
     //! reason a slice's document is never found under its companion.
     //!
+    //! `mac` and `app` are also what make the two crates a claims file takes
+    //! tellable apart. `delta`'s document is `mac`'s and its claims are
+    //! `app`'s, and `mac/src/delta` holds an `lld.md` where `app/src/delta`
+    //! holds none — so a door reading the layout from the crate it is joined
+    //! onto answers the pre-migration form for every proc-macro slice, for
+    //! good, and a test asked only about an ordinary slice cannot see it.
+    //!
     //! The manifests exist only in the metadata document — nothing here parses
     //! one and cargo is never run — while every path the resolvers read is on
     //! disk.
@@ -758,6 +765,11 @@ mod tests {
         ("rooted/src/lld.md", "# rooted\n"),
         ("rooted/src/lib.rs", "//! The rooted crate.\n"),
     ];
+
+    /// A named file of a slice's intent that no layout of the fixture holds:
+    /// the human's acceptance of a compile-time slice, which is asked for
+    /// before it is written and so is never there to be found.
+    const ACCEPTANCE: &str = "compile-time-accepted";
 
     /// The fixture tree at a scratch root of its own, with the project whose
     /// metadata describes it.
@@ -982,6 +994,184 @@ mod tests {
         );
         // Read as a directory, a companion's is a shape with no document.
         assert_eq!(Form::of_directory(&project, &companion_dir).own_document(), None);
+    }
+
+    #[test]
+    #[validates(spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile)]
+    fn a_spec_file_beside_the_document_is_the_slices_claims_file() {
+        let (root, project) = workspace("layout-spec-file-beside-the-document");
+        // The two crates a claims file takes are the same crate only for an
+        // ordinary slice. `delta`'s document is `mac`'s — which is the crate
+        // whose layout decides the form — while `app` is the crate the
+        // caller joins the answer onto, and holds the slice's claims beside
+        // its module and at no old-form path at all.
+        assert_eq!(
+            (root.join("app/src/delta/spec.rs").is_file(), root.join("app/src/spec/delta.rs").exists()),
+            (true, false),
+            "the companion holds the migrated claims file and no pre-migration one"
+        );
+        // Nothing probes for the file answered with: `beta` has none, and
+        // Phase 2 asks this door where a new slice's claims are to be written.
+        assert!(!root.join("app/src/beta/spec.rs").exists(), "the fixture holds no claims file for `beta`");
+        assert_eq!(
+            (spec_file(&project, "beta"), spec_file(&project, "delta")),
+            (
+                // Relative to no crate: `src/<module>/spec.rs`, which the
+                // caller places under the crate it means.
+                Ok(PathBuf::from("src/beta/spec.rs")),
+                // Read from `mac`, where the document is; joined by the
+                // caller onto `app`, where the claims are.
+                Ok(PathBuf::from("src/delta/spec.rs")),
+            )
+        );
+    }
+
+    #[test]
+    #[validates(spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec)]
+    fn a_slice_whose_directory_holds_no_document_keeps_its_claims_under_spec() {
+        let (root, project) = workspace("layout-spec-file-under-spec");
+        // None of these slices' directories holds a document, so each keeps
+        // the path its crate holds its claims at until the migration moves
+        // them — `two-phase`'s directory in the crate its document is in.
+        assert_eq!(
+            (root.join("app/src/alpha/lld.md").exists(), root.join("mac/src/two_phase/lld.md").exists()),
+            (false, false),
+            "the unmigrated slices' directories hold no document"
+        );
+        let found = ["alpha", "lld-review", "two-phase"].map(|slice| spec_file(&project, slice));
+        assert_eq!(
+            found,
+            [
+                Ok(PathBuf::from("src/spec/alpha.rs")),
+                // The file is named for the slice's module, not the slice.
+                Ok(PathBuf::from("src/spec/lld_review.rs")),
+                // Read from `mac`, whose `docs/intent` holds the document,
+                // and joined by the caller onto the companion that holds the
+                // claims: the form is the reading crate's answer either way.
+                Ok(PathBuf::from("src/spec/two_phase.rs")),
+            ]
+        );
+    }
+
+    #[test]
+    #[validates(spec::ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode)]
+    fn a_crate_root_slices_claims_file_is_the_spec_beside_its_code() {
+        let (root, project) = workspace("layout-spec-file-crate-root");
+        // The fixture's two crate-root slices are in opposite layouts:
+        // `tool`'s document is still the one under `docs/intent`, `rooted`'s
+        // is already beside its code. Both are asked here because the answer
+        // not depending on the layout is what the claim states, and a test
+        // asking one of them could not show it.
+        assert_eq!(
+            (
+                root.join("tool/src/lld.md").exists(),
+                root.join("tool/docs/intent/tool/lld.md").is_file(),
+                root.join("rooted/src/lld.md").is_file()
+            ),
+            (false, true, true),
+            "one crate-root slice has migrated and the other has not"
+        );
+        // Neither crate holds a module named for its slice, in either
+        // spelling: the code is the crate, so there is no directory named for
+        // the slice to hold a `spec.rs` beside a document. And nothing probes
+        // for the file answered with — neither crate holds one, at the path
+        // this door answers or at the one a slice's *name* computes, which is
+        // a file no crate holds at all and the fault older than this door.
+        let modules = ["tool/src/tool.rs", "tool/src/tool/mod.rs", "rooted/src/rooted.rs", "rooted/src/rooted/mod.rs"]
+            .map(|path| root.join(path).exists());
+        let claims_files =
+            ["tool/src/spec.rs", "rooted/src/spec.rs", "tool/src/spec/tool.rs"].map(|path| root.join(path).exists());
+        assert_eq!(
+            (modules, claims_files),
+            ([false; 4], [false; 3]),
+            "neither crate-root slice's crate holds a module named for it, nor a claims file at either path"
+        );
+        let found = ["tool", "rooted"].map(|slice| spec_file(&project, slice));
+        // The one path the two layouts agree on, answered relative to no
+        // crate as every answer of this door is.
+        assert_eq!(found, [Ok(PathBuf::from("src/spec.rs")), Ok(PathBuf::from("src/spec.rs"))]);
+    }
+
+    #[test]
+    #[validates(spec::ASliceNoMemberHoldsIsRefusedByName)]
+    fn a_slice_no_member_holds_is_refused_by_name_at_spec_file() {
+        let (_root, project) = workspace("layout-spec-file-refusal");
+        // A third resolver needing a slice's crate: it resolves the crate
+        // whose layout it reads, so it can fail to find one, and it refuses
+        // in the same one sentence — observed at the door rather than
+        // inferred from another resolver that reaches it.
+        let unheld = spec_file(&project, "nobody").expect_err("no member holds a document named `nobody`");
+        let workspace_only = spec_file(&project, "book").expect_err("`book`'s document is the workspace root's");
+        assert_eq!(
+            (unheld.contains("nobody"), unheld.contains("docs/intent/nobody/lld.md"), unheld.contains("no crate")),
+            (true, true, true),
+            "the refusal names the slice, the form its document would have had, and what follows: {unheld}"
+        );
+        assert!(workspace_only.contains("book"), "{workspace_only}");
+    }
+
+    #[test]
+    #[validates(spec::ANamedFileBesideTheDocumentIsTheSlicesIntentFile)]
+    fn a_named_file_beside_the_document_is_the_slices_intent_file() {
+        let (root, project) = workspace("layout-intent-file-beside-the-document");
+        // Nothing probes for the file answered with: the acceptance a human
+        // is asked to write does not exist at the moment it is named.
+        assert!(!root.join("app/src/beta/compile-time-accepted").exists(), "the fixture holds no acceptance file");
+        let found = ["beta", "delta", "rooted"].map(|slice| intent_file(&project, slice, ACCEPTANCE));
+        assert_eq!(
+            found,
+            [
+                Ok(root.join("app/src/beta/compile-time-accepted")),
+                // Under the slice's own crate, although `app` holds a
+                // directory named for `delta` and is searched first: an
+                // intent file has no companion form, and the crate whose
+                // layout says the slice has migrated is `mac` either way.
+                Ok(root.join("mac/src/delta/compile-time-accepted")),
+                // A crate-root slice's directory is its crate's `src`.
+                Ok(root.join("rooted/src/compile-time-accepted")),
+            ]
+        );
+        // The document is a named file of the slice's intent like any other.
+        assert_eq!(intent_file(&project, "beta", "lld.md"), lld_path(&project, "beta"));
+    }
+
+    #[test]
+    #[validates(spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent)]
+    fn a_slice_whose_directory_holds_no_document_keeps_its_intent_files_under_docs_intent() {
+        let (root, project) = workspace("layout-intent-file-under-docs-intent");
+        let found = ["alpha", "lld-review", "two-phase", "tool"].map(|slice| intent_file(&project, slice, ACCEPTANCE));
+        assert_eq!(
+            found,
+            [
+                Ok(root.join("app/docs/intent/alpha/compile-time-accepted")),
+                // The directory is the slice as it was named, hyphens and
+                // all, and not its module.
+                Ok(root.join("app/docs/intent/lld-review/compile-time-accepted")),
+                // In the crate holding the document, never in the companion
+                // that holds the slice's claims.
+                Ok(root.join("mac/docs/intent/two-phase/compile-time-accepted")),
+                Ok(root.join("tool/docs/intent/tool/compile-time-accepted")),
+            ]
+        );
+    }
+
+    #[test]
+    #[validates(spec::ASliceNoMemberHoldsIsRefusedByName)]
+    fn a_slice_no_member_holds_is_refused_by_name_at_intent_file() {
+        let (_root, project) = workspace("layout-intent-file-refusal");
+        // The fourth resolver needing a slice's crate. A slice whose product
+        // is the workspace reaches the refusal here and not a workspace-root
+        // answer: that answer is `lld_path`'s, beside this door, because no
+        // intent file but the document has a form there to answer with.
+        let unheld = intent_file(&project, "nobody", ACCEPTANCE).expect_err("no member holds a document named `nobody`");
+        let workspace_only =
+            intent_file(&project, "book", ACCEPTANCE).expect_err("`book` has no crate to hold an intent file");
+        assert_eq!(
+            (unheld.contains("nobody"), unheld.contains("docs/intent/nobody/lld.md"), unheld.contains("no crate")),
+            (true, true, true),
+            "the refusal names the slice, the form its document would have had, and what follows: {unheld}"
+        );
+        assert!(workspace_only.contains("book"), "{workspace_only}");
     }
 
     #[test]
