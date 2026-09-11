@@ -92,7 +92,8 @@ citations move it is a registered claim with no implementer, which checks
 cannot move the citations.
 
 Phase 5 is the check no other tool runs. The slice's claims are the `SPEC`
-records whose source file is `src/spec/<slice>.rs` (kebab-case slice name
+records whose source file is the slice's claims file — `layout::spec_file`'s
+answer, joined onto the claims crate (kebab-case slice name
 to snake_case module), read from the registry dump the mutation subcommand
 already uses — never from Rust source (README constraint 2). The
 validations citing them are the `VALID` edges on those claims, each
@@ -108,7 +109,7 @@ is the newest commit reachable from `HEAD` whose subject starts `phase 7:`
 — any slice's, since a gate commit leaves every other slice's spec file as
 it was. The red set is the slice's claims, from the registry as above,
 whose definition the branch added since that base: the claim's name, as
-`struct <Name>`, on an added line of `git diff <base> -- src/spec/<slice>.rs`
+`struct <Name>`, on an added line of `git diff <base>` over that same claims file
 in the crate that holds the slice's claims — the slice's crate, or its
 companion (the path policy, below). With no gate commit in the history the whole file is
 added and the red set is every claim — a fresh slice. On a Phase 8 edit the
@@ -194,11 +195,62 @@ normal state throughout it; a `slice_crate` that knows only the old form loses
 every slice the migration has already touched, and the phase machinery stops
 working on exactly the slices most in need of it.
 
+**Colocation widens these sets unless they are narrowed, and that is a breach
+of the boundary this slice exists to build.** `module_and` puts the bare
+directory `src/<module>` in the allowed set and `matches_any` admits anything
+under it (`relative.starts_with(entry)`). Today that directory holds only the
+slice's leaves. Under the colocated layout it also holds `lld.md` and
+`spec.rs` — so **Phases 3, 4, 5 and 7 would gain permission to rewrite the
+slice's own design document and its own claims**, which §"What a phase may not
+do" refuses outright and which is the confused-deputy boundary the whole path
+policy exists to draw. Nothing would fail; the refusals would simply stop
+happening.
+
+So four more claims were falsified by the migration, beyond the five that name
+paths. Each said the target "shall be the slice's module, a file under its
+directory, or `src/lib.rs`", and each became a *wider* permission the day the
+layout changed under it. All four are narrowed and renamed (the retired names
+survive as `#[deprecated]` aliases).
+
+**The rule is positive, not an exclusion list.** A phase may write a **Rust
+source file** under the slice's directory, other than the slice's claims file —
+plus the module file, `src/lib.rs` for Phases 3 and 4, and `tests/ui/` in the
+companion for Phases 5 and 7. The document and the acceptance file are not Rust
+source and are refused without the policy learning their names.
+
+That shape was chosen over excluding the two paths this section first named,
+because **there is a third**: `compile-time-accepted`. §Security posture calls
+it "a file in the human-owned path, so acceptance is a human commit the hooks
+verify in both modes, never an argument a model could supply" — and a file an
+agent may `Write`, which the stop hook then stages, is not human-owned. The
+acceptance gate runs before the path policy, so an unaccepted slice still cannot
+self-accept; an accepted one could rewrite the record of what it was accepted
+for. An exclusion list would need re-sweeping for every intent file invented
+later; a positive rule refuses one without knowing its name.
+
+What it trades away: a non-Rust asset under a slice's module — a fixture, an
+included template — becomes unwritable by Phases 3–7. No crate here has one
+today; the day one is wanted it is an LLD edit and a claim.
+
+**Staging is the open half of this.** `OnlyThePoliciesPathsAreStaged` has the
+stop hook stage the allowed set with `git add -- <paths>`, which cannot express
+"everything under this directory except these" without a pathspec exclusion. If
+the hook stages the directory as it does now, a human's in-flight edit to a
+colocated `lld.md` is swept into a phase commit and the integrity check that
+should have named it passes. The refusal and the staging must narrow together,
+and only the refusal has.
+
+These four contain none of the strings a path sweep looks for — no
+`src/spec/`, no `docs/intent/` — because they name a *directory* that will come
+to contain those files rather than the files themselves. A grep over claim text
+cannot find that class of breakage; only reading a slice's claims against the
+change can.
+
 The allowed sets, relative to that crate:
 
 | Phase | May write |
 |---|---|
-| 2 | `src/spec/<slice>.rs`, `src/spec/mod.rs` |
+| 2 | the slice's claims file (`layout::spec_file`), `src/spec/mod.rs` |
 | 3, 4 | `src/<slice>.rs`, `src/<slice>/**`, `src/lib.rs` |
 | 5 | `src/<slice>.rs`, `src/<slice>/**` |
 | 7 (with 6) | `src/<slice>.rs`, `src/<slice>/**` |
@@ -218,7 +270,7 @@ relative to the companion:
 
 | Phase | May write, in the companion |
 |---|---|
-| 2 | `src/spec/<slice>.rs`, `src/spec/mod.rs` |
+| 2 | the slice's claims file (`layout::spec_file`), `src/spec/mod.rs` |
 | 3, 4 | `src/<slice>.rs`, `src/<slice>/**`, `src/lib.rs` |
 | 5 | `src/<slice>.rs`, `src/<slice>/**`, `tests/ui/**` |
 | 7 (with 6) | `src/<slice>.rs`, `src/<slice>/**`, `tests/ui/**` |
@@ -465,7 +517,7 @@ hold these facts:
   edit; such a slice is a **compile-time slice**, reported by the
   precondition from `cargo metadata` (a `proc-macro` or `custom-build`
   target). Its edits are refused by the policy unless the human has
-  accepted it by committing `docs/intent/<slice>/compile-time-accepted`
+  accepted it by committing the slice's `compile-time-accepted` intent file
   with the LLD — a file in the human-owned path, so acceptance is a human
   commit the hooks verify in both modes, never an argument a model could
   supply. The companion of a proc-macro slice is an ordinary crate; the
@@ -514,7 +566,7 @@ document does not imply it.
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crates)` | `git status --porcelain` filtered against both crates' allowed sets; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
-| `compile_time_accepted(crate_root, slice)` | Whether `docs/intent/<slice>/compile-time-accepted` exists |
+| `compile_time_accepted(crate_root, slice)` | Whether the slice's `compile-time-accepted` intent file exists — `layout::intent_file`'s answer |
 | `Ending::{Commit(message), Stop(decisions)}`, `ending_of(message)` | The stop protocol, parsed from the final message |
 | `refusal_for(step_output) -> String` | Output + `gates.md` row for the check that fired + what the phase permits |
 | `check_of_lint(name) -> Option<Check>` | The lint → check mapping |
@@ -550,7 +602,7 @@ document does not imply it.
 | Phase 7 gate duration in a hook | `timeout` set in the agent's frontmatter to cover a mutation run | Move mutants to CI only | A gate that exists, gates; the hook's timeout ceiling is verified at Phase 3, and mutants moves to CI only if the harness caps below what a slice needs. |
 | Worktree per worker | Deferred | The Workflow's `isolation: "worktree"` per phase agent | Which branch a temporary worktree checks out is undocumented; a commit there must land on `lld/<slice>`. The dirty-tree precondition covers the failure the worktree would have contained. |
 | Phase 5 test execution | One `cargo test … --exact` run per validation, exit status as verdict | One `cargo test --lib` run with libtest output parsed; `--format json` | One process per test costs seconds on a slice-sized set and needs no parsing of libtest's human-oriented output; JSON output is nightly-only. |
-| Phase 5 slice identity | `SPEC` records by source file `src/spec/<slice>.rs`, slice from the branch name | Parse `src/spec/` for the module; a `--claims` list | The registry already carries the file; the branch convention already carries the slice; constraint 2 forbids the parse. |
+| Phase 5 slice identity | `SPEC` records by source file, which `layout::spec_file` answers for either layout; slice from the branch name | Parse `src/spec/` for the module; a `--claims` list | The registry already carries the file; the branch convention already carries the slice; constraint 2 forbids the parse. |
 | Phase 7's list | The tool holds README §4.5 verbatim, in order, as one more copy the README's rule binds | Make `cargo lid-rs gate` canonical and reduce the README to a pointer | Keeping the list canonical in prose is deliberate for now: the spec stays readable without the tool. Promoting the tool is a README change with its own slice. |
 | The workflow's input | A branch with a human-approved `phase 1:` commit; no waiver argument | A slice name, with the workflow drafting the LLD; a `--waive` argument | Phase 1 is human-owned; a workflow that drafts it and continues has approved its own LLD. A waiver given once is reused; an argument is a waiver given every time. |
 | Reviewer at each stop | One clean agent per phase, prompted to refute, one rework round | No reviewer; a judge panel per phase | A clean reviewer is also the test that the artifact is context-free — the failure interactive mode cannot see. A panel exceeds the cost a slice warrants; one rework round bounds the run. |
