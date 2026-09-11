@@ -139,8 +139,9 @@ pub struct AGreenValidationFailsTheRedCheck;
 // ---- hook pre-tool: the path policy ------------------------------------------
 
 /// When the policy locates the slice's crate, it shall be the workspace
-/// package whose manifest directory holds `docs/intent/<slice>/lld.md`,
-/// found on the filesystem, never by parsing Rust.
+/// package whose manifest directory holds the slice's document, wherever the
+/// layout puts that document, found on the filesystem and never by parsing
+/// Rust.
 #[derive(Spec)]
 #[lid(free)]
 pub struct TheSlicesCrateIsTheOneHoldingItsLld;
