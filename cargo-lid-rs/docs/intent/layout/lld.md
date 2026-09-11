@@ -12,9 +12,32 @@ target: everything about a slice in `src/<slice>/` — `lld.md`, `vocab.rs`,
 `spec.rs`, `mod.rs`, and the leaves — so that opening one directory puts the
 whole arrow in front of the reader, design through validations.
 
-This slice is that move. It adds no check and no capability of its own except
-one the layout makes possible (below); what it delivers is that every later
-slice is cheaper to read and to build.
+This slice is that move, and it has the shape the controlled-language slice
+had: **its phases build the mechanism, and its migration is hand-committed
+`phase 8:` edits afterward.** Phases 1-7 deliver `cargo_lid_rs::layout` and the
+resolvers that read it, inside `cargo-lid-rs`, where phase agents may write.
+The migration itself — 15 LLDs, 11 spec files, ~1186 citation sites, four
+`lib.rs` files, README, the skill, the book — is outside every phase's policy
+and cannot be done by an agent at all: `git mv` is a `ToolKind::Command`,
+absent from the agents' tools, and `policy::allowed` refuses every path outside
+the slice's own crates. The precedent is exact: the claim slice's 302
+`#[lid(free)]` marks were hand-committed the same way, for the same reason.
+
+So the order is: the resolvers land **accepting both layouts**, then the
+migration moves slices one commit at a time under a tooling that tolerates a
+mixed tree, then a final commit drops the old form.
+
+**`layout` owns the both-layouts resolution; `phase` delegates to it.**
+`policy::slice_crate` finds a slice's crate by looking only for
+`docs/intent/<slice>/lld.md`, so it cannot find a slice whose document has
+already moved. That resolver is the `phase` slice's, which this slice's phases
+may not write. The seam: this slice's `layout` module owns the resolution that
+admits both forms, and a **Phase 8 on `phase`** rewires `policy::slice_crate`
+to delegate to it. That Phase 8 is part of "the resolvers land", not part of the
+migration — it must be committed before the first slice moves, or the phase
+machinery loses every slice the migration touches. Nothing can move before the
+tooling tolerates the move, and a mixed state is guaranteed because the
+migration is incremental.
 
 **Measured before it was written.** Fourteen slices carry an `lld.md`, and
 three of them — `book`, `publish`, `skill` — are workspace-only and have no
@@ -77,32 +100,137 @@ For a slice `s` in crate `c` whose code is `c/src/s.rs` and `c/src/s/`:
 | `c/src/s/<leaf>.rs` | unchanged |
 | `#[doc = include_str!("../docs/intent/s/lld.md")]` on `mod s` | `#![doc = include_str!("lld.md")]` inside `mod.rs` |
 
-`src/spec/mod.rs` is deleted. A citation that read `crate::spec::Name` reads
-`crate::s::spec::Name`, and one that read `spec::Name` from inside slice `s`
-reads `spec::Name` still, because `spec` is now a sibling module of the citing
-code rather than a crate-root one — which is why 1095 of the 1186 citation
-sites do not change at all.
+A citation that read `crate::spec::Name` reads `crate::s::spec::Name`. One that
+read `spec::Name` from inside slice `s`, naming *its own* claim, reads
+`spec::Name` still, because `spec` is now a sibling module of the citing code.
+
+**But a cross-slice citation is textually identical to a same-slice one**, and
+that is the flat re-export's doing: `cargo-lid-rs/src/sync.rs` writes
+`spec::SyncMirrorsEveryArtifactTheDependencyShips` for a claim defined in the
+`phase` slice's spec file. After the move that site must read
+`crate::phase::spec::…`. So the 1186 sites cannot be partitioned by their text;
+each must be resolved **by claim name to its owning spec file**. That resolution
+is the migration's real work and the reason it is mechanical only in the sense
+that a compiler can check it — not in the sense that a regex can perform it.
 
 `lld.md` in a directory is what marks that directory a slice. Nothing else
 does: not a manifest key, not a naming convention, not a registry entry. That
 is the rule `lld-check`, the phase policy, the coach's index, and the book all
 read, and having exactly one marker is the point of the move.
 
-### The three slices with no module
+### Where a slice's `lld.md` goes — four cases, not two
 
-`book`, `publish`, and `skill` are slices of this *workspace* rather than of a
-crate: their artifacts are `book/`, the publish metadata in every manifest, and
-`lid-rs/skill/`. They have no `src/<slice>/` to live in and inventing one would
-be a module that exists to hold a document.
+A slice's directory is the directory holding its **code**, and its `lld.md`
+goes there. That is one rule, but the repository presents four shapes of it:
 
-They keep `docs/intent/<slice>/lld.md` at the workspace root, and the rule
-becomes: **a slice's `lld.md` sits beside its code when it has code, and under
-`docs/intent/` when it has none.** `lld-check` and the phase policy admit both
-forms; the policy already resolves a workspace-only slice differently, because
-such a slice has no crate for its paths to be relative to.
+| Shape | Slices today | Where `lld.md` goes |
+|---|---|---|
+| code in `src/<m>.rs` + `src/<m>/` | `phase`, `coach`, `claim`, `sync`, `init`, `registry`, `lld-review`, `headless-canopy-agent`, `macros`… | `src/<m>/lld.md` |
+| code **is** the crate root | `cargo-lid-rs`, `macros`, `xtask` | the crate's `src/lld.md`, included by `lib.rs`'s `#![doc]` as it already is |
+| no code at all | `book`, `publish`, `skill` | `docs/intent/<slice>/lld.md` at the workspace root, unchanged |
+| a companion's presence in another crate | `lid-rs/src/claim/` | no `lld.md` — see below |
 
-This is a two-form rule, which is worse than a one-form rule, and the
-alternative is worse still — see Decisions.
+The second case is the one the first draft missed, and it is why the rule is
+stated as *beside the code* rather than *in `src/<slice>/`*: a crate-root slice
+already carries its LLD as `lib.rs`'s inner doc, so it moves from
+`docs/intent/<s>/lld.md` to `src/lld.md` and the `#![doc = include_str!]`
+shortens. No module is invented to hold a document, which is the thing the
+Decisions table refuses.
+
+**A crate-root slice's name is its package's name.** `<crate>/src/lld.md`
+records no slice name, so a search that accepts it as a candidate for a slice
+resolved *by name* accepts it for every member holding no module of that name —
+`of_slice(project, "macros")` would answer `cargo-lid-rs` the moment that crate
+migrated, and `ASliceNoMemberHoldsIsRefusedByName` would stop firing at all once
+any crate-root slice had moved. The name has to come from somewhere the tree
+already states it, and for a crate-root slice that place is `Cargo.toml`: the
+slice *is* the crate.
+
+Two of the three already satisfy it — slice `cargo-lid-rs` in package
+`cargo-lid-rs`, slice `xtask` in package `xtask`. The third does not: slice
+`macros` lives in package `lid-rs-macros`. **It is renamed to `lid-rs-macros`**
+by the ordinary Phase 8 discipline, as part of the migration and before its own
+crate moves — covering `lid-rs-macros/docs/intent/macros/`, its companion
+directory in `lid-rs`, and the two mentions of it in this document. The
+alternative rules are in Decisions; this one is chosen because it adds no
+mechanism and no thing to remember, and because a crate-root slice that is not
+named for its package is a name the tree already contradicts.
+
+**The slice's name becomes its directory's name.** Three slices have a name
+that is not their module's: `intent-graph` (module `graph`), and the
+crate-root slices whose names carry hyphens. This is not cosmetic —
+`spec_file_of("intent-graph")` yields `src/spec/intent_graph.rs`, **a file that
+does not exist**, so that slice's claims are already unfindable by
+`slice_claims` and its red run already finds nothing. The layout surfaces a
+defect that predates it. Each such slice is renamed to its module's name by the
+ordinary Phase 8 discipline — rename, `#[deprecated]` alias, cascade — as part
+of its own migration commit.
+
+### Resolving a directory back to a slice
+
+`is_companion_dir` takes a directory, and mapping a directory back to a slice is
+**not an inversion**: `slice.replace('-', "_")` is not injective, so
+`headless_canopy_agent` has one preimage today and two in principle. Nothing
+guesses. The route is forward: enumerate the slices of the member in question
+from the documents it holds, and compare each slice's module name against the
+directory's. That rests on the marker rule — a document is what says a slice
+exists — and it is a second reason the crate-root naming rule above must hold,
+since enumerating a crate's slices from its documents is exactly what an
+unnamed `src/lld.md` would defeat.
+
+`coach::slice_named` reads a slice's name out of its document's parent
+directory and would answer `src` for a migrated crate-root slice. It is the
+`coach` slice's, and its correction is one of the Phase 8s in Deferred 1.
+
+### `Form` carries the name it was resolved for
+
+A `Form` is not enough to build every path the claims ask for: the old-form
+answer is `docs/intent/<slice>/lld.md` with the slice's name **as given** —
+`lld-review`, not `lld_review` — which no variant's data supplies. The
+resolvers each take a slice name and could pass it alongside, but
+`Form::of_directory` *derives* a name from a directory and would then discard
+it, and that is the one place the fact has no other source. So `Form` carries
+the slice name it was resolved for.
+
+### The files with no slice directory
+
+Three files have no destination the target table computes, and each gets one
+here rather than at the phase that trips over it:
+
+- **`lid-rs/src/canary.rs`** is a leaf of the `registry` slice sitting at the
+  crate root. It moves to `lid-rs/src/registry/canary.rs`. The table's "leaves
+  unchanged" row covers leaves already under `src/<m>/`; this one is not, and
+  the rule is that a leaf moves into its slice's directory.
+- **`lid-rs/src/spec/citation.rs`** is a spec file for a slice of no such name:
+  its claims are the `macros` slice's, cited by hand-authored edges in
+  `lid-rs/src/lib.rs`. It is the companion shape — `lid-rs` is the companion of
+  `lid-rs-macros` — so it becomes `lid-rs/src/macros/spec.rs`, beside
+  `lid-rs/src/claim/spec.rs`, and neither carries an `lld.md`.
+- **`xtask/src/spec.rs`** is flat, with no `src/spec/mod.rs` at all, for a
+  crate-root slice. It becomes `xtask/src/spec.rs` — unchanged — because a
+  crate-root slice's `spec.rs` is already beside its code.
+
+### What `src/spec/mod.rs` holds besides re-exports
+
+Deleting the two `src/spec/mod.rs` files is not a deletion of re-exports alone,
+and the first draft listed it as one of three content-free changes:
+
+- `lid-rs/src/spec/mod.rs` holds a `#[cfg(test)] mod tests` carrying the **sole
+  `#[validates]` for six claims** and the trybuild driver for every UI fixture
+  in the crate. Deleting it fails check 11 for six claims and silently stops
+  running the UI suite. Those tests move to `lid-rs/src/registry/mod.rs` and
+  `lid-rs/src/macros/…`, beside the claims they observe — which is what
+  colocation is for, and the move is this slice's, not a later slice's.
+- `cargo-lid-rs/src/spec/mod.rs` holds **six live `#[deprecated] pub type`
+  aliases** from the still-open `phase` and `coach` renames. An alias exists so
+  the *old* path keeps resolving; moving it changes the old path and defeats
+  it. They stay at `cargo-lid-rs/src/spec/mod.rs`, which therefore is not
+  deleted in that crate until those renames' deprecation windows close — a
+  file holding aliases and nothing else, with a comment saying so.
+- `lid-rs-macros/docs/intent/claim/compile-time-accepted` is read by the policy
+  and named in the canopy's stop sentence. It moves to
+  `lid-rs-macros/src/claim/compile-time-accepted`, beside the LLD whose
+  acceptance it records.
 
 ### The companion rule, under colocation
 
@@ -128,12 +256,22 @@ missing its document.
 
 ### How the move is made
 
-The move is mechanical and the compiler is what verifies it, one slice at a
-time rather than all fourteen at once: a slice moved wrongly is a `cargo check`
-failure at every citation of it, and moving one slice per commit keeps the
-failure set small enough to read. The order is leaves first — a slice nothing
-else cites — so that each commit's breakage is confined to the slice being
-moved.
+**The main session performs the migration by hand**, after this slice's Phase 7,
+as `phase 8: layout — <slice> moves` commits. No phase agent can do it: `git mv`
+is a `ToolKind::Command`, absent from their tools, and `policy::allowed` refuses
+every path outside the slice's crates. These are not `phase N:` commits, so
+`phase-check` does not gate them and the canopy's subject-tag reader will not
+count them; the gate they answer to is the workspace's, run by hand after each.
+
+One slice per commit, and the compiler verifies each: a slice moved wrongly is a
+`cargo check` failure at every citation of it. **The order is not "leaves
+first"** — that was the first draft's answer and it is not computable, because a
+cross-slice citation is textually indistinguishable (above) and because every
+move edits its crate's shared `lib.rs`, including the 54 hand-authored
+`macro_edge!`/`claim_edge!` entries in `lid-rs/src/lib.rs`. The order is instead
+**stated**: the migration commits are named in the slice's Phase 1, one per
+slice, and a mixed tree is expected throughout — which is what the both-forms
+resolvers exist for.
 
 `git mv` for every file, then the include path, then the citation prefix. No
 file's *content* changes except:
@@ -180,21 +318,36 @@ passes on a resolved citation whose claim's key has changed.
   `cargo-lid-rs/docs/intent/layout/lld.md` and ends at
   `cargo-lid-rs/src/layout/lld.md`, moved by the cascade it describes.
 
-### The uncitable-claim assertion
+### The uncitable-claim assertion is not in this slice
 
-With a citable path defined, the derive can emit a projection through it — the
-claim slice's Deferred 2. A claim in `c/src/s/spec.rs` is citable as
-`c::s::spec::Name`, and the derive knows `module_path!()`, so it can emit a
-const that fails to compile when the claim's own module is unreachable from the
-crate root. This is the one capability the slice adds, and it is the reason the
-claim slice deferred it here rather than solving it against `src/spec/mod.rs`,
-where the path a claim *should* have was not derivable from where it sat.
+The claim slice deferred it here (its Deferred 2) on the reasoning that the
+assertion needs a citable path and the layout defines one. The path half is
+right; the placement is not. The assertion is emitted by the **derive**, in
+`lid-rs-macros/src/claim/`, and `policy::allowed` refuses that crate to a slice
+seated in `cargo-lid-rs` — so no phase of this slice can build it. It is a
+Phase 8 on `claim`, taken once this slice's migration has landed.
+
+Two things that Phase 8 must state, because they decide what the assertion is
+worth, and which this document records so they are not rediscovered:
+
+- it fires on a module *declared but unreachable*; it cannot see a `spec.rs`
+  that nothing declares, which is the likelier fault under colocation;
+- §Context's account of the old fault holds only for a module declared
+  privately (`mod x;` rather than `pub mod x;`). If the line is missing
+  altogether the file is not compiled and the registry never sees the claim
+  either. The same private-vs-public mistake is available in the new `mod.rs`,
+  so "a mistake nobody makes twice" is asserted rather than shown.
 
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
 |---|---|---|---|
-| Where a workspace-only slice's LLD lives | `docs/intent/<slice>/lld.md` at the workspace root — a two-form rule | A `src/<slice>/` module that exists only to hold the document; a `book/lld.md` beside each one's artifacts; making them not slices | A module holding no code is a lie the compiler cannot catch, and `lib.rs` would have to include it. Beside their artifacts means three more forms, not one. Making them not slices costs them their phase flow and their place in the coach's index, which is a real loss for the `publish` slice especially. Two forms, both stated, is the least bad. |
+| The phases build the mechanism; the migration is hand-committed | Phases 1-7 deliver the rule and the resolvers in `cargo-lid-rs`; the main session moves the tree as `phase 8:` commits | A phase agent performing the move; one cascade commit; a `cargo lid-rs migrate` subcommand | No agent *can* move it — `git mv` is a `ToolKind::Command` and the policy refuses every path outside the slice's crates — so the only question is whether that is stated or discovered at the first refusal. The precedent is the claim slice's 302 marks, hand-committed for the same reason. A subcommand is code with a lifetime of one use. |
+| The resolvers accept both layouts until the migration ends | Both forms admitted, the old dropped in a final commit | Switch the tooling first; switch it last; a feature flag | The migration is incremental by design, so a mixed tree is guaranteed, not a risk. Switching first breaks `slice_crate` for every unmoved slice — including `layout` itself, whose own stop hook then errors. Switching last means every moved slice is unresolvable in between. |
+| A slice's directory is where its **code** is | Four shapes, one rule: beside the code, or `docs/intent/` when there is none | `src/<slice>/` always; a manifest list of slices | "Always `src/<slice>/`" invents a module to hold a document for the three crate-root slices, which is a lie the compiler cannot catch. A manifest list is a second place to forget, which is the fault the layout exists to fix. |
+| A crate-root slice's name is its package's name | The rule, with `macros` renamed to `lid-rs-macros` | Crate-root slices keep `docs/intent/<slice>/lld.md` permanently; a `[package.metadata.lid_rs]` key naming the crate's slice | `src/lld.md` names no slice, and a by-name search that accepts it matches every member without that module — which silently retires `ASliceNoMemberHoldsIsRefusedByName`. Keeping the old path for three slices abandons colocation for them, which is the promise §Context makes. A manifest key is a fourth thing a new crate-root slice must remember, and the package name is a fact the tree already states. The cost is one rename under the discipline this project already uses for renames. |
+| `Form::of_slice` never answers `Companion`, as a constructor invariant | The invariant, with the unreachable arm carried at every match | A split type — `OwnForm` of three variants, wrapped by `Form` — making it unrepresentable | `ASlicesDocumentIsNeverUnderItsCompanion` is a **claim**, and a claim the type makes unrepresentable is one no `#[validates]` test can turn red at Phase 5 and no mutant can kill at check 12. Making it impossible would delete the evidence that it holds. The unreachable arm is what that evidence costs. |
+| Where a workspace-only slice's LLD lives | `docs/intent/<slice>/lld.md` at the workspace root | A `src/<slice>/` module that exists only to hold the document; a `book/lld.md` beside each one's artifacts; making them not slices | A module holding no code is a lie the compiler cannot catch, and `lib.rs` would have to include it. Beside their artifacts means three more forms, not one. Making them not slices costs them their phase flow and their place in the coach's index, which is a real loss for the `publish` slice especially. Two forms, both stated, is the least bad. |
 | One slice per commit | Move one slice, check, commit; leaves first | One cascade commit for all fourteen; one commit per crate | The compiler verifies each move, and the failure set of a wrong move is every citation of that slice. Fourteen slices at once makes that set unreadable. Per crate is the same problem, smaller. |
 | The `lld.md` marks the slice | A file's presence is the marker | A `[package.metadata.lid_rs] slices = [...]` list; a naming convention on the module; a registry entry | A list is a second place to forget, which is the fault the layout exists to fix. A convention cannot be checked. A registry entry is available only after the code compiles, and `lld-check` runs before it. |
 | The companion directory carries no `lld.md` | `spec.rs` + `mod.rs` only | An `lld.md` that includes the real one; a symlink | One slice has one document, or the two diverge. A symlink is not portable to a published tarball. `lld-check` learns the exception instead, and states it. |
@@ -202,66 +355,28 @@ where the path a claim *should* have was not derivable from where it sat.
 
 ## Open Questions & Future Decisions
 
-### Unresolved: this is not one slice
-
-An adversarial read of this document's first draft found it spans at least
-three pieces of work with different actors, and the seams fall on its own
-section boundaries. Recorded here rather than decided, because re-slicing the
-HLD's map is the human's:
-
-- **A — the layout rule and the resolvers that read it.** `cargo_lid_rs::layout`
-  and its three functions, `slice_crate`, `lld_path`, the coach's walk,
-  `init`/`new` templates. A normal slice, buildable by phase agents inside
-  `cargo-lid-rs`, **if** it lands accepting both crate forms — because the
-  cascade guarantees a mixed state, and `slice_crate` today looks only for
-  `docs/intent/<slice>/lld.md` and errors otherwise. It must land first:
-  nothing can move until the tooling tolerates the move.
-- **B — the migration itself.** 15 LLDs, 11 spec files, 22 `use` lines, ~1186
-  citation sites, four `lib.rs` files, README, seven skill files and their
-  synced copies, the book. **No phase agent can perform it**: `git mv` is a
-  `ToolKind::Command`, absent from the agents' tools, and `policy::allowed`
-  refuses every path outside the slice's own crates. So B is a human-run
-  mechanical cascade or a Phase 8 per slice, and either way its commits are not
-  `phase N:` commits — `phase-check` and the canopy's subject-tag reader will
-  not recognise them. The document must name the actor and the subject
-  convention before any phase starts.
-- **C — the uncitable-claim assertion.** It belongs to the derive, in
-  `lid-rs-macros`, which the policy refuses to a slice seated in
-  `cargo-lid-rs`. It is a Phase 8 on `claim`, not part of this slice at all,
-  and cutting it out is what takes this work from three crates to one.
-- **D — the Phase 8s on other slices whose claim *text* names the old paths**:
-  `TheSlicesCrateIsTheOneHoldingItsLld`, the two Phase-2 path claims,
-  `lld-review`'s three document-location claims, and the coach's
-  `TheIntentIndexNamesEveryIntentDocumentInTheWorkspace`. Phase 2 of this slice
-  may not write another slice's spec file, so these are each that slice's own
-  Phase 8.
-
-Other findings the draft does not yet answer, each of which would stop a phase:
-`xtask`'s claims are a flat `src/spec.rs` with no `mod.rs`, which the target
-table does not cover; three more slices (`cargo-lid-rs`, `macros`, `xtask`) have
-a crate but no `src/<slice>/` module, so the two-form rule is really four cases;
-`intent-graph`'s slice name, module name and spec file all differ, and
-`spec_file_of("intent-graph")` already names a file that does not exist;
-`lid-rs/src/spec/citation.rs` is a spec file for a slice of no such name;
-`lid-rs/src/canary.rs` is a `registry` leaf at the crate root with no stated
-destination; deleting `lid-rs/src/spec/mod.rs` deletes the sole `#[validates]`
-for six claims **and** the trybuild driver for the crate's whole UI suite;
-`cargo-lid-rs/src/spec/mod.rs` holds six live `#[deprecated]` aliases whose
-destination is undefined; and `docs/intent/claim/compile-time-accepted` has no
-home once `docs/intent/` empties.
-
 ### Deferred
 
-1. `vocab.rs` — the file README §11.1 shows in a slice directory is the next
+1. **The Phase 8s on other slices whose claim *text* names the old paths** —
+   `TheSlicesCrateIsTheOneHoldingItsLld` and the two Phase-2 path claims in the
+   `phase` slice, `lld-review`'s three document-location claims, and the coach's
+   `TheIntentIndexNamesEveryIntentDocumentInTheWorkspace`. Phase 2 of this slice
+   may not write another slice's spec file, so each is that slice's own Phase 8,
+   taken with the migration commit that invalidates it. Listed here because a
+   reader of this document would otherwise find four claims that contradict it
+   and no record of why.
+2. **The uncitable-claim assertion**, a Phase 8 on `claim` — see above.
+
+3. `vocab.rs` — the file README §11.1 shows in a slice directory is the next
    slice's to create; this slice moves none and creates none.
-2. The `phase-check 7` package-step divergence, which this slice inherits and
+4. The `phase-check 7` package-step divergence, which this slice inherits and
    does not fix: `CLAUDE.md` runs one `cargo package` naming every publishing
    member, while README §4.5, the skill, and `phase::gate` run one per crate —
    and the per-crate form cannot resolve a sibling at a version not yet on
    crates.io. Every Phase 7 here is therefore finished by hand. It belongs to a
    Phase 8 on the `phase` slice or to the catalog slice, and it is a decision
    the human has not yet taken.
-3. Check 12's `FullSuite` mapping for hand-authored edges (the claim slice's
+5. Check 12's `FullSuite` mapping for hand-authored edges (the claim slice's
    Deferred 5a). Under colocation a slice's edges and its code share a
    directory, so the mapping that matches an edge by `file!()` may become
    correct for free — measure it here rather than assuming it.
@@ -273,7 +388,8 @@ home once `docs/intent/` empties.
 | `cargo_lid_rs::layout` | This slice's module: the rule that a directory holding `lld.md` is a slice, and the resolution of a slice's artifacts from it. |
 | `cargo_lid_rs::layout::slice_dir` | A slice's directory, from its name and crate — the one place the layout is computed. |
 | `cargo_lid_rs::layout::lld_path` | A slice's `lld.md`, in either form: beside its code, or under `docs/intent/` when it has none. |
-| `cargo_lid_rs::layout::is_companion_dir` | Whether a slice directory is a companion's — `spec.rs` and `mod.rs` with no `lld.md` — so that `lld-check` does not read it as a slice missing its document. |
+| `cargo_lid_rs::layout::is_companion_dir` | Whether a slice directory is a companion's, read from `[package.metadata.lid_rs] companion` in the manifest — **not** from the directory's shape. A shape heuristic ("`spec.rs` and `mod.rs` with no `lld.md`") cannot distinguish a companion from a slice whose Phase 1 was genuinely skipped, which is the case `lld-check` exists to catch; the manifest already carries the fact. |
+| `cargo_lid_rs::layout::Form` | Which of the four shapes a slice has, so that every resolver branches once, here, rather than each inventing its own test. |
 
 ## References
 
