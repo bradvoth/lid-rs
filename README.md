@@ -790,8 +790,14 @@ RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" \
   cargo doc --no-deps                            # 2
 cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11, 15–26 + behaviour
-cargo package -p <crate> --allow-dirty           # published crates: the tarball
-                                                 #     builds standalone
+cargo package -p <a> -p <b> … --allow-dirty      # published crates: the tarballs
+                                                 #     build standalone. One
+                                                 #     invocation naming every
+                                                 #     publishing member, so the
+                                                 #     siblings resolve against
+                                                 #     each other: no registry
+                                                 #     holds a version that is
+                                                 #     not released yet
 cargo lid-rs sync --check                        # the skill matches the lid-rs
                                                  #     the project depends on
 cargo lid-rs mutants                             # 12 (scope from metadata;

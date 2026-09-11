@@ -9,7 +9,7 @@ cargo clippy --all-targets -- -D warnings
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
 cargo test --doc
 cargo test --lib
-cargo package -p <crate> --allow-dirty   # published crates: tarball builds standalone
+cargo package -p <a> -p <b> … --allow-dirty   # one invocation naming every publishing member; tarballs build standalone
 cargo lid-rs sync --check  # the skill matches the lid-rs the project depends on
 cargo lid-rs mutants       # diff scope; --full / --diff-base <ref> override
 ```
