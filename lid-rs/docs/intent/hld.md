@@ -192,7 +192,7 @@ so the gate always exercises the working tree's tool.
 | 14 | "A human drafts an LLD with a coach" | `cargo lid-rs coach`: the interview that opens with the repository's intent index; `cargo-lid-rs/docs/intent/coach/lld.md` |
 | 15 | "A claim is written in the controlled language" | `derive(Spec)` enforces README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html) and extracts `SpecMeta`; the base lexicon and `docs/intent/lexicon.toml` with templates; checks 13 and 14; every existing claim marked `#[lid(free)]`, counted and enumerable, burned down per slice; preceded by a `phase` change admitting a proc-macro crate's slice into its companion crate; `lid-rs-macros/src/claim/lld.md` |
 | 16 | "A slice's artifacts live in one directory" | The colocated layout (README [§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html)): `lld.md`, `spec.rs`, `mod.rs` under `src/<slice>/`; the phase policy, `init`/`new`, `lld-check`, the coach's index, the book, and every citation path moved in one mechanical cascade; the uncitable-claim assertion, whose path the layout defines |
-| 22 | "A check is a command with a finding" | The `cargo lid-rs` catalog (pipeline §5): atomic commands, the finding schema, exit codes, `--expect`, `validate --claims` and `--red`, composites in workspace metadata; `phase-check N` becomes `gate --phase N` |
+| 22 | "A check is a command with a finding" | **Delivered.** The `cargo lid-rs` catalog (pipeline §5): the command table over `Invocation`, the finding schema, `Status`, the two provenances, and five built commands — `check`, `lint`, `doc`, `package`, `sync`. **Not delivered, and deferred by that slice to `lld/phase--gate-from-metadata`:** the composites in workspace metadata, `fast`, and the `phase-check N` → `gate --phase N` rename. `--expect` and `validate --claims`/`--red` wait on slices 19 and 20 |
 | 17 | "A slice's nouns are types the LLD links to" | `derive(Traceable)` with its policy attributes; `vocab` modules; LLDs rewritten with vocabulary links (check 2 enforces them) |
 | 18 | "A function is flow or leaf by its shape" | `lid-rs-shape`: F1–F6, rules A/B/P/V, checks 15–18, `#[flow]`/`#[leaf]`, `cargo lid-rs shape`, `shape.level`; the complexity threshold re-measured with the classification in hand |
 | 19 | "A signature keeps the promise its claim makes" | `derive(Outcome)`, `OUTCOMES`, `signatures()`, checks 19–22, `conformance.level` and `aliases` |
@@ -212,9 +212,15 @@ In dependency order: the layout (16) moves every claim's path before the
 burn-down of 15's marks rewrites any claim's text; the catalog (22) wraps
 checks that already exist and so is blocked by nothing, which is what lets it
 move; conformance (19) needs the claim's parts (15) and signatures (18); the
-runtime (20) needs only 15 and 17 and may be pulled ahead of 18–19 if the
-runtime payoff is wanted sooner, with check 25 then landing beside 18; the page
-(21) needs everything it renders; the pipeline (23) runs the catalog.
+runtime (20) needs 15 and 17 **built**, not merely designed — a span's
+parameter recording is a compile-time bound against `Traceable`, and a macro
+cannot bound on a trait with no definition — and it may be pulled ahead of 18
+but **not** of 19, since `lid.outcome` is recorded through the return type's
+`Outcome` impl, with check 25 then landing beside 18; the page (21) needs
+everything it renders, and check 26 compares `trace.md` against the registry
+*and* the shape pass, so a registry-only document would ship a check gating
+half of what it names; the pipeline (23) runs the catalog, and only its
+`fast`/`gate` dispatch waits on the composites slice 22 deferred.
 
 Each slice runs Phases 0–7 (README [§8](https://bradvoth.github.io/lid-rs/spec/flow.html); Phase 8 is the post-slice change loop) with stops at every phase boundary.
 
