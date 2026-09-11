@@ -6,4 +6,7 @@ publish = false
 
 [dependencies]
 lid-rs = { path = "../../../../.." }
-claim-fixture-inner = { path = "inner" }
+
+# `inner/` is not a dependency, and cannot be one: it opens a workspace of its
+# own, and cargo loads a member's path dependencies whatever the root excludes.
+# The harness checks it in a run of its own.

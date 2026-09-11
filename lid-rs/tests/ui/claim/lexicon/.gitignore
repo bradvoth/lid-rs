@@ -1,4 +1,5 @@
-# The harness resolves and checks this workspace during `cargo test`; its lock
-# file and any target directory are build products, not fixtures.
+# The harness resolves and checks this workspace during `cargo test`, and the
+# nested root under `outer_pkg/` in a second run; the lock file each resolution
+# writes, and any target directory, are build products and not fixtures.
 Cargo.lock
 target/

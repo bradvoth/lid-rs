@@ -223,25 +223,31 @@ mod tests {
         t.pass("tests/ui/claim/pass/*.rs");
     }
 
-    /// Each member of the fixture workspace, as the source file its diagnostics
-    /// point at, with the words those diagnostics must hold.
+    /// Each crate of the fixture workspace, as the text that picks its
+    /// diagnostics out of the merged report, with the words those diagnostics
+    /// must hold.
     ///
-    /// A member's lexicon is its own and no other's, so the words are what only
-    /// that member's lexicon could have produced: the verb it alone defines, the
+    /// For a member that text is its source file under the workspace root, which
+    /// is how cargo names it. The nested workspace root is checked as a root, so
+    /// cargo names its source relative to itself — a `src/lib.rs` every crate
+    /// here ends in — and its claim's name is what picks it out instead.
+    ///
+    /// A crate's lexicon is its own and no other's, so the words are what only
+    /// that crate's lexicon could have produced: the verb it alone defines, the
     /// term it alone prohibits, the file it alone names. `included` is absent
     /// because it compiles — what it demonstrates is read from cargo's dep-info,
     /// not from a message.
     ///
-    /// A rule stating a disjunction gets one member per branch, because a member
+    /// A rule stating a disjunction gets one crate per branch, because a crate
     /// demonstrates the branch it carries and no other: `signature` missing and
     /// `signature` repeated, `def` missing and `def` repeated, a key the subset
     /// does not admit under a verb and one under `[prohibited]`, a template that
     /// begins with no `->` and one whose braces do not balance and one whose
     /// placeholder binds nothing.
     ///
-    /// The two `def` members are the corners nothing else would find: a parsed
+    /// The two `def` crates are the corners nothing else would find: a parsed
     /// lexicon carries only the templates, so an implementation that never reads
-    /// a definition passes every other member here while admitting a verb the
+    /// a definition passes every other crate here while admitting a verb the
     /// glossary never glossed. No expected word of theirs occurs in their own
     /// path, so each assertion is the message and not the path.
     const LEXICON_FIXTURES: [(&str, &[&str]); 18] = [
@@ -270,7 +276,7 @@ mod tests {
         ("project_extra/src/lib.rs", &["project_extra/docs/intent/lexicon.toml", "promptly"]),
         ("inherits/src/lib.rs", &["rootprohibited"]),
         ("detached/pkg/src/lib.rs", &["settle", "lid-rs-macros/lexicon.toml"]),
-        ("inner/src/lib.rs", &["orbit", "lid-rs-macros/lexicon.toml"]),
+        ("AClaimBelowANestedWorkspaceRoot", &["orbit", "lid-rs-macros/lexicon.toml"]),
     ];
 
     /// The path the `include_str!` of a read project lexicon must put into the
@@ -278,13 +284,11 @@ mod tests {
     const INCLUDED_LEXICON: &str = "included/docs/intent/lexicon.toml";
 
     /// Which lexicon governs a crate, and what a file outside the format's
-    /// subset does: one `cargo check` over the fixture workspace, whose members
-    /// differ only in where their lexicon stands and what it says.
+    /// subset does: `cargo check` over the fixture crates, whose lexicons differ
+    /// only in where they stand and what they say.
     ///
-    /// Every assertion here is a message that could come from no other member's
-    /// lexicon, so the absence of one is the absence of the rule. The check runs
-    /// with a target directory of its own: cargo locks a target directory, and a
-    /// build inside `cargo test` must not share the outer one.
+    /// Every assertion here is a message that could come from no other crate's
+    /// lexicon, so the absence of one is the absence of the rule.
     #[test]
     #[validates(
         spec::AMemberFindsItsWorkspacesLexicon,
@@ -302,12 +306,9 @@ mod tests {
         spec::AMalformedTemplateFailsEveryDerive
     )]
     fn a_member_finds_its_workspaces_lexicon() {
-        let report = check_fixture_workspace();
-        for (source, expected) in LEXICON_FIXTURES {
-            let said = diagnostics_for(&report, source);
-            for word in expected {
-                assert!(said.contains(word), "{source}: no diagnostic names `{word}`\n{report}");
-            }
+        let report = check_fixtures();
+        for (whose, expected) in LEXICON_FIXTURES {
+            names_every_word(&report, whose, expected);
         }
         assert!(
             dep_info_mentions(&fixture_target(), INCLUDED_LEXICON),
@@ -315,19 +316,52 @@ mod tests {
         );
     }
 
-    /// The fixture workspace, checked whole, with its diagnostics captured.
+    /// One row of [`LEXICON_FIXTURES`], read: every word it expects is said by
+    /// the diagnostics that name that crate.
     ///
-    /// `--keep-going` is what makes one run enough: without it cargo stops
-    /// scheduling after the first member fails, and the members it never checked
-    /// would look like rules that never fired.
-    fn check_fixture_workspace() -> String {
+    /// Walking the rows and reading one row's diagnostics are two jobs, and the
+    /// failure belongs to the second: it names the crate and the one word that
+    /// was missing, so that a rule that stopped firing stays legible among
+    /// eighteen crates whose diagnostics arrive in one report.
+    fn names_every_word(report: &str, whose: &str, expected: &[&str]) {
+        let said = diagnostics_for(report, whose);
+        for word in expected {
+            assert!(said.contains(word), "{whose}: no diagnostic names `{word}`\n{report}");
+        }
+    }
+
+    /// The fixture crates' diagnostics: the workspace's run and the nested
+    /// root's, merged.
+    ///
+    /// Two runs, because a package that opens a workspace of its own can be
+    /// neither a member of the outer one nor a path dependency of a member —
+    /// cargo loads a member's path dependencies whatever the root excludes,
+    /// finds the second `[workspace]`, and refuses the whole workspace, checking
+    /// nothing at all. So the nested root answers to a run of its own, and the
+    /// reports are merged before anything is asserted, since every expectation
+    /// is a message no other crate's lexicon could have produced.
+    fn check_fixtures() -> String {
+        let members = cargo_check(&fixture_workspace(), &fixture_target(), &["--workspace", "--keep-going"]);
+        let nested = cargo_check(&nested_root(), &nested_target(), &[]);
+        format!("{members}\n{nested}")
+    }
+
+    /// One `cargo check` at `dir`, into `target`, with its diagnostics captured.
+    ///
+    /// `--keep-going` is what makes one run enough for the workspace: without it
+    /// cargo stops scheduling after the first member fails, and the members it
+    /// never checked would look like rules that never fired. `target` is never
+    /// the outer target directory: cargo locks one, and a build inside `cargo
+    /// test` must not ask for the lock the run that spawned it holds.
+    fn cargo_check(dir: &Path, target: &Path, args: &[&str]) -> String {
         let cargo = std::env::var("CARGO").unwrap_or_else(|_| "cargo".to_string());
         let output = Command::new(cargo)
-            .current_dir(fixture_workspace())
-            .args(["check", "--workspace", "--keep-going"])
-            .env("CARGO_TARGET_DIR", fixture_target())
+            .current_dir(dir)
+            .arg("check")
+            .args(args)
+            .env("CARGO_TARGET_DIR", target)
             .output()
-            .expect("cargo check over the fixture workspace");
+            .expect("cargo check over a fixture crate");
         String::from_utf8_lossy(&output.stderr).into_owned()
     }
 
@@ -337,19 +371,33 @@ mod tests {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/ui/claim/lexicon")
     }
 
+    /// The workspace root nested inside the fixture workspace: the package whose
+    /// manifest opens a `[workspace]` of its own, which is where the walk for a
+    /// project lexicon stops.
+    fn nested_root() -> PathBuf {
+        fixture_workspace().join("outer_pkg/inner")
+    }
+
     /// The target directory the fixture workspace is checked into, beside the
     /// outer one and locked separately from it.
     fn fixture_target() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/claim-lexicon")
     }
 
-    /// The diagnostics of one check that point at `source`, joined.
+    /// The target directory the nested root is checked into: its own, so that
+    /// the dep-info this harness reads is the workspace run's alone.
+    fn nested_target() -> PathBuf {
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../target/claim-lexicon-nested")
+    }
+
+    /// The error blocks of the merged report that name `whose`, joined.
     ///
     /// A lexicon failure fails every claim in the crate that read the file, and
-    /// each crate is one member, so the diagnostics naming a member's source are
-    /// what its own lexicon produced and nothing else's.
-    fn diagnostics_for(report: &str, source: &str) -> String {
-        report.split("\nerror").filter(|block| block.contains(source)).collect::<Vec<&str>>().join("\n")
+    /// each fixture crate holds one claim, so the blocks naming a crate's source
+    /// — or, for the crate checked as its own root, its claim — are what that
+    /// crate's own lexicon produced and nothing else's.
+    fn diagnostics_for(report: &str, whose: &str) -> String {
+        report.split("\nerror").filter(|block| block.contains(whose)).collect::<Vec<&str>>().join("\n")
     }
 
     /// Whether any dep-info cargo wrote under `target` names `needle`.

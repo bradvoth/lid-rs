@@ -22,7 +22,12 @@ members = [
     "outer_pkg",
 ]
 
-# `outer_pkg/inner` is not a member: it carries a `[workspace]` table of its
-# own, which is what stops the walk for a project lexicon inside it. It is
-# reached as a path dependency of `outer_pkg`, so one `cargo check` here builds
-# every crate the harness asserts about.
+# `outer_pkg/inner` is neither a member nor a dependency of one. It carries a
+# `[workspace]` table of its own — which is the rule it demonstrates, the walk
+# for a project lexicon stopping at a directory whose manifest opens a
+# workspace — and cargo refuses a workspace that holds a second root, whether it
+# reached it through `members` or through a member's path dependencies. Nothing
+# here may name it: `exclude` governs membership and not the dependency graph,
+# so an excluded package a member depends on is loaded all the same and the
+# refusal stands, with no member checked at all. The harness therefore checks it
+# in a run of its own and merges the two reports.
