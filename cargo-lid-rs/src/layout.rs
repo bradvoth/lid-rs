@@ -352,7 +352,14 @@ fn directory_form(project: &Project, crate_root: &Path, module: &str) -> Form {
 /// The shape of the slice a crate holds a document for under that module
 /// name, and `NoCrate` when it holds none — a directory that is no slice's,
 /// whatever files it holds.
-#[implements(spec::ACompanionIsNeverReadFromADirectorysShape)]
+///
+/// This cites no claim. It answers `Module`, `CrateRoot` or `NoCrate` and
+/// never `Companion`, so no wrong answer from it can make `is_companion_dir`
+/// true, and a citation of `ACompanionIsNeverReadFromADirectorysShape` here
+/// could not be contradicted — the decorative kind README §4.3 names. Check 12
+/// is silent about it only because `Form` has no `Default` and so no mutant is
+/// generated; that silence is not evidence. The claim is kept by
+/// `companion_slice`, whose `None` is what a wrong answer would have to change.
 fn held_slice_form(project: &Project, crate_root: &Path, module: &str) -> Form {
     match slice_with_module(project, crate_root, module) {
         Some(slice) => form_in(crate_root, &slice),

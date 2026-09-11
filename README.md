@@ -693,6 +693,28 @@ surviving that mutation is not asserting anything about the function. Strictly
 stronger than line coverage, which counts incidental execution as evidence.
 Deterministic, stable toolchain, no instrumentation.
 
+**Which claims an item cites decides what check 12 can catch.** The check
+narrows a mutant's test set through the registry to the validators of the
+claims the mutated item cites, so a citation set that is *too narrow* hands a
+mutant a plan of tests that cannot distinguish it: an item deciding between two
+claims' worlds while citing one of them survives mutation with its other claim's
+test never run. The rule:
+
+> An item cites a claim when a **wrong answer from that item could make the
+> claim false** — not when the claim's validator merely executes it.
+
+It cuts both ways. Too broad is decorative in the same sense and worse for
+being silent: a citation no wrong answer can contradict adds a test to a plan
+that was never going to fail. An item on a claim's execution path that cannot
+answer wrongly for it does not cite it.
+
+And check 12's silence is not evidence. `cargo-mutants` generates no mutant for
+some items — an enum with no `Default`, for instance — so an uncontradictable
+citation there is never reported. When an item's citation cannot be
+contradicted and no mutant exists to prove it, the honest reading is that the
+citation is decorative or a claim is missing from the design, not that the
+arrow holds.
+
 Two narrowings compose to keep it inside a per-PR budget:
 
 - `--in-diff` mutates only functions the PR touched.

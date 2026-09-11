@@ -17,3 +17,10 @@ Check `references/discipline.md` for this phase's rows (claim reuse, library
 types at the boundary) before stopping.
 
 **STOP for review.** Commit as `phase 3: skeleton for <slice>` once approved.
+
+**Which claims to cite.** An item cites a claim when a *wrong answer from
+that item* could make the claim false — not when the claim's validator merely
+executes it. Too narrow and check 12 hands the mutant a plan of tests that
+cannot distinguish it; too broad and the citation is one no wrong answer can
+contradict, which is decorative and silent. An item on a claim's execution path
+that cannot answer wrongly for it does not cite it (README §4.3).

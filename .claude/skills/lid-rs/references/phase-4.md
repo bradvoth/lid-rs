@@ -18,3 +18,10 @@ Commit as a single `phase 4: descend for <slice>` once every layer has been
 reviewed and approved, even if several layers of internal review happened
 along the way — the branch's commit granularity is per numbered phase, not
 per layer.
+
+**Which claims to cite.** An item cites a claim when a *wrong answer from
+that item* could make the claim false — not when the claim's validator merely
+executes it. Too narrow and check 12 hands the mutant a plan of tests that
+cannot distinguish it; too broad and the citation is one no wrong answer can
+contradict, which is decorative and silent. An item on a claim's execution path
+that cannot answer wrongly for it does not cite it (README §4.3).
