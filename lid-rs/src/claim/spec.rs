@@ -1,5 +1,5 @@
 //! Claims for the controlled-language slice. Derived from
-//! `lid-rs-macros/docs/intent/claim/lld.md`.
+//! `lid-rs-macros/src/claim/lld.md`.
 //!
 //! The implementing code is the `Spec` derive and the `validates` attribute in
 //! `lid-rs-macros`, a proc-macro crate that links into no target binary and

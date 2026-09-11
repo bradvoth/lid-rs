@@ -9,11 +9,11 @@
 //! nothing, and its implementation edges are hand-authored at the re-export in
 //! `lid-rs`'s crate root.
 //!
-//! Nothing in `expand` reaches this module yet. The derive runs inside every
-//! `cargo check`, so a `todo!()` on its path is a panic in the compiler on
-//! every claim in the workspace; the items are therefore built beside the
-//! derive and wired to it only once their leaves exist — the LLD's *Sequence:
-//! pin, then swap*.
+//! `expand` reaches this module at every `derive(Spec)`. It was built beside
+//! the derive and swapped in only once its leaves existed — the LLD's
+//! *Sequence: pin, then swap* — because the derive runs inside every `cargo
+//! check`, so a `todo!()` on its path is a panic in the compiler on every
+//! claim in the workspace.
 //!
 //! [`parse`] is where the rules stand in the order check 13 states, one rule
 //! to a line, so that a claim with two faults reports the first. Under it sit

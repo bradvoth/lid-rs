@@ -1,6 +1,6 @@
 //! The companion of the controlled-language slice: the types a claim's
 //! registration names, and the tests that exercise the derive. The design is
-//! `lid-rs-macros/docs/intent/claim/lld.md`.
+//! `lid-rs-macros/src/claim/lld.md`.
 //!
 //! A claim is written in a controlled language — one sentence, one `shall`, a
 //! pattern from its opener, a verb the lexicon defines — and `derive(Spec)`

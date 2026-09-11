@@ -14,10 +14,11 @@ pub struct SpecMeta {
     pub line: u32,
     /// What `derive(Spec)` read of the claim's own sentence.
     ///
-    /// Until the derive is wired to the reading, every registration carries
+    /// A claim the ramp exempts carries
     /// [`Language::Free`](crate::claim::Language::Free) with empty parts —
     /// which is what "no rule of the language was applied" means, and what
-    /// the ramp admits.
+    /// the ramp admits. One held to the language carries what the derive read
+    /// of its sentence.
     pub claim: crate::claim::ClaimMeta,
 }
 
