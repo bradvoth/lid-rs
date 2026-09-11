@@ -267,6 +267,74 @@ pub fn lld_path(project: &Project, slice: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// A slice's claims file, as a path relative to no crate: the
+/// `src/<module>/spec.rs` beside the slice's document once that document sits
+/// beside its code, the `src/spec/<module>.rs` a crate holds it at until then,
+/// and the refusal naming the slice when no workspace member holds a document
+/// for it.
+///
+/// Answering this takes two crates, and they are the same crate only for an
+/// ordinary slice. The crate whose layout is *read* — whose directory is asked
+/// whether it holds `lld.md` — is always the slice's own, because a slice's
+/// document is never under its companion; this door resolves that crate
+/// itself, by the resolution `own_crate` makes, and refuses with the same one
+/// sentence when no member holds one. The crate the answer is *joined onto* is
+/// the one holding the claims, which for a proc-macro slice is the companion,
+/// and which crate that is the phase policy's companion rule decides and not
+/// this module. So the answer is placed by the caller, which is the only party
+/// that knows which of the two it means.
+///
+/// A door reading the layout from the crate it was handed would take the
+/// claims crate for the reading crate wherever a caller has only that one, and
+/// a companion holds no `lld.md`: it would answer the pre-migration path for
+/// every proc-macro slice, for good and without saying so.
+///
+/// Which layout the slice is in is read from where its document is, and never
+/// from whether the file answered with is there. Phase 2 asks this door where
+/// a new slice's claims are to be written, and a file about to be written
+/// exists in neither layout.
+#[implements(
+    spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+    spec::ASliceNoMemberHoldsIsRefusedByName,
+)]
+pub fn spec_file(project: &Project, slice: &str) -> Result<PathBuf, String> {
+    let _ = (project, slice);
+    todo!("`src/<module>/spec.rs` where the slice's own crate holds its document beside its code, `src/spec/<module>.rs` where it does not, `no_crate_refusal` where no member holds one")
+}
+
+/// A named file of a slice's intent — the human's acceptance of a compile-time
+/// slice, and the slice's document itself: the file of that name in the
+/// slice's directory once that directory holds `lld.md`, the one under
+/// `docs/intent/<slice>` in the slice's crate until it does, and the refusal
+/// naming the slice when no workspace member holds a document for it.
+///
+/// This door resolves the same crate the one above reads — a slice's own, the
+/// only crate its document is ever under — and the two differ only in what
+/// they answer with. This one answers a path in that crate rather than a
+/// relative one for the caller to place, because an intent file has no
+/// companion form: a companion directory carries no `lld.md` and so no
+/// acceptance beside one, and a slice's intent is in the crate its phases
+/// write. There is no second crate for a caller to mean.
+///
+/// A slice whose product is the workspace reaches the refusal here. The
+/// workspace-root document such a slice has is `lld_path`'s answer beside this
+/// one and not a case inside it, because no intent file but the document has a
+/// workspace-root form to answer with.
+///
+/// Which layout the slice is in is read from where its document is, and never
+/// from whether the file answered with is there: the acceptance a human is
+/// asked to write does not exist at the moment the path to it is named.
+#[implements(
+    spec::ANamedFileBesideTheDocumentIsTheSlicesIntentFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
+    spec::ASliceNoMemberHoldsIsRefusedByName,
+)]
+pub fn intent_file(project: &Project, slice: &str, name: &str) -> Result<PathBuf, String> {
+    let _ = (project, slice, name);
+    todo!("`<dir>/<name>` where the slice's directory holds `lld.md`, `docs/intent/<slice>/<name>` under its crate where it does not, and the refusal where no member holds one")
+}
+
 /// Whether a directory is a companion's — the `src/<module>` a proc-macro
 /// crate's slice has in the crate its `[package.metadata.lid_rs] companion`
 /// key names, which holds that slice's claims and the module citing them and
