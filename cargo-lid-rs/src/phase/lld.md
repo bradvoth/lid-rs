@@ -70,10 +70,11 @@ the human makes.
 | 5 | Every claim in the red set has at least one `#[validates]` test, and every such test **fails** | The validations are red against `todo!()` before implementation exists |
 | 7 | README §4.5, in order, first failure named | The slice passes the gate |
 
-**A reworded claim.** Phase 2 writes `src/spec/` and nothing else, while
-the sites that cite a claim are in the slice's module, so a rename cannot
-land in one phase. A reword is therefore the renamed struct plus, in
-`src/spec/mod.rs`, a deprecated alias for the old name —
+**A reworded claim.** Phase 2 writes the slice's claims file and nothing
+else, while the sites that cite a claim are in the slice's module, so a rename
+cannot land in one phase. A reword is therefore the renamed struct plus, beside
+it in the slice's own `src/<slice>/spec.rs`, a deprecated alias for the old
+name —
 `#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;` —
 which registers no claim, so the graph sees only the new one, and makes
 every citation of the old name warn with its replacement. Phase 2's check
@@ -84,9 +85,11 @@ revisit — and not this phase's to fix: the citing module is outside its
 policy, and an attempt to edit it is refused. Phase 7's gate denies them as
 it always did, so no citation of a retired name survives the slice, and an
 alias no citation names is deleted by the next Phase 2 on the slice.
-The alias lives in `src/spec/mod.rs` rather than the slice's spec file
-because a `pub use` of a deprecated item is itself a warning the gate would
-deny. A `#[deprecated]` `Spec` struct cannot play this part: once its
+The alias lives beside the claim it retires because that is where the old
+path resolved, and a path that no longer resolves is a compile error rather
+than the warning the cascade is made of. The form is a `pub type` and not a
+`pub use`: a `pub use` of a deprecated item warns at its own definition site,
+so the alias would deny the gate by existing. A `#[deprecated]` `Spec` struct cannot play this part: once its
 citations move it is a registered claim with no implementer, which checks
 10 and 11 refuse, and only Phase 2 may delete it — the same phase that
 cannot move the citations.
@@ -131,9 +134,25 @@ or a branch not of that form names no slice, which fails phase 5 naming the
 convention and is irrelevant to the other phases.
 
 Phase 7 is README §4.5 as the tool runs it: the same commands in the same
-order, `cargo package` for every workspace package whose metadata does not
-say `publish = false`, `sync --check` and `mutants` invoked through the
-library rather than as subprocesses. The README's list stays canonical
+order, **one** `cargo package` naming every workspace package whose metadata
+does not say `publish = false`, `sync --check` and `mutants` invoked through
+the library rather than as subprocesses.
+
+**One invocation, not one per package, and the difference is the whole gate.**
+This step ran `cargo package -p <crate>` per publishing member. That form
+resolves each crate's dependencies against a registry, so a workspace whose
+members depend on each other at a version no registry holds — which is every
+workspace between releases, this one included at `0.2.8` — fails on the first
+member. And `gate()` stops at the first failure while ordering `Package`
+before `SyncCheck` and `Mutants`, so **`sync --check` and check 12 have never
+run under this hook, for any slice.** Both were gated by hand for every slice
+that shipped, which is the gate this tool exists to make unnecessary.
+
+One invocation naming every member resolves the siblings against each other
+and succeeds — verified by hand at slice 22's gate, where it packaged all
+three crates that the per-crate form could not. The catalog slice designed
+that repair and named this module as the only place that can apply it; this is
+the change it was the precondition for. The README's list stays canonical
 (§4.5: "every copy of the list a project keeps must match"); this is one
 more copy, held to the same rule. Steps a workspace appends after the floor
 (this one's `mdbook build book`) are outside the tool's knowledge and stay
@@ -593,7 +612,7 @@ document does not imply it.
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
 | The workflow's structured answer | `StructuredOutput` is an observation | A fourth tool kind; a command, with the workflow parsing the worker's final message instead of a `schema` | The call reads and writes nothing, and it arrives after the stop hook has already judged the commit block: refusing it there ends the run with the phase committed and the workflow reporting a failure. A tool kind of its own would count something the tally has no question about. |
 | The red run on a Phase 8 edit | Scoped to the claims added since the newest `phase 7:` commit, by name in the spec file's diff | Every claim of the slice (the first design); an explicit `--claims` list; the claims the Phase 2 commit's diff touched at all; a registry dump of the base commit | Every claim of the slice can only be red by un-implementing the slice, so an implemented slice's Phase 5 could never pass the hook. A `--claims` list is an argument that reaches the hook through a model's prompt. Any changed line of the Phase 2 diff would sweep in a claim whose doc comment merely mentions another. A base registry dump means building the base commit for every red run. The gate commit is the one moment the slice is known whole, and a renamed struct is exactly one added `struct <Name>` line. |
-| A reworded claim under the policy | The renamed struct plus a `#[deprecated]` type alias for the old name in `src/spec/mod.rs`; Phase 2's check does not lint, so a deprecation reaches the agent only as the post-edit hook's context | `#[deprecated]` on the claim struct itself; a hard rename, with Phase 2's check tolerating unresolved citations; widening Phase 2's policy to the citing module | A deprecated `Spec` struct registers a claim that, once its citations move, has no implementer — checks 10 and 11 refuse it, and only Phase 2 could delete it. Unresolved citations are compile errors no lint level tolerates, and they stop the registry tests compiling too. Widening the policy gives Phase 2 the code it exists to be kept out of. The alias registers nothing, warns at exactly the citation sites, and clippy's `deprecated` is the one lint whose firing at Phase 2 is the methodology's own signal rather than a defect; the gate at Phase 7 still denies it. |
+| A reworded claim under the policy | The renamed struct plus a `#[deprecated]` type alias for the old name beside it in the slice's `src/<slice>/spec.rs` — where the old path resolved, which is the point of an alias; Phase 2's check does not lint, so a deprecation reaches the agent only as the post-edit hook's context | `#[deprecated]` on the claim struct itself; a hard rename, with Phase 2's check tolerating unresolved citations; widening Phase 2's policy to the citing module | A deprecated `Spec` struct registers a claim that, once its citations move, has no implementer — checks 10 and 11 refuse it, and only Phase 2 could delete it. Unresolved citations are compile errors no lint level tolerates, and they stop the registry tests compiling too. Widening the policy gives Phase 2 the code it exists to be kept out of. The alias registers nothing, warns at exactly the citation sites, and clippy's `deprecated` is the one lint whose firing at Phase 2 is the methodology's own signal rather than a defect; the gate at Phase 7 still denies it. |
 | Staging | Exactly the policy's allowed paths | `git add -A`; the agent names files | The set that bounds edits bounds the commit; anything else the agent could not have written. |
 | Stop-refusal budget | Refuse while the check fails, up to Claude Code's cap of eight | One refusal then allow (the first design); refuse forever | A failing check is not a reason to let the phase end; eight rounds of clippy output is more than a fixable phase needs, and the cap leaves a dirty, uncommitted tree the next precondition refuses. A `stop` block is always allowed, so an honest stop is never blocked. |
 | Trusted binary in the tool's own workspace | Hooks name the installed `cargo-lid-rs` directly, refreshed from `main` after merge; no synced script | A synced `hooks/run` script preferring `cargo run -p cargo-lid-rs` here (the first design); a separate worktree build | A worker in this repository edits the hook's own source; running it from the tree means the policy is whatever the worker last wrote. Enforcing only landed policy is the price of the tool being its own consumer. |
