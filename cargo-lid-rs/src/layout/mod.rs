@@ -468,23 +468,46 @@ fn form_in(crate_root: &Path, slice: &str) -> Form {
     }
 }
 
-/// Whether a crate holds a module of that name, in either spelling: a
-/// `src/<module>.rs` beside a `src/<module>/`, or a `src/<module>/mod.rs`
-/// inside it.
+/// Whether a crate holds a module of that name: a `src/<module>.rs` beside a
+/// `src/<module>/`, a `src/<module>/mod.rs` inside it, or a
+/// `src/<module>/lld.md` marking the directory as that slice's before either
+/// file exists.
 ///
 /// This is the whole of the module-versus-crate-root decision: answering
 /// `true` for a crate that holds no such module makes that crate's slice a
 /// module slice, and answering `false` for one that does makes a module
 /// slice's directory its crate's `src`. Both are wrong in the other claim's
 /// terms, and both move the directory the slice's document is looked for in.
+///
+/// The marker is the third spelling because the two code spellings are
+/// written by Phase 3, and every phase before it would otherwise read a new
+/// module slice as its crate's root: `crate_holding` finds the crate through
+/// `slices_of`, which takes a `src/<module>/lld.md` as naming a module slice,
+/// and this answering `false` for the same directory made the two halves of
+/// one resolver disagree about the slice the other had just found. Phase 2
+/// was then offered the crate-root slice's claims file — another slice's —
+/// as the only path it could write. Reading the marker here is the same rule
+/// `slices_of` already applies, asked at the point the shape is decided.
+// Every door routes through the form this decides, so a wrong answer here
+// can make any of the three doors' claims false — which is why the list is
+// this long. It was the directory's two and the document's one until check 12
+// found the `||` survivable: the citation was narrower than the reach, so the
+// tests that do exercise this were not in its set (README §4.3).
 #[implements(
     spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
     spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
     spec::ADocumentBesideTheCodeIsTheSlicesLld,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
+    spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+    spec::ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode,
+    spec::ANamedFileBesideTheDocumentIsTheSlicesIntentFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
 )]
 fn holds_module(crate_root: &Path, module: &str) -> bool {
     crate_src(crate_root).join(format!("{module}.rs")).is_file()
         || module_dir(crate_root, module).join("mod.rs").is_file()
+        || document_in(&module_dir(crate_root, module)).is_file()
 }
 
 // ---- Which slice a directory is ----------------------------------------------
@@ -1132,30 +1155,38 @@ mod tests {
     #[validates(spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile)]
     fn a_spec_file_beside_the_document_is_the_slices_claims_file() {
         let (root, project) = workspace("layout-spec-file-beside-the-document");
-        // The two crates a claims file takes are the same crate only for an
-        // ordinary slice. `delta`'s document is `mac`'s — which is the crate
-        // whose layout decides the form — while `app` is the crate the
-        // caller joins the answer onto, and holds the slice's claims beside
-        // its module and at no old-form path at all.
+        // A slice between Phase 1 and Phase 3: its directory holds the
+        // document and no code, the module file being Phase 3's to write.
+        // The marker is then the only evidence the directory is a slice's,
+        // and `crate_holding` already reads it through `slices_of` — so the
+        // form has to read it too. While it did not, every new module slice
+        // answered as its crate's root, and Phase 2 was offered the
+        // crate-root slice's claims file as the only path it could write.
+        let fresh = root.join("app/src/gamma");
+        std::fs::create_dir_all(&fresh).expect("the new slice's directory");
+        std::fs::write(fresh.join("lld.md"), "# gamma\n").expect("the new slice's document");
+        // The tree the three answers below are read from: `delta`'s claims
+        // are the companion's, beside its module and at no old-form path;
+        // `beta` has no claims file at all, this door being where Phase 2 is
+        // told to write one; and `gamma` has neither claims nor code.
         assert_eq!(
-            (root.join("app/src/delta/spec.rs").is_file(), root.join("app/src/spec/delta.rs").exists()),
-            (true, false),
-            "the companion holds the migrated claims file and no pre-migration one"
+            [
+                root.join("app/src/delta/spec.rs").is_file(),
+                root.join("app/src/spec/delta.rs").exists(),
+                root.join("app/src/beta/spec.rs").exists(),
+                fresh.join("mod.rs").exists(),
+                root.join("app/src/gamma.rs").exists(),
+            ],
+            [true, false, false, false, false],
+            "the fixture: a migrated claims file, no pre-migration one, and two slices with none"
         );
-        // Nothing probes for the file answered with: `beta` has none, and
-        // Phase 2 asks this door where a new slice's claims are to be written.
-        assert!(!root.join("app/src/beta/spec.rs").exists(), "the fixture holds no claims file for `beta`");
-        assert_eq!(
-            (spec_file(&project, "beta"), spec_file(&project, "delta")),
-            (
-                // Relative to no crate: `src/<module>/spec.rs`, which the
-                // caller places under the crate it means.
-                Ok(PathBuf::from("src/beta/spec.rs")),
-                // Read from `mac`, where the document is; joined by the
-                // caller onto `app`, where the claims are.
-                Ok(PathBuf::from("src/delta/spec.rs")),
-            )
-        );
+        // Each answer is relative to no crate — `src/<module>/spec.rs` — so
+        // that the caller places it under the crate it means. `delta`'s form
+        // is read from `mac`, where its document is, and joined by the caller
+        // onto `app`, where its claims are.
+        let answers = ["beta", "delta", "gamma"].map(|slice| spec_file(&project, slice));
+        let expected = ["src/beta/spec.rs", "src/delta/spec.rs", "src/gamma/spec.rs"].map(|p| Ok(PathBuf::from(p)));
+        assert_eq!(answers, expected);
     }
 
     #[test]
