@@ -1,5 +1,6 @@
 #![doc = include_str!("lld.md")]
 
+pub mod catalog;
 pub mod coach;
 pub mod headless_canopy_agent;
 pub mod layout;
