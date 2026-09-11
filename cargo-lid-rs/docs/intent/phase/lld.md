@@ -174,9 +174,27 @@ gated by the same verdicts and committed with the same trailers.
 Runs before every tool call the phase agent makes; reads Claude Code's
 hook JSON (`agent_id`, `tool_name`, `tool_input`). For `Edit`, `Write`, and
 any other editing tool, the target path must be in the phase's allowed set,
-relative to the slice's crate — the workspace package whose manifest
-directory holds `docs/intent/<slice>/lld.md`, found on the filesystem, not
-by parsing Rust:
+relative to the slice's crate — the workspace package that holds the slice's
+document, found on the filesystem, not by parsing Rust.
+
+**Which package that is, is the layout slice's question, and `slice_crate`
+delegates it.** This slice resolved it by looking for
+`docs/intent/<slice>/lld.md` and nothing else, which stops working the moment a
+slice's document moves beside its code: the colocated layout puts it at
+`src/<module>/lld.md`, or at `<crate>/src/lld.md` for a slice that *is* its
+crate. `cargo_lid_rs::layout` owns the resolution that admits both forms, and
+`policy::slice_crate` calls it. The reading of `[package.metadata.lid_rs]
+companion` moves the same way and for the same reason — which crate holds a
+slice's claims is a layout fact, not a policy one — so `policy::companion`
+calls `layout` too, and the dependency between the two modules runs one way.
+
+This must land **before the first slice's document moves**. The migration is
+incremental by design, so a tree with some slices moved and some not is the
+normal state throughout it; a `slice_crate` that knows only the old form loses
+every slice the migration has already touched, and the phase machinery stops
+working on exactly the slices most in need of it.
+
+The allowed sets, relative to that crate:
 
 | Phase | May write |
 |---|---|
