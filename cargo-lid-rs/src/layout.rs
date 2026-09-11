@@ -86,15 +86,16 @@ impl Form {
     /// named for the slice in the companion that holds its claims is never
     /// taken for the slice's own.
     ///
-    /// Both resolvers below answer from this shape, so every claim about a
-    /// slice's directory and about its document turns on it: an answer for a
-    /// slice no member holds is a refusal that never comes, and a crate
-    /// answered for a slice that has none is a document placed under a crate
-    /// rather than under the workspace root.
+    /// Every resolver below answers from this shape, so every claim about a
+    /// slice's crate, about its directory and about its document turns on it:
+    /// an answer for a slice no member holds is a refusal that never comes, and
+    /// a crate answered for a slice that has none is a document placed under a
+    /// crate rather than under the workspace root.
     #[implements(
         spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
         spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
         spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+        spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
         spec::ASliceNoMemberHoldsIsRefusedByName,
         spec::ADocumentBesideTheCodeIsTheSlicesLld,
         spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
@@ -162,8 +163,12 @@ impl Form {
     /// there — and none for a slice no member holds a document for.
     ///
     /// This is the crate every form of the document is built under, so the
-    /// document claims turn on it.
+    /// document claims turn on it, and it is the crate the `own_crate` door
+    /// below answers with — its `None` being what that door turns into the
+    /// refusal, as `dir`'s is for `slice_dir`.
     #[implements(
+        spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
+        spec::ASliceNoMemberHoldsIsRefusedByName,
         spec::ADocumentBesideTheCodeIsTheSlicesLld,
         spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
         spec::ASlicesDocumentIsNeverUnderItsCompanion,
@@ -214,6 +219,29 @@ impl Form {
 )]
 pub fn slice_dir(project: &Project, slice: &str) -> Result<PathBuf, String> {
     Form::of_slice(project, slice).dir().ok_or_else(|| no_crate_refusal(slice))
+}
+
+/// A slice's own crate: the workspace member whose directory holds the slice's
+/// document, in either layout — the crate the slice's code is under, whose
+/// phases write it — and the refusal naming the slice when no member holds a
+/// document for it at all.
+///
+/// Never the companion crate that holds a slice's claims and the module citing
+/// them: a slice has one crate of its own, the one its document is in, and a
+/// directory named for the slice elsewhere is that slice's presence in another
+/// crate rather than its crate.
+///
+/// This is the door a caller outside this module asks a slice's crate through.
+/// One that matched `Form`'s variants for itself would hold a second copy of
+/// the decision the four shapes are told apart by, and would have to rebuild
+/// the refusal sentence — one rule in two places, which is what having a single
+/// place the layout is computed exists to prevent.
+#[implements(
+    spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
+    spec::ASliceNoMemberHoldsIsRefusedByName,
+)]
+pub fn own_crate(project: &Project, slice: &str) -> Result<PathBuf, String> {
+    Form::of_slice(project, slice).own_crate().map(Path::to_path_buf).ok_or_else(|| no_crate_refusal(slice))
 }
 
 /// A slice's `lld.md`, in either layout while both stand: the `lld.md` in the
@@ -269,14 +297,15 @@ pub fn is_companion_dir(project: &Project, dir: &Path) -> bool {
 /// name is the form they all reduce to.
 ///
 /// Which member answers is what every successful resolution is built from, so
-/// this decision keeps every claim `Form::of_slice` does: the directory is
-/// under the member it answers, the document is under that member in one of
-/// its two forms, and answering none is the refusal and the workspace-root
-/// document both.
+/// this decision keeps every claim `Form::of_slice` does: the crate answered
+/// for a slice is the member found here, the directory is under it, the
+/// document is under it in one of its two forms, and answering none is the
+/// refusal and the workspace-root document both.
 #[implements(
     spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
     spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
     spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+    spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
     spec::ASliceNoMemberHoldsIsRefusedByName,
     spec::ADocumentBesideTheCodeIsTheSlicesLld,
     spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
@@ -440,10 +469,11 @@ fn slice_names_in(dir: &Path) -> Vec<String> {
 /// slice the crate holds no module for: a migrated crate-root slice read as a
 /// candidate by name alone would leave no slice unheld and no refusal to
 /// make. And it is the only route by which a migrated crate-root slice is
-/// found at all, so its directory and its document both turn on it.
+/// found at all, so its crate, its directory and its document all turn on it.
 #[implements(
     spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
     spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
+    spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
     spec::ASliceNoMemberHoldsIsRefusedByName,
     spec::ADocumentBesideTheCodeIsTheSlicesLld,
 )]
@@ -492,6 +522,7 @@ fn document_of(crate_root: &Path, dir: &Path, slice: &str) -> PathBuf {
     spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
     spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
     spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+    spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
     spec::ADocumentBesideTheCodeIsTheSlicesLld,
     spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
     spec::ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
@@ -517,13 +548,13 @@ fn intent_document(under: &Path, slice: &str) -> PathBuf {
 /// module slice's sits under.
 ///
 /// It is also where a crate's migrated slices are enumerated from — its own
-/// and the ones it holds for the proc-macro crate naming it — so which slices
-/// a member is found to hold turns on it as well as where each one's
-/// directory is.
+/// and the ones it holds for the proc-macro crate naming it — so which member
+/// answers for a slice turns on it as well as where that slice's directory is.
 #[implements(
     spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
     spec::ACrateRootSlicesDirectoryIsItsCratesSrc,
     spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+    spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument,
     spec::ADocumentBesideTheCodeIsTheSlicesLld,
     spec::ACompanionDirectoryIsTheOneTheManifestNames,
 )]
@@ -753,6 +784,33 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::ASlicesOwnCrateIsTheMemberHoldingItsDocument)]
+    fn a_slices_own_crate_is_the_member_holding_its_document() {
+        let (root, project) = workspace("layout-own-crate");
+        // The door is asked directly, for a slice of every shape and in both
+        // layouts: what it answers is observable nowhere else.
+        let found = ["alpha", "beta", "lld-review", "tool", "rooted", "two-phase", "delta"]
+            .map(|slice| own_crate(&project, slice));
+        assert_eq!(
+            found,
+            [
+                // A module slice's crate, its document in either layout, and
+                // whether or not the slice's name is its module's.
+                Ok(root.join("app")),
+                Ok(root.join("app")),
+                Ok(root.join("app")),
+                // A crate-root slice's crate is the member it is named for.
+                Ok(root.join("tool")),
+                Ok(root.join("rooted")),
+                // The member holding the document, never the companion that
+                // holds the slice's claims — and `app` is searched first.
+                Ok(root.join("mac")),
+                Ok(root.join("mac")),
+            ]
+        );
+    }
+
+    #[test]
     #[validates(spec::ASliceNoMemberHoldsIsRefusedByName)]
     fn a_slice_no_member_holds_is_refused_by_name() {
         let (root, project) = workspace("layout-refusal");
@@ -763,6 +821,23 @@ mod tests {
 
         let unheld = slice_dir(&project, "nobody").expect_err("no member holds a document named `nobody`");
         let workspace_only = slice_dir(&project, "book").expect_err("`book`'s document is the workspace root's");
+        assert_eq!(
+            (unheld.contains("nobody"), unheld.contains("docs/intent/nobody/lld.md"), unheld.contains("no crate")),
+            (true, true, true),
+            "the refusal names the slice, the form its document would have had, and what follows: {unheld}"
+        );
+        assert!(workspace_only.contains("book"), "{workspace_only}");
+    }
+
+    #[test]
+    #[validates(spec::ASliceNoMemberHoldsIsRefusedByName)]
+    fn a_slice_no_member_holds_is_refused_by_name_at_own_crate() {
+        let (_root, project) = workspace("layout-own-crate-refusal");
+        // The second resolver that needs a slice's crate refuses in the same
+        // one sentence, and the refusing is observed at the door rather than
+        // through another resolver that reaches it.
+        let unheld = own_crate(&project, "nobody").expect_err("no member holds a document named `nobody`");
+        let workspace_only = own_crate(&project, "book").expect_err("`book`'s document is the workspace root's");
         assert_eq!(
             (unheld.contains("nobody"), unheld.contains("docs/intent/nobody/lld.md"), unheld.contains("no crate")),
             (true, true, true),
