@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use lid_rs::implements;
 
 use super::Phase;
+use crate::layout;
 use crate::project::Project;
 use crate::spec;
 
@@ -122,15 +123,23 @@ pub fn kind_of(tool_name: &str) -> ToolKind {
 }
 
 /// The slice's crate: the workspace package whose manifest directory holds
-/// `docs/intent/<slice>/lld.md`.
+/// the slice's document, in whichever layout that package keeps it — the
+/// `docs/intent/<slice>/lld.md` it has not moved, or the `lld.md` beside the
+/// code of the module or the crate named for the slice once it has. A tree
+/// with some slices moved and some not is the migration's normal state, and
+/// the policy answers for a slice in either.
+///
+/// Which package that is is the layout slice's question, and this asks it:
+/// `layout::own_crate` is the one place the shapes a slice's directory can
+/// have are told apart, and a second reading of the tree here would be that
+/// decision in two places — the layout would then move for one caller and not
+/// for the other, on exactly the mixed tree the migration presents. The
+/// refusal is that door's too, so an operator reads one sentence whichever
+/// resolver refused, and it names both forms the document was looked for in
+/// rather than only the old one.
 #[implements(spec::TheSlicesCrateIsTheOneHoldingItsLld)]
 pub fn slice_crate(project: &Project, slice: &str) -> Result<PathBuf, String> {
-    let lld = Path::new("docs/intent").join(slice).join("lld.md");
-    project
-        .member_manifest_dirs()
-        .into_iter()
-        .find(|dir| dir.join(&lld).is_file())
-        .ok_or_else(|| format!("no workspace package holds {}: `{slice}` has no crate, so no phase agent can run it", lld.display()))
+    layout::own_crate(project, slice)
 }
 
 /// The `[package.metadata.lid_rs]` key that names a proc-macro crate's
@@ -457,6 +466,27 @@ mod tests {
         assert!(macros.ends_with("lid-rs-macros"), "{}", macros.display());
         let err = slice_crate(&workspace, "skill").expect_err("a workspace-only slice has no crate");
         assert!(err.contains("skill"), "{err}");
+    }
+
+    #[test]
+    #[validates(spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    fn the_slices_crate_is_found_wherever_the_layout_puts_its_document() {
+        // `owner` holds `docs/intent/m/lld.md`; `app` is given a slice whose
+        // document has already moved beside its code. Both stand at once
+        // throughout the migration, so a policy that knew only the old form
+        // would lose every slice the migration has already touched — and the
+        // real workspace above, where nothing has moved yet, cannot show it.
+        let (dir, project) = fixture::two_member_workspace("policy-either-layout", "", "");
+        std::fs::create_dir_all(dir.join("app/src/moved")).expect("the slice's directory");
+        std::fs::write(dir.join("app/src/moved/lld.md"), "# moved\n").expect("the moved document");
+        assert_eq!(
+            (slice_crate(&project, "m"), slice_crate(&project, "moved")),
+            (Ok(dir.join("owner")), Ok(dir.join("app")))
+        );
+        // And a slice no member holds is refused naming both forms looked for,
+        // not only the one the migration is leaving.
+        let unheld = slice_crate(&project, "nobody").expect_err("no member holds a document named `nobody`");
+        assert!(unheld.contains("docs/intent/nobody/lld.md") && unheld.contains("beside the code"), "{unheld}");
     }
 
     #[test]
