@@ -6,6 +6,7 @@ mod cargo_lid_rs;
 mod coach;
 mod headless_canopy_agent;
 mod init;
+mod layout;
 mod lld_review;
 mod phase;
 mod sync;
@@ -223,6 +224,19 @@ pub use init::{
     MutationOutputIsIgnoredWithoutConflict,
     AnInitialisedPackagePassesItsOwnGate,
     NewCreatesALibraryPackageThenInitialisesIt,
+};
+
+pub use layout::{
+    AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
+    ACrateRootSlicesDirectoryIsItsCratesSrc,
+    ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+    ASliceNoMemberHoldsIsRefusedByName,
+    ADocumentBesideTheCodeIsTheSlicesLld,
+    ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
+    ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
+    ASlicesDocumentIsNeverUnderItsCompanion,
+    ACompanionDirectoryIsTheOneTheManifestNames,
+    ACompanionIsNeverReadFromADirectorysShape,
 };
 
 pub use lld_review::{
