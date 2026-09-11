@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
+use crate::phase::policy;
 use crate::project::Project;
 use crate::spec;
 
@@ -269,8 +270,8 @@ fn form_in(crate_root: &Path, slice: &str) -> Form {
 /// inside it.
 #[implements(spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc)]
 fn holds_module(crate_root: &Path, module: &str) -> bool {
-    let _ = (crate_root, module);
-    todo!()
+    crate_src(crate_root).join(format!("{module}.rs")).is_file()
+        || module_dir(crate_root, module).join("mod.rs").is_file()
 }
 
 // ---- Which slice a directory is ----------------------------------------------
@@ -322,8 +323,9 @@ fn companion_slice(project: &Project, crate_root: &Path, module: &str) -> Option
     spec::ACompanionIsNeverReadFromADirectorysShape,
 )]
 fn companion_owner(project: &Project, companion_crate: &Path) -> Option<PathBuf> {
-    let _ = (project, companion_crate);
-    todo!()
+    project.member_manifest_dirs().into_iter().find(|member| {
+        policy::companion(project, member).ok().flatten().as_deref() == Some(companion_crate)
+    })
 }
 
 /// The slice a crate holds a document for whose module is `module`, if it
@@ -350,8 +352,13 @@ fn slices_of(project: &Project, crate_root: &Path) -> Vec<String> {
 /// the marker rule applied to a tree. A directory that cannot be read holds
 /// none, which is a crate with no documents of that form rather than a fault.
 fn slice_names_in(dir: &Path) -> Vec<String> {
-    let _ = dir;
-    todo!()
+    std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(|entry| document_in(&entry.path()).is_file())
+        .map(|entry| name_of(&entry.path()))
+        .collect()
 }
 
 /// The slice a crate's own `src/lld.md` is the document of: the crate's
@@ -359,15 +366,16 @@ fn slice_names_in(dir: &Path) -> Vec<String> {
 /// no such file, and none when it is no package of this workspace's.
 #[implements(spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor)]
 fn crate_root_slice(project: &Project, crate_root: &Path) -> Option<String> {
-    let _ = (project, crate_root);
-    todo!()
+    document_in(&crate_src(crate_root))
+        .is_file()
+        .then(|| project.package_at(&crate_root.join("Cargo.toml")))
+        .flatten()
 }
 
 /// The workspace member a directory lies under, if any: the crate whose
 /// manifest directory is a prefix of it.
 fn member_holding(project: &Project, dir: &Path) -> Option<PathBuf> {
-    let _ = (project, dir);
-    todo!()
+    project.member_manifest_dirs().into_iter().find(|crate_root| dir.starts_with(crate_root))
 }
 
 // ---- The paths and the names -------------------------------------------------
@@ -391,8 +399,7 @@ fn document_of(crate_root: &Path, dir: &Path, slice: &str) -> PathBuf {
 /// directory a slice's, and the document of the slice whose code is there.
 #[implements(spec::ADocumentBesideTheCodeIsTheSlicesLld)]
 fn document_in(dir: &Path) -> PathBuf {
-    let _ = dir;
-    todo!()
+    dir.join("lld.md")
 }
 
 /// The `docs/intent/<slice>/lld.md` under a directory: the form a slice's
@@ -403,39 +410,34 @@ fn document_in(dir: &Path) -> PathBuf {
     spec::ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
 )]
 fn intent_document(under: &Path, slice: &str) -> PathBuf {
-    let _ = (under, slice);
-    todo!()
+    document_in(&under.join(INTENT_DIR).join(slice))
 }
 
 /// A crate's `src`: the directory a crate-root slice's is, and the one every
 /// module slice's sits under.
 #[implements(spec::ACrateRootSlicesDirectoryIsItsCratesSrc)]
 fn crate_src(crate_root: &Path) -> PathBuf {
-    let _ = crate_root;
-    todo!()
+    crate_root.join("src")
 }
 
 /// A module's directory under a crate: `src/<module>`, which is the slice's
 /// directory where the module is named for a slice.
 #[implements(spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc)]
 fn module_dir(crate_root: &Path, module: &str) -> PathBuf {
-    let _ = (crate_root, module);
-    todo!()
+    crate_src(crate_root).join(module)
 }
 
 /// A slice's name as a module's: hyphens as underscores. The form the three
 /// places that name a slice — its `docs/intent` directory, its module
 /// directory, and its package — all reduce to.
 fn module_of(slice: &str) -> String {
-    let _ = slice;
-    todo!()
+    slice.replace('-', "_")
 }
 
 /// The name a directory carries: its last component, and the empty name for a
 /// path with none, which no slice and no module has.
 fn name_of(dir: &Path) -> String {
-    let _ = dir;
-    todo!()
+    dir.file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 /// The refusal for a slice no workspace member holds a document for: it names
@@ -446,8 +448,10 @@ fn name_of(dir: &Path) -> String {
 /// can run it.
 #[implements(spec::ASliceNoMemberHoldsIsRefusedByName)]
 fn no_crate_refusal(slice: &str) -> String {
-    let _ = slice;
-    todo!()
+    format!(
+        "no workspace package holds `{INTENT_DIR}/{slice}/lld.md`, and none holds an `lld.md` beside the code of a \
+         module or a crate named `{slice}`: `{slice}` has no crate, so no phase agent can run it"
+    )
 }
 
 #[cfg(test)]
