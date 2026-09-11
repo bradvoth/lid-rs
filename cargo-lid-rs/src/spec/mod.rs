@@ -230,6 +230,7 @@ pub use layout::{
     AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc,
     ACrateRootSlicesDirectoryIsItsCratesSrc,
     ACrateRootSlicesCrateIsTheMemberItIsNamedFor,
+    ASlicesOwnCrateIsTheMemberHoldingItsDocument,
     ASliceNoMemberHoldsIsRefusedByName,
     ADocumentBesideTheCodeIsTheSlicesLld,
     ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,

@@ -5,10 +5,11 @@
 //! resolvers that read it — and the migration of the repository's own tree is
 //! hand-committed afterwards. So these claims are about the rule and the
 //! resolution and never about the move: what `slice_dir` answers for a slice
-//! of each shape, what `lld_path` answers while both layouts stand, and what
-//! `is_companion_dir` reads to tell a companion's directory from a slice's.
-//! A claim that every slice's document sits beside its code would be a claim
-//! about the migration, which no phase of this slice performs.
+//! of each shape, which member `own_crate` answers with, what `lld_path`
+//! answers while both layouts stand, and what `is_companion_dir` reads to tell
+//! a companion's directory from a slice's. A claim that every slice's document
+//! sits beside its code would be a claim about the migration, which no phase of
+//! this slice performs.
 //!
 //! `Form` is the one branch the four shapes are told apart at, so the
 //! classification half of each claim below is its, and the path half is the
@@ -20,6 +21,21 @@
 //! document of the one slice the member is named for and of no other, which is
 //! what `ASliceNoMemberHoldsIsRefusedByName` below means by a slice no member
 //! holds a document for — so the refusal is one claim and not two.
+//!
+//! `own_crate` answers that crate to a caller outside this module — the `phase`
+//! slice's `policy::slice_crate` resolves a slice's crate through it — so which
+//! member it answers with is a claim of its own. Nothing the directory and
+//! document claims state is falsified by a wrong crate from it: each of those
+//! is asked about what the resolver *builds* from a crate, and a door that
+//! answers the crate itself sits above them all.
+//!
+//! The refusal is stated for a resolver that needs a slice's crate rather than
+//! for `slice_dir` alone, because one sentence — `no_crate_refusal` — is what
+//! every such resolver gives, and `own_crate` is a second of them. `lld_path`
+//! is not one: a slice no member holds a document for still has a document, at
+//! the workspace root, which is `ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot`
+//! below, so it needs no crate and refuses nothing. `is_companion_dir` is handed
+//! a directory and so is never asked to find one.
 //!
 //! These claims are written in the controlled language from the first, like
 //! the claim slice's; none is marked free.
@@ -46,8 +62,17 @@ pub struct ACrateRootSlicesDirectoryIsItsCratesSrc;
 #[derive(Spec)]
 pub struct ACrateRootSlicesCrateIsTheMemberItIsNamedFor;
 
-/// When [`slice_dir`](crate::layout::slice_dir) is asked for a slice that no
-/// workspace member holds a document for, it shall refuse naming that slice.
+// ---- A slice's crate, and the refusal a resolver needing one gives ----------
+
+/// When [`own_crate`](crate::layout::own_crate) is asked for a slice a
+/// workspace member holds a document for, the crate it answers with shall be
+/// that member.
+#[derive(Spec)]
+pub struct ASlicesOwnCrateIsTheMemberHoldingItsDocument;
+
+/// When a resolver of [`layout`](crate::layout) needs the crate of a slice
+/// that no workspace member holds a document for, it shall refuse naming that
+/// slice.
 #[derive(Spec)]
 pub struct ASliceNoMemberHoldsIsRefusedByName;
 
