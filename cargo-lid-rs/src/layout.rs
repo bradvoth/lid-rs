@@ -11,6 +11,17 @@ use crate::spec;
 /// and which therefore has no code to sit beside.
 const INTENT_DIR: &str = "docs/intent";
 
+/// The module a crate's claims register from, in both spellings a module has:
+/// the `spec.rs` beside a slice's code, and the `spec` directory a crate holds
+/// every slice's claims in until the migration moves them.
+const SPEC_MODULE: &str = "spec";
+
+/// The crate a claims file is answered relative to: none at all. Which crate
+/// holds a slice's claims — its own, or the companion its manifest names — is
+/// the caller's to say, so the paths answered start from a root with no
+/// components and the caller joins them onto the crate it means.
+const NO_CRATE: &str = "";
+
 /// Which of the four shapes a slice has where it is asked about — the one
 /// place the layout is told apart, so that no resolver invents its own test
 /// (§ "Where a slice's `lld.md` goes — four cases, not two").
@@ -205,6 +216,49 @@ impl Form {
     fn own_document(&self) -> Option<PathBuf> {
         Some(document_of(self.own_crate()?, &self.dir()?, self.slice()))
     }
+
+    /// The slice's claims file, relative to no crate: the `spec.rs` in the
+    /// slice's directory once that directory holds the document, the
+    /// `src/spec/<module>.rs` its crate holds every slice's claims at until
+    /// then, and the `src/spec.rs` beside a crate-root slice's code in either
+    /// layout, that slice's directory being its crate's `src`.
+    ///
+    /// The directory whose document is read is under the slice's own crate;
+    /// the path answered is under no crate. None where the slice has no crate
+    /// of its own to read a layout from — a slice no member holds a document
+    /// for, and a directory read as a companion's presence rather than as a
+    /// slice — which is what the door turns into the refusal.
+    #[implements(
+        spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+        spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+        spec::ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode,
+        spec::ASliceNoMemberHoldsIsRefusedByName,
+    )]
+    fn spec_file(&self) -> Option<PathBuf> {
+        match self {
+            Self::Module { module, .. } => Some(module_spec_file(&self.dir()?, module)),
+            Self::CrateRoot { .. } => Some(claims_in(&crate_src(Path::new(NO_CRATE)))),
+            Self::Companion { .. } | Self::NoCrate { .. } => None,
+        }
+    }
+
+    /// A named file of the slice's intent, under the slice's own crate: the
+    /// file of that name in the slice's directory once that directory holds
+    /// the document, and the one under `docs/intent/<slice>` in that crate
+    /// until it does.
+    ///
+    /// None where the slice has no crate of its own, which is what the door
+    /// turns into the refusal: an intent file has no form under the workspace
+    /// root and none under a companion, a companion's directory carrying no
+    /// document for one to sit beside.
+    #[implements(
+        spec::ANamedFileBesideTheDocumentIsTheSlicesIntentFile,
+        spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
+        spec::ASliceNoMemberHoldsIsRefusedByName,
+    )]
+    fn intent_file(&self, name: &str) -> Option<PathBuf> {
+        Some(intent_file_in(self.own_crate()?, &self.dir()?, self.slice(), name))
+    }
 }
 
 /// A slice's directory — the one place the layout is computed: `src/<slice>`
@@ -270,8 +324,15 @@ pub fn lld_path(project: &Project, slice: &str) -> Result<PathBuf, String> {
 /// A slice's claims file, as a path relative to no crate: the
 /// `src/<module>/spec.rs` beside the slice's document once that document sits
 /// beside its code, the `src/spec/<module>.rs` a crate holds it at until then,
+/// the `src/spec.rs` a crate-root slice's claims are in under either layout,
 /// and the refusal naming the slice when no workspace member holds a document
 /// for it.
+///
+/// The third answer is not a case inside the first two: a crate-root slice's
+/// code is its crate, so it has no directory named for it to hold a `spec.rs`
+/// beside a document, and the `src/spec/<module>.rs` a slice's name computes
+/// is a file its crate does not hold. Which of the two layouts such a slice is
+/// in is a question its claims file does not turn on.
 ///
 /// Answering this takes two crates, and they are the same crate only for an
 /// ordinary slice. The crate whose layout is *read* — whose directory is asked
@@ -296,11 +357,11 @@ pub fn lld_path(project: &Project, slice: &str) -> Result<PathBuf, String> {
 #[implements(
     spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
     spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+    spec::ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode,
     spec::ASliceNoMemberHoldsIsRefusedByName,
 )]
 pub fn spec_file(project: &Project, slice: &str) -> Result<PathBuf, String> {
-    let _ = (project, slice);
-    todo!("`src/<module>/spec.rs` where the slice's own crate holds its document beside its code, `src/spec/<module>.rs` where it does not, `no_crate_refusal` where no member holds one")
+    Form::of_slice(project, slice).spec_file().ok_or_else(|| no_crate_refusal(slice))
 }
 
 /// A named file of a slice's intent — the human's acceptance of a compile-time
@@ -331,8 +392,7 @@ pub fn spec_file(project: &Project, slice: &str) -> Result<PathBuf, String> {
     spec::ASliceNoMemberHoldsIsRefusedByName,
 )]
 pub fn intent_file(project: &Project, slice: &str, name: &str) -> Result<PathBuf, String> {
-    let _ = (project, slice, name);
-    todo!("`<dir>/<name>` where the slice's directory holds `lld.md`, `docs/intent/<slice>/<name>` under its crate where it does not, and the refusal where no member holds one")
+    Form::of_slice(project, slice).intent_file(name).ok_or_else(|| no_crate_refusal(slice))
 }
 
 /// Whether a directory is a companion's — the `src/<module>` a proc-macro
@@ -575,6 +635,47 @@ fn document_of(crate_root: &Path, dir: &Path, slice: &str) -> PathBuf {
     if beside_the_code.is_file() { beside_the_code } else { intent_document(crate_root, slice) }
 }
 
+/// A named file of a slice's intent under the slice's crate, while both
+/// layouts stand: the file of that name in the slice's directory when that
+/// directory holds the document, and the one under `docs/intent/<slice>` when
+/// it does not.
+///
+/// The document is what says which layout the slice is in; the presence of the
+/// file named says nothing, and is not looked at. An acceptance a human is
+/// asked to write, and a claims file a phase is about to write, exist in
+/// neither layout at the moment they are named.
+///
+/// A slice's document is a named file of its intent like any other, and
+/// `document_of` beside this one is this shape with `lld.md` for a name. The
+/// two stand apart while the old forms differ and `lld_path` carries the
+/// workspace-root answer no other intent file has.
+#[implements(
+    spec::ANamedFileBesideTheDocumentIsTheSlicesIntentFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
+)]
+fn intent_file_in(crate_root: &Path, dir: &Path, slice: &str, name: &str) -> PathBuf {
+    if document_in(dir).is_file() { dir.join(name) } else { intent_dir(crate_root, slice).join(name) }
+}
+
+/// A module slice's claims file, relative to no crate: the `spec.rs` beside
+/// the slice's document once its directory holds one, and the
+/// `src/spec/<module>.rs` its crate holds every slice's claims at until then.
+///
+/// The directory is read for the document and for nothing else: it is the
+/// slice's own crate's, while the answer is under no crate, because which
+/// crate holds a module slice's claims is the caller's to say.
+#[implements(
+    spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+)]
+fn module_spec_file(dir: &Path, module: &str) -> PathBuf {
+    if document_in(dir).is_file() {
+        claims_in(&module_dir(Path::new(NO_CRATE), module))
+    } else {
+        crate_src(Path::new(NO_CRATE)).join(SPEC_MODULE).join(format!("{module}.rs"))
+    }
+}
+
 /// The `lld.md` a directory holds: the file whose presence marks that
 /// directory a slice's, and the document of the slice whose code is there.
 ///
@@ -601,6 +702,21 @@ fn document_in(dir: &Path) -> PathBuf {
     dir.join("lld.md")
 }
 
+/// The claims file a directory holds: the `spec.rs` beside the code that
+/// directory is of, which is the slice's directory for a module slice and the
+/// crate's `src` for a crate-root slice, whose code is its crate.
+///
+/// One name answers both because a slice's claims sit beside its code in
+/// either shape; what differs is which directory the code is in, and that is
+/// `dir`'s question and not this one's.
+#[implements(
+    spec::ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+    spec::ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode,
+)]
+fn claims_in(dir: &Path) -> PathBuf {
+    dir.join(format!("{SPEC_MODULE}.rs"))
+}
+
 /// The `docs/intent/<slice>/lld.md` under a directory: the form a slice's
 /// document keeps under its crate until the migration moves it, and the form a
 /// slice with no crate keeps under the workspace root for good.
@@ -609,7 +725,23 @@ fn document_in(dir: &Path) -> PathBuf {
     spec::ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
 )]
 fn intent_document(under: &Path, slice: &str) -> PathBuf {
-    document_in(&under.join(INTENT_DIR).join(slice))
+    document_in(&intent_dir(under, slice))
+}
+
+/// The `docs/intent/<slice>` directory under a directory: the directory a
+/// slice's intent files are in until the migration moves them beside its code,
+/// and the one a slice with no crate keeps under the workspace root for good.
+///
+/// The slice is named as it was asked for, hyphens and all, this directory
+/// being one of the three places the tree names a slice and the only one that
+/// spells it as the slice is spelled.
+#[implements(
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
+    spec::ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
+    spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
+)]
+fn intent_dir(under: &Path, slice: &str) -> PathBuf {
+    under.join(INTENT_DIR).join(slice)
 }
 
 /// A crate's `src`: the directory a crate-root slice's is, and the one every
