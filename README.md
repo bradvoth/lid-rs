@@ -1901,9 +1901,8 @@ having independently of this system.
 **What is built, and what is not.** This document is a living design (the
 workspace HLD's first tenet), and it describes the target. Of it, the
 following is specified here and not yet shipped, each the subject of a slice
-in the HLD's map: the controlled language and lexicon
-([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html), checks 13–14, the
-uncitable-claim assertion); vocabulary as `Traceable` types and rule V
+in the HLD's map: the uncitable-claim assertion, whose path the colocated
+layout defines; vocabulary as `Traceable` types and rule V
 ([§3.6](https://bradvoth.github.io/lid-rs/spec/mapping.html)); the shape pass
 ([§3.7](https://bradvoth.github.io/lid-rs/spec/mapping.html), checks 15–18);
 `#[derive(Outcome)]`, `OUTCOMES`, and conformance
@@ -1911,8 +1910,12 @@ uncitable-claim assertion); vocabulary as `Traceable` types and rule V
 runtime ([§6.4](https://bradvoth.github.io/lid-rs/spec/traced.html)–6.8, checks
 23–25); `trace.md` and the site ([§11.2](https://bradvoth.github.io/lid-rs/spec/layout.html),
 check 26); the colocated layout ([§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html));
-and the pipeline as a crate. Checks 1–12, the phase agents, the skill, the
-workflow, and the book are built and gate this repository today.
+and the pipeline as a crate. Checks 1–14, the phase agents, the skill, the
+workflow, and the book are built and gate this repository today — the
+controlled language and its lexicon
+([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) among them, with
+every claim either written in the language or carrying a counted `#[lid(free)]`
+mark that the ramp burns down slice by slice.
 <!-- ANCHOR_END: limits -->
 
 ---

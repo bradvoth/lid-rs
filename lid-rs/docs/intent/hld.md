@@ -200,7 +200,7 @@ so the gate always exercises the working tree's tool.
 | 21 | "The intent graph is readable as a page" | `regen` and `docs/intent/trace.md` with check 26; `lid-rs-site`: claim cards, the observed flow graph, the trace matrix, the glossary |
 | 23 | "A slice builds itself from a draft PR" | `lid-rs-pipeline`: sessions from the canopy client, `fast`/`gate` dispatch, state and resumption, the phase reviewers' rubrics, adjudication and the registered question, publication, `CODEOWNERS` and the rulesets, the squash message |
 
-Slices 1–14 are delivered. Slices 15–23 are the convergence of this
+Slices 1–15 are delivered. Slices 16–23 are the convergence of this
 workspace with the design it was forked from and then outgrew — the README's
 unbuilt ledger (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html))
 names the same work from the specification's side. **The rows are in delivery
