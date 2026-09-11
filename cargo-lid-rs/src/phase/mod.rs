@@ -620,7 +620,7 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
         Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
         Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
-        Step::Package(names) => names.iter().try_for_each(|name| cargo_step(project, &["package", "-p", name, "--allow-dirty"], &[])),
+        Step::Package(names) => cargo_step(project, &package_args(names), &[]),
         Step::SyncCheck => sync::check(project),
         Step::Mutants => mutants::run(&[]),
         Step::Red => check_red(project, slice.ok_or(NO_SLICE)?),
@@ -706,6 +706,14 @@ pub fn tag_of(subject: &str) -> Tag {
 /// The `N` of a `phase N:` prefix.
 fn phase_number(subject: &str) -> Option<u8> {
     subject.strip_prefix("phase ")?.split_once(':')?.0.trim().parse().ok()
+}
+
+/// One `cargo package` naming every member: a `-p <name>` pair per name in
+/// a single argument vector, so the members resolve against each other
+/// rather than each against a registry that holds no unreleased sibling.
+#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
+fn package_args(names: &[String]) -> Vec<&str> {
+    ["package"].into_iter().chain(names.iter().flat_map(|name| ["-p", name.as_str()])).chain(["--allow-dirty"]).collect()
 }
 
 /// Runs one cargo command, its output captured into the failure so the
@@ -1196,6 +1204,15 @@ mod tests {
         Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata")
     }
 
+    /// Whether the packaging step wrote a member's tarball. This is what
+    /// tells a `cargo package` that packaged from an invocation that named
+    /// nothing: bare `cargo` prints its help and exits 0, so an exit status
+    /// alone cannot say the step did any work.
+    fn packaged(project: &Project, name: &str) -> bool {
+        let target = project.target_directory().expect("the scratch workspace's target directory");
+        target.join("package").join(format!("{name}-0.1.0.crate")).is_file()
+    }
+
     /// A project's publishing members, sorted.
     fn publishers(project: &Project) -> Vec<String> {
         let mut members = project.publishing_members();
@@ -1232,8 +1249,13 @@ mod tests {
         // The dependent is named first, so the per-package form fails on the
         // first invocation rather than after packaging its sibling.
         let every = strings(&["lid-rs-red-dependent", "lid-rs-red-sibling", "lid-rs-red-solo"]);
-        let at_once = run_step(&project, None, &Step::Package(every));
-        assert_eq!((alone, at_once), (Ok(()), Ok(())), "the control packages under either form; every publisher packages only at once");
+        let at_once = run_step(&project, None, &Step::Package(every.clone()));
+        // Packaged, not merely exited zero: the tarballs are the work the step
+        // exists to do, and an invocation that named no package would leave
+        // none of them behind while still succeeding.
+        let tarballs: Vec<bool> = every.iter().map(|name| packaged(&project, name)).collect();
+        let observed = (alone, at_once, tarballs);
+        assert_eq!(observed, (Ok(()), Ok(()), vec![true, true, true]), "the control packages under either form; every publisher packages, and leaves its tarball, only at once");
     }
 
     #[test]
