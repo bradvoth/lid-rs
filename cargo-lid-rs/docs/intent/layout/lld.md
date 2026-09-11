@@ -27,6 +27,18 @@ So the order is: the resolvers land **accepting both layouts**, then the
 migration moves slices one commit at a time under a tooling that tolerates a
 mixed tree, then a final commit drops the old form.
 
+**The companion key moves to `layout` in the same Phase 8.** `layout` reads
+`[package.metadata.lid_rs] companion` through `phase::policy::companion` today,
+so `layout` depends on `phase` — and the Phase 8 below makes `phase` depend on
+`layout`. Two modules of one crate may depend on each other, but the direction
+should be stated rather than left as whichever was written first. The companion
+relation is a **layout fact**: which crate holds a slice's claims and module is
+the same kind of question as which directory holds its document. So the single
+Phase 8 on `phase` does both rewirings in one direction — `slice_crate`
+delegates to `layout`, and the reading of the companion key moves into `layout`
+with `policy::companion` calling it. Until that Phase 8, the dependency runs
+the other way and is a known, bounded inversion.
+
 **`layout` owns the both-layouts resolution; `phase` delegates to it.**
 `policy::slice_crate` finds a slice's crate by looking only for
 `docs/intent/<slice>/lld.md`, so it cannot find a slice whose document has
