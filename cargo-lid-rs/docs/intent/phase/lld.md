@@ -503,7 +503,7 @@ document does not imply it.
 | `HookInput` | The boundary type over the hook JSON: `agent_id`, `tool_name`, `tool_input` path, `last_assistant_message`, `stop_hook_active` |
 | `policy::allowed(phase, crates, path) -> Verdict` | The path tables, over the slice's crate and its companion if any; `Verdict::Refused(reason)` carries the discipline row |
 | `policy::allowed_paths(phase, slice, seat)` | One phase's set for one seat: `Seat::Own` is the first table, `Seat::Companion` the second |
-| `policy::slice_crate(project, slice) -> PathBuf` | The package whose manifest dir holds `docs/intent/<slice>/lld.md` |
+| `policy::slice_crate(project, slice) -> PathBuf` | The package holding the slice's document, in either layout — asked of `layout::own_crate`, which is where the four shapes are told apart |
 | `policy::companion(project, crate_root) -> Result<Option<PathBuf>, Refusal>` | The package `[package.metadata.lid_rs] companion` names, from `cargo metadata`; none for an ordinary crate; a refusal naming the key for a proc-macro crate without one, or one whose companion is a proc-macro crate or not a member |
 | `Project::package_setting_at(dir, key)`, `Project::member_dir_named(name)` | What `companion` reads: a package's `[package.metadata.lid_rs]` setting, and a member's manifest directory by package name — both from the metadata document `Project` already holds, in `src/project.rs`, which this slice's phases may not write and the human adds by hand |
 | `SliceCrates { slice, own, companion }`, `SliceCrates::resolve`, `claims_crate()` | The crates a phase may write, resolved once per hook call; the crate that holds the slice's claims, where the red run diffs and tests |

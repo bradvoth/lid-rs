@@ -27,6 +27,61 @@ So the order is: the resolvers land **accepting both layouts**, then the
 migration moves slices one commit at a time under a tooling that tolerates a
 mixed tree, then a final commit drops the old form.
 
+**How many resolvers, measured rather than guessed: eight claims across two
+slices** (Deferred 1). Each names a path where it should ask, and between them
+they need three doors on `layout`. One exists:
+
+| Door | Answers | Old form | Asked by |
+|---|---|---|---|
+| `own_crate` *(built)* | the member holding the slice's document | `docs/intent/<slice>/lld.md` | `policy::slice_crate` |
+| `spec_file` | the slice's claims file | `src/spec/<slice>.rs` | the red set's two claims, and Phase 2's two path claims |
+| `intent_file(name)` | a named file of the slice's intent directory | `docs/intent/<slice>/<name>` | `policy::compile_time_accepted`, and `lld-review`'s three |
+
+`spec_file` and `intent_file` are two doors and not one because their **old**
+forms differ in shape: a spec file embeds the slice's name in the filename
+(`src/spec/lld_review.rs`), while an intent file is a named file inside a
+directory named for the slice (`docs/intent/lld-review/compile-time-accepted`).
+Under colocation both become a named file inside the slice's directory, so the
+two collapse — but the migration is exactly the window in which they have not,
+and a door that pretends otherwise answers wrongly for every unmoved slice.
+
+**Two crates, not one, and conflating them is a bug this document nearly
+shipped.** Answering a slice's claims file needs *two* crates, and they are the
+same only for an ordinary slice:
+
+- the **reading** crate — whose directory is checked for `lld.md`, to know
+  whether the slice has moved. This is always the slice's **own** crate,
+  because `ASlicesDocumentIsNeverUnderItsCompanion`.
+- the **joining** crate — which the answer is relative to. For a proc-macro
+  slice this is the **companion**, which holds the claims.
+
+An earlier draft had `spec_file` take one crate root and read the layout from
+it. `phase.rs`'s red set passes `crates.claims_crate()` there, which for a
+proc-macro slice is the companion — and a companion never holds an `lld.md`, so
+the door would have answered *"not yet migrated"* for those slices **forever**,
+silently, for the whole life of the migration and after it. Caught by the
+Phase 3 that seated the door and asked whether each caller could supply the
+reading crate; verified at `phase.rs:588`.
+
+So `spec_file` resolves the reading crate itself — the same resolution
+`own_crate` performs — and answers a path **relative** to nothing, which the
+caller joins onto whichever crate it means. It therefore *can* refuse, for a
+slice no member holds a document for, and `ASliceNoMemberHoldsIsRefusedByName`
+covers it after all:
+
+```text
+spec_file(project: &Project, slice: &str) -> Result<PathBuf, String>
+```
+
+The two doors are alike after all: both resolve the slice's own crate to read
+its layout. They differ only in what they return — `intent_file` an absolute
+path in that crate, `spec_file` a relative one the caller places, because only
+the caller knows whether it means the slice's crate or its companion.
+
+`lld_path` stays as it is: it is `intent_file("lld.md")` plus the workspace-root
+answer for a slice with no crate, and that special case is real. Whether it
+should be rebuilt on `intent_file` once the migration ends is Deferred 7.
+
 **The delegation is four commits, not one, and the companion key is not in
 them.** A `phase` Phase 7 agent may write `src/phase.rs` and `src/phase/**`
 only, so it can neither expose anything from `layout` nor move a reader into
@@ -64,6 +119,16 @@ it. The order that works:
    variants itself and rebuild the refusal sentence that
    `ASliceNoMemberHoldsIsRefusedByName` owns — one decision duplicated across
    two slices, which is what this slice exists to stop.
+Steps 3 and 4 are the `phase` slice's, and **the policy binds a slice to its
+branch name** (`TheSliceComesFromTheBranchName`), so they cannot be committed
+from `lld/layout` — a Phase 2 there is a Phase 2 on `layout`, whatever its
+prompt says. They run on `lld/phase--layout-delegation`, which
+`AChangeBranchNamesItsSliceBeforeTheDoubleDash` reads as slice `phase`, branched
+at the tip of `lld/layout` and fast-forwarded back into it when they land.
+History stays linear because nothing else is on `lld/layout`; the alternative,
+hand-committing a claim edit outside the phase machinery, forgoes the check and
+the `Lid-Rs-*` trailers on exactly the kind of edit they exist for.
+
 3. **A Phase 2 on `phase`** rewording `TheSlicesCrateIsTheOneHoldingItsLld`,
    which the delegation contradicts: it pins `docs/intent/<slice>/lld.md`, and
    a migrated slice's crate holds no such file. The struct's **name stays
@@ -287,6 +352,37 @@ here rather than at the phase that trips over it:
   crate-root slice. It becomes `xtask/src/spec.rs` — unchanged — because a
   crate-root slice's `spec.rs` is already beside its code.
 
+  **So a crate-root slice's claims file is `src/spec.rs`, in both layouts**, and
+  that is what `spec_file` must answer for one. `xtask` already satisfies it;
+  `cargo-lid-rs`'s own slice does not — its claims are at
+  `src/spec/cargo_lid_rs.rs` — so that file moves to `src/spec.rs` with the
+  migration, which is the only crate-root claims file that moves at all.
+
+  **This is a defect that predates the slice, and asked of all fourteen slices
+  it is three of them.** `spec_file_of("xtask")` computes `src/spec/xtask.rs`,
+  which does not exist, so `xtask`'s red run finds no claims **today** — as for
+  `intent-graph`, whose slice name, module name and spec file all differ, and
+  `macros`, whose claims are its companion's at `lid-rs/src/spec/citation.rs`
+  while `spec_file_of` computes `src/spec/macros.rs`.
+
+  For each, `slice_claims` matches no registered claim, the red set is empty,
+  and Phase 5's proof that a test fails before it passes has been proving
+  nothing since the slice was built. Nothing failed, because **an empty red set
+  and a slice whose tests all legitimately pass look identical to a check that
+  only asks whether anything failed** — the same shape as slice 15's lexicon
+  harness, which asserted eighteen expectations against an always-empty report
+  for its whole life. The canary exists because slice 1 anticipated exactly this
+  for `SPECS`; nothing analogous guards the red set.
+
+  `spec_file` repairs them unevenly, and saying "fixes all three" overstates it
+  by one: **`xtask`** by construction, since the door resolves what a crate
+  holds rather than computing a path from a name; **`intent-graph`** only once
+  its migration commit renames it to its module's name; **`macros`** not at all,
+  because its claims are its companion's and would sit at
+  `lid-rs/src/macros/spec.rs` — a directory named for the slice, which no
+  crate-root answer names. Whether `spec_file` should know the joining crate,
+  and so repair `macros` too, is Deferred 8.
+
 ### What `src/spec/mod.rs` holds besides re-exports
 
 Deleting the two `src/spec/mod.rs` files is not a deletion of re-exports alone,
@@ -434,7 +530,49 @@ worth, and which this document records so they are not rediscovered:
 
 ### Deferred
 
-1. **The Phase 8s on other slices whose claim *text* names the old paths** —
+1. **The Phase 8s on other slices whose claim *text* names the old paths.**
+   **Measured, not estimated**: all 344 claims were swept for text naming
+   `src/spec/`, `docs/intent/`, `spec/mod.rs` or `<slice>.rs`. Thirteen name the
+   old layout; two are this slice's own and correctly describe the old form as
+   the fallback the resolvers accept; **eleven are falsified by the migration**,
+   where this item previously listed six.
+
+   **Eight of the eleven are preconditions** — they break on the *first* slice
+   to move, not eventually:
+
+   | Claim | Slice | What breaks |
+   |---|---|---|
+   | `ASlicesClaimsAreTheSpecsInItsSpecFile` | phase | the red set reads `src/spec/<slice>.rs`; a moved slice's Phase 5 finds no claims and fails |
+   | `TheRedSetIsTheClaimsAddedSinceTheBase` | phase | the red set is `git diff <base> -- src/spec/<slice>.rs`; same break, second site |
+   | `PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles` | phase | Phase 2's allowed *target* is that path, so Phase 2 cannot write a moved slice's claims at all |
+   | `PhaseTwoMayWriteOnlyTheCompanionsSpecFiles` | phase | the same, companion seat |
+   | `ACompileTimeSliceNeedsTheHumansAcceptance` | phase | acceptance read from `docs/intent/<slice>/compile-time-accepted`; once it moves the policy refuses every edit to that slice |
+   | `TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt` | lld-review | `lld-check` resolves the old path, and it is a **Phase 1 gate step** |
+   | `AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot` | lld-review | same resolver, workspace-only branch |
+   | `AnUnreadableLldFailsNamingItsPath` | lld-review | names the path it failed on, which is the old form |
+
+   The other three are follow-ups: the `coach`'s two index claims degrade an
+   interview's opening rather than failing a gate, and `claim`'s
+   `AMemberFindsItsWorkspacesLexicon` is about the lexicon walk and may not be
+   affected at all — **verify before assuming it is**.
+
+   **So the precondition is eight claims across two slices, not the three
+   rewirings §Context says.** Each needs its resolution to ask `layout` rather
+   than name a path, and two of the doors they would ask — a spec-file resolver
+   and an acceptance-file resolver — do not exist yet. That is a slice's worth
+   of work standing between here and the first `git mv`, and calling it "the
+   migration" hides that the tree-wide move cannot start until it is done.
+
+   Superseded text, kept for the record: two of them are preconditions,
+   because the first slice to move breaks them:
+   `ASlicesClaimsAreTheSpecsInItsSpecFile` pins the red set to
+   `src/spec/<slice>.rs`, so a migrated slice's red run finds no claims and
+   `ASliceWithNoClaimsFailsTheRedCheck` fails its Phase 5; and
+   `ACompileTimeSliceNeedsTheHumansAcceptance` pins
+   `docs/intent/<slice>/compile-time-accepted`, so an unrewired policy refuses
+   every edit to a compile-time slice once its acceptance file moves. Both are
+   `spec_file_of`-shaped and `slice_crate`-shaped respectively: the resolution
+   must move to `layout` before any document does. The rest of this item —
    `TheSlicesCrateIsTheOneHoldingItsLld` and the two Phase-2 path claims in the
    `phase` slice, `lld-review`'s three document-location claims, and the coach's
    `TheIntentIndexNamesEveryIntentDocumentInTheWorkspace`. Phase 2 of this slice
@@ -464,11 +602,25 @@ worth, and which this document records so they are not rediscovered:
    than a correctness one. The module-level cycle it would remove compiles and
    is not recursive.
 
+7. Rebuilding `lld_path` on `intent_file` once the migration ends and the two
+   old forms no longer differ — until then its workspace-root answer for a
+   slice with no crate is a special case `intent_file` does not carry.
+
+8. Whether `spec_file` should know the joining crate. It answers a relative path
+   the caller places, which is right for an ordinary slice and for a crate-root
+   one, and leaves `macros` — whose claims are its companion's, in a directory
+   named for the slice — with a red run that still finds nothing. Repairing it
+   means the door knowing which crate joins its answer, which is the distinction
+   §"Two crates, not one" deliberately kept out of it.
+
 ## Shape
 
 | Item | Role |
 |---|---|
 | `cargo_lid_rs::layout` | This slice's module: the rule that a directory holding `lld.md` is a slice, and the resolution of a slice's artifacts from it. |
+| `cargo_lid_rs::layout::own_crate` | The member whose directory holds a slice's document, in either layout, and the refusal naming the slice when none does. The one door a caller outside this module asks a slice's crate through — `phase`'s `policy::slice_crate` delegates to it, so the four shapes are told apart here and not a second time there. |
+| `cargo_lid_rs::layout::spec_file` | A slice's claims file as a **relative** path: `src/<module>/spec.rs` once that slice's own crate holds the document beside its code, `src/spec/<module>.rs` until it does. Reads the layout from the slice's own crate, which it resolves, and refuses for a slice no member holds; the caller joins the answer onto whichever crate it means — its own, or its companion. See §"Two crates, not one". |
+| `cargo_lid_rs::layout::intent_file` | A named file of a slice's intent — `compile-time-accepted`, and `lld.md` — beside the slice's code once moved, under `docs/intent/<slice>` in the slice's own crate until then. Resolves that crate itself, so it refuses for a slice no member holds. |
 | `cargo_lid_rs::layout::slice_dir` | A slice's directory, from its name and crate — the one place the layout is computed. |
 | `cargo_lid_rs::layout::lld_path` | A slice's `lld.md`, in either form: beside its code, or under `docs/intent/` when it has none. |
 | `cargo_lid_rs::layout::is_companion_dir` | Whether a slice directory is a companion's, read from `[package.metadata.lid_rs] companion` in the manifest — **not** from the directory's shape. A shape heuristic ("`spec.rs` and `mod.rs` with no `lld.md`") cannot distinguish a companion from a slice whose Phase 1 was genuinely skipped, which is the case `lld-check` exists to catch; the manifest already carries the fact. |
