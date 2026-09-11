@@ -11,7 +11,7 @@ exclude_re = [
     # put it in and still finish. The classifying was split out into
     # `human_turn` so that this holds no branch of the slice's own, which is
     # what makes it the pure I/O sequencing the exemption is for.
-    # See `cargo-lid-rs/docs/intent/coach/lld.md` § Decisions & Alternatives,
+    # See `cargo-lid-rs/src/coach/lld.md` § Decisions & Alternatives,
     # "Measuring the terminal read".
     'coach\.rs.*\bread_line\b',
     # `coach::announce` and `coach::narrate`: a print has nothing in-process to
@@ -20,8 +20,17 @@ exclude_re = [
     # `narrate` is the identity of the text `drive` hands it. `narrate`'s
     # signature is the canopy client's `Narrator`, which answers with nothing,
     # so no seam is reachable without widening that slice's type for this one.
-    # See `cargo-lid-rs/docs/intent/coach/lld.md` § Decisions & Alternatives,
+    # See `cargo-lid-rs/src/coach/lld.md` § Decisions & Alternatives,
     # "Measuring the two prints".
     'coach\.rs.*\bannounce\b',
     'coach\.rs.*\bnarrate\b',
+    # `catalog::cargo_output`: one cargo invocation run to completion, both
+    # streams captured. A validation of it is a build, and it holds no branch
+    # of the slice's own — the dispatch over what an invocation is belongs to
+    # `spawned`, which is tested, and every decision about what the output
+    # becomes belongs to `findings_of` and below. This is the pure I/O
+    # sequencing the exemption is for.
+    # See `cargo-lid-rs/src/catalog/lld.md` § Decisions & Alternatives,
+    # "Measuring the cargo spawn".
+    'catalog/mod\.rs.*\bcargo_output\b',
 ]

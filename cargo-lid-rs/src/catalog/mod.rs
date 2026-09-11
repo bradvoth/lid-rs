@@ -7,6 +7,8 @@ use std::path::Path;
 use lid_rs::implements;
 use serde::{Deserialize, Serialize};
 
+use crate::project::Project;
+
 /// One finding, in pipeline §5.3's schema: what this project says about one
 /// diagnostic, rather than the diagnostic relabelled.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -199,6 +201,29 @@ impl<F: FnMut(&Invocation) -> Result<ToolOutput, String>> Runner for F {
     }
 }
 
+/// Every command this workspace does not build, with the reason its entry
+/// carries — the twelve rows of the document's table that are not built here,
+/// each naming the slice it lands with, the question it waits on, or the thing
+/// that owns it where this tool builds it at no point.
+///
+/// Data rather than a dispatch: which of the three a row names is the table's
+/// own answer, so a row that named the wrong one is wrong here and nowhere
+/// else.
+const UNBUILT: &[(&str, Unbuilt)] = &[
+    ("shape", Unbuilt::Slice("slice 18")),
+    ("conform", Unbuilt::Slice("slice 19")),
+    ("validate", Unbuilt::Slice("slice 20")),
+    ("site", Unbuilt::Slice("slice 21")),
+    ("examples", Unbuilt::Question("Deferred 1")),
+    ("suite", Unbuilt::Question("Deferred 1")),
+    ("graph", Unbuilt::Question("Deferred 1")),
+    ("regen", Unbuilt::Question("Deferred 1")),
+    ("mutants", Unbuilt::Question("Deferred 2")),
+    ("pr-body", Unbuilt::Owner("the pipeline")),
+    ("status", Unbuilt::Owner("the pipeline")),
+    ("commit", Unbuilt::Owner("the pipeline")),
+];
+
 /// Every command the catalog holds — pipeline §5.1's sixteen and the
 /// `package` step this workspace adds beside them — built and unbuilt, each
 /// unbuilt one with its reason. What `cargo lid-rs catalog` prints, and what a
@@ -214,7 +239,29 @@ impl<F: FnMut(&Invocation) -> Result<ToolOutput, String>> Runner for F {
     spec::TheDocInvocationCarriesTheEnvironmentThatDeniesABrokenLink,
 )]
 pub fn table(publishing: &[String]) -> Vec<Command> {
-    todo!("the seventeen entries of the document's table, built from {publishing:?}")
+    let members = publishing.iter().flat_map(|member| ["-p".to_string(), member.clone()]);
+    let built = [
+        ("check", Invocation::JsonDiagnostics {
+            args: ["check", "--all-targets", "--message-format", "json"].map(String::from).to_vec(),
+        }),
+        ("lint", Invocation::JsonDiagnostics {
+            args: ["clippy", "--all-targets", "--message-format", "json", "--", "-D", "warnings"].map(String::from).to_vec(),
+        }),
+        ("doc", Invocation::StderrDiagnostics {
+            args: ["doc", "--no-deps", "--document-private-items"].map(String::from).to_vec(),
+            env: vec![("RUSTDOCFLAGS".to_string(), "-D rustdoc::broken_intra_doc_links".to_string())],
+        }),
+        ("package", Invocation::StderrDiagnostics {
+            args: std::iter::once("package".to_string()).chain(members).collect(),
+            env: Vec::new(),
+        }),
+        ("sync", Invocation::SyncComparison),
+    ];
+    built
+        .into_iter()
+        .map(|(name, invocation)| Command { name, invocation })
+        .chain(UNBUILT.iter().map(|(name, reason)| Command { name, invocation: Invocation::Unbuilt(reason.clone()) }))
+        .collect()
 }
 
 /// One command by name: resolve the workspace, read the `gates.md` a finding's
@@ -237,7 +284,68 @@ pub fn table(publishing: &[String]) -> Vec<Command> {
 /// Both are the harness's problem rather than an answer about the project, and
 /// both collapse to exit 1 in `main` until Deferred 4 is answered.
 pub fn run(command: &str) -> Result<Report, String> {
-    todo!("read the gate table, spawn for `{command}`'s invocation, and answer `run_with`'s report")
+    let project = Project::load_graph()?;
+    let root = project.root()?;
+    let table = root.join(crate::sync::SKILL_IN_PROJECT).join("references/gates.md");
+    let gates = std::fs::read_to_string(&table).map_err(|why| format!("reading {}: {why}", table.display()))?;
+    let publishing = project.publishing_members();
+    Ok(run_with(command, &root, &publishing, &gates, &mut |invocation: &Invocation| {
+        spawned(&project, command, invocation)
+    }))
+}
+
+/// One [`Invocation`] spawned: the tool's two streams, or the reason it could
+/// not be run at all.
+///
+/// The spawning half's dispatch, over the four things an invocation can be.
+///
+/// Two of its arms spawn nothing, and one of those two decides something a
+/// claim states. The `sync` comparison is this binary's own work rather than a
+/// tool's, so nothing about it is a stream until this item says which one it
+/// is: the message goes where a tool with no JSON stream puts its diagnostics,
+/// because that is the stream `sync`'s provenance reads. An item answering on
+/// stdout would leave a comparison that reported differences with no finding at
+/// all, which is
+/// [`TheSyncFindingsAreOneMessageWithDifferencesAndNoneWithout`](spec::TheSyncFindingsAreOneMessageWithDifferencesAndNoneWithout)
+/// made false — so that claim is cited here, and observed without spawning
+/// anything.
+///
+/// The two cargo arms carry no claim: what they answer is a real process's
+/// output, and a validation of either would be a build.
+///
+/// An entry with no invocation reaches this at no point — [`run_with`] refuses
+/// it before any runner is called — so the arm cites nothing: no answer it
+/// could give makes any claim false. It answers the one sentence
+/// [`unbuilt_sentence`] composes rather than a second one written here, which
+/// is the "six places state a gate" rule and not a claim about a run.
+#[implements(spec::TheSyncFindingsAreOneMessageWithDifferencesAndNoneWithout)]
+fn spawned(project: &Project, command: &str, invocation: &Invocation) -> Result<ToolOutput, String> {
+    match invocation {
+        Invocation::JsonDiagnostics { args } => cargo_output(project, args, &[]),
+        Invocation::StderrDiagnostics { args, env } => cargo_output(project, args, env),
+        Invocation::SyncComparison => {
+            Ok(ToolOutput { stdout: String::new(), stderr: crate::sync::check(project).err().unwrap_or_default() })
+        }
+        Invocation::Unbuilt(reason) => Err(unbuilt_sentence(command, reason)),
+    }
+}
+
+/// One cargo invocation run to completion, both its streams captured whole.
+///
+/// A tool that exits non-zero is no failure here: a check that found something
+/// is the answer the findings carry, and only a cargo that could not be run at
+/// all is a run that reached no answer.
+fn cargo_output(project: &Project, args: &[String], env: &[(String, String)]) -> Result<ToolOutput, String> {
+    let output = project
+        .cargo()?
+        .args(args)
+        .envs(env.iter().cloned())
+        .output()
+        .map_err(|why| format!("running cargo {}: {why}", args.join(" ")))?;
+    Ok(ToolOutput {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 /// The same over an injected runner: every decision a run makes, with nothing
@@ -343,7 +451,19 @@ fn findings_of(invocation: &Invocation, output: &ToolOutput, gates: &str, source
 /// gate step fail forever on a passing run.
 #[implements(spec::TheSyncFindingsAreOneMessageWithDifferencesAndNoneWithout)]
 fn sync_findings(message: &str, source: &str) -> Vec<Finding> {
-    todo!("`{source}`: one finding carrying {} bytes of comparison message, or none where it found none", message.len())
+    let carried = Finding {
+        check: 0,
+        rule: None,
+        severity: "error".to_string(),
+        file: None,
+        line: None,
+        item: None,
+        claim: None,
+        message: message.to_string(),
+        fix: None,
+        source: source.to_string(),
+    };
+    (!message.trim().is_empty()).then_some(carried).into_iter().collect()
 }
 
 /// The report of a run that reached an answer about the project: what it found,
@@ -355,7 +475,8 @@ fn sync_findings(message: &str, source: &str) -> Vec<Finding> {
 /// until that changes the report is where a reader finds it (Deferred 4).
 #[implements(spec::TheStatusIsZeroWithNoFindingAndOneWithAFinding, spec::TheReportCarriesTheRunsStatus)]
 fn report_of(command: &str, findings: Vec<Finding>) -> Report {
-    todo!("the report of `{command}`, whose status is what its {} findings amount to", findings.len())
+    let status = if findings.is_empty() { Status::Pass } else { Status::Findings };
+    Report { command: command.to_string(), findings, status }
 }
 
 /// The report of a run that reached no answer about the project: one finding —
@@ -368,13 +489,24 @@ fn report_of(command: &str, findings: Vec<Finding>) -> Report {
 /// found is not carried, because what it found is not the answer.
 #[implements(spec::ARunThatReachesNoAnswerIsTheToolingStatus, spec::TheReportCarriesTheRunsStatus)]
 fn refused(command: &str, why: String) -> Report {
-    todo!("refuse `{command}`, reaching no answer: {why}")
+    Report { command: command.to_string(), findings: vec![tooling_finding(command, why)], status: Status::Tooling }
 }
 
 /// The finding a run that reached no answer carries: the sentence it refused
 /// with, against no check, since nothing about the project was read.
 fn tooling_finding(source: &str, why: String) -> Finding {
-    todo!("the finding `{source}` refuses with: {why}")
+    Finding {
+        check: 0,
+        rule: None,
+        severity: "error".to_string(),
+        file: None,
+        line: None,
+        item: None,
+        claim: None,
+        message: why,
+        fix: None,
+        source: source.to_string(),
+    }
 }
 
 /// The report a run answers with, once the file it belongs in has been written:
@@ -415,7 +547,11 @@ fn written(root: &Path, name: &'static str, report: Report) -> Report {
     spec::ADirectoryThatCannotBeCreatedIsNamedByAFinding,
 )]
 fn write_report(root: &Path, name: &'static str, report: &Report) -> Result<(), String> {
-    todo!("write `{name}`'s {} findings under {}", report.findings.len(), root.display())
+    let directory = root.join("target").join("lid");
+    std::fs::create_dir_all(&directory).map_err(|why| format!("creating {}: {why}", directory.display()))?;
+    let path = directory.join(format!("{name}.json"));
+    let json = serde_json::to_string_pretty(report).map_err(|why| format!("rendering {}: {why}", path.display()))?;
+    std::fs::write(&path, json).map_err(|why| format!("writing {}: {why}", path.display()))
 }
 
 /// Why this workspace does not build a command, as one sentence naming the
@@ -428,7 +564,11 @@ fn write_report(root: &Path, name: &'static str, report: &Report) -> Result<(), 
 /// "six places state a gate" disease this slice exists to cure.
 #[implements(spec::AnUnbuiltCommandRefusesWithTheCatalogsReason)]
 pub fn unbuilt_sentence(name: &str, reason: &Unbuilt) -> String {
-    todo!("why `{name}` is not built here: {reason:?}")
+    match reason {
+        Unbuilt::Slice(slice) => format!("`{name}` is not built here: it lands with {slice}"),
+        Unbuilt::Question(question) => format!("`{name}` is not built here: it waits on {question}"),
+        Unbuilt::Owner(owner) => format!("`{name}` is not built here: it belongs to {owner}, which this tool is not"),
+    }
 }
 
 /// Cargo's JSON diagnostic stream to findings: the stream read into
@@ -475,7 +615,22 @@ pub fn findings_from_stderr(stderr: &str, gates: &str, source: &str) -> Vec<Find
 /// success over what it failed to read; the check number that names no check is
 /// 0, answered where check numbers are, and not a diagnostic dropped here.
 pub fn diagnostics_from_cargo(stream: &str) -> Vec<Diagnostic> {
-    todo!("read the diagnostics of {} bytes of cargo's JSON stream", stream.len())
+    stream
+        .lines()
+        .filter_map(|record| serde_json::from_str::<serde_json::Value>(record).ok())
+        .filter(|record| record["reason"] == "compiler-message")
+        .map(|record| {
+            let message = &record["message"];
+            let at = message["spans"].as_array().into_iter().flatten().find(|span| span["is_primary"] == true);
+            Diagnostic {
+                lint: message["code"]["code"].as_str().map(str::to_string),
+                severity: message["level"].as_str().unwrap_or_default().to_string(),
+                message: message["message"].as_str().unwrap_or_default().to_string(),
+                file: at.and_then(|span| span["file_name"].as_str()).map(str::to_string),
+                line: at.and_then(|span| span["line_start"].as_u64()).and_then(|line| u32::try_from(line).ok()),
+            }
+        })
+        .collect()
 }
 
 /// A tool's stderr to diagnostics: one [`Diagnostic`] for each diagnostic the
@@ -492,7 +647,74 @@ pub fn diagnostics_from_cargo(stream: &str) -> Vec<Diagnostic> {
 /// What stderr holds besides diagnostics — a tool's progress and summary lines —
 /// is not one and reaches no finding.
 pub fn diagnostics_from_stderr(stderr: &str) -> Vec<Diagnostic> {
-    todo!("read the diagnostics of {} bytes of a tool's stderr", stderr.len())
+    let lines: Vec<&str> = stderr.lines().collect();
+    let starts: Vec<usize> =
+        lines.iter().enumerate().filter(|(_, line)| starts_a_diagnostic(line)).map(|(at, _)| at).collect();
+    starts
+        .iter()
+        .enumerate()
+        .map(|(nth, start)| diagnostic_of(&lines[*start..starts.get(nth + 1).copied().unwrap_or(lines.len())]))
+        .collect()
+}
+
+/// The grades a tool prints a diagnostic under, at the head of the line the
+/// diagnostic starts on and before the sentence it says.
+const GRADES: &[&str] = &["warning", "error"];
+
+/// What a tool says at the end about what it already said: a count of the
+/// diagnostics above it rather than a diagnostic of its own. A reader that
+/// took these for diagnostics would report a finding for every run that found
+/// anything, naming no place and saying nothing a reader could act on.
+const SUMMARIES: &[&str] = &["aborting due to", "could not compile", "build failed"];
+
+/// Whether a line starts a diagnostic: a tool's own grade at its head, then
+/// the sentence — and not one of the lines a tool counts with at the end.
+///
+/// A grade is matched at the head of the line and not anywhere in it, which is
+/// what leaves a tool's progress lines, its `= note:` lines and the indented
+/// body of a `Caused by:` block out: each either carries no grade or carries it
+/// behind something else.
+fn starts_a_diagnostic(line: &str) -> bool {
+    line.split_once(": ")
+        .is_some_and(|(grade, said)| GRADES.contains(&grade) && !SUMMARIES.iter().any(|end| said.starts_with(end)))
+}
+
+/// One block of a tool's stderr — the line a diagnostic starts on and every
+/// line under it up to the next diagnostic — read as one [`Diagnostic`].
+///
+/// The place it points at is the `-->` line tools underline a span with, and
+/// the lint is whichever line of the block names one; a block with neither
+/// points at nothing and names no lint, which is what a `cargo package`
+/// failure looks like.
+fn diagnostic_of(block: &[&str]) -> Diagnostic {
+    let said = block.first().copied().unwrap_or_default();
+    let (severity, message) = said.split_once(": ").unwrap_or(("", said));
+    let at: Vec<&str> = block
+        .iter()
+        .find_map(|line| line.trim_start().strip_prefix("--> "))
+        .unwrap_or_default()
+        .split(':')
+        .collect();
+    Diagnostic {
+        lint: block.iter().copied().find_map(lint_of),
+        severity: severity.to_string(),
+        message: message.to_string(),
+        file: at.first().filter(|name| !name.is_empty()).map(|name| (*name).to_string()),
+        line: at.get(1).and_then(|line| line.parse().ok()),
+    }
+}
+
+/// The lint a line of a diagnostic's block names, in the spelling that lint is
+/// declared by.
+///
+/// A tool names the lint it raised a diagnostic under in the note that says
+/// which flag implied it — `` `-D rustdoc::broken-intra-doc-links` implied by
+/// `-D warnings` `` — and spells it with the hyphens a command line takes
+/// rather than the underscores the lint is declared with. The declared
+/// spelling is what is answered, so that which check a lint belongs to is
+/// decided once for both streams.
+fn lint_of(line: &str) -> Option<String> {
+    line.split('`').nth(1)?.strip_prefix("-D ").map(|lint| lint.replace('-', "_"))
 }
 
 /// One diagnostic to a [`Finding`]: the check number of the lint that raised it,
@@ -542,7 +764,15 @@ pub fn finding_of(diagnostic: Diagnostic, gates: &str, source: &str) -> Finding 
 /// than dropped.
 #[implements(spec::TheCheckNumberComesFromTheLintOrIsZero)]
 fn check_of_lint(lint: Option<&str>) -> u32 {
-    todo!("the check {lint:?} belongs to, or none")
+    match lint.unwrap_or_default() {
+        "rustdoc::broken_intra_doc_links" => 2,
+        "missing_docs" | "clippy::missing_docs_in_private_items" => 3,
+        "clippy::wildcard_enum_match_arm" => 6,
+        "clippy::cognitive_complexity" => 7,
+        "clippy::fn_params_excessive_bools" => 8,
+        "clippy::too_many_lines" => 9,
+        _ => 0,
+    }
 }
 
 /// The correct response the skill's `references/gates.md` states for a check,
@@ -554,7 +784,17 @@ fn check_of_lint(lint: Option<&str>) -> u32 {
 /// item needs a skill tree on disk.
 #[implements(spec::TheFixLineIsTheGatesRowForTheFindingsCheck)]
 fn fix_of_check(check: u32, gates: &str) -> Option<String> {
-    todo!("the gates row for check {check}, among {} bytes of table", gates.len())
+    gates
+        .lines()
+        .map(|row| row.split('|').map(str::trim).collect::<Vec<&str>>())
+        .find(|cells| {
+            cells
+                .get(1)
+                .and_then(|gate| gate.strip_prefix("check "))
+                .and_then(|keyed| keyed.split_whitespace().next())
+                .is_some_and(|keys| keys.split('/').any(|key| key.parse::<u32>().is_ok_and(|one| one == check)))
+        })
+        .and_then(|cells| cells.get(3).map(|response| (*response).to_string()))
 }
 
 /// A report to the human rendering, built from the findings alone and never
@@ -562,7 +802,21 @@ fn fix_of_check(check: u32, gates: &str) -> Option<String> {
 /// disagree.
 #[implements(spec::TheRenderingIsBuiltFromTheFindingsAndNotTheToolsOutput)]
 pub fn render(report: &Report) -> String {
-    todo!("render {}'s findings", report.command)
+    let found: Vec<String> = report
+        .findings
+        .iter()
+        .map(|finding| {
+            format!(
+                "  {}:{} — check {} — {}\n    fix: {}",
+                finding.file.as_deref().unwrap_or("(no place in the source)"),
+                finding.line.map_or_else(String::new, |line| line.to_string()),
+                finding.check,
+                finding.message,
+                finding.fix.as_deref().unwrap_or("(this check has no row in the skill's gates table)"),
+            )
+        })
+        .collect();
+    format!("{}: {} finding(s)\n{}", report.command, report.findings.len(), found.join("\n"))
 }
 
 #[cfg(test)]
@@ -1203,11 +1457,21 @@ Caused by:
     fn the_check_number_comes_from_the_lint_or_is_zero() {
         // The lint that raised it decides the check; a lint no check names and
         // a diagnostic no lint raised are alike carried under 0, never dropped.
+        //
+        // Every lint the gate states is named here, and not the handful a
+        // fixture would reach for: a mapping this fixture does not exercise is
+        // a mapping nothing would notice the loss of, which is what check 12
+        // found for checks 6 and 8 when they were correct and unnamed. The
+        // list is README §4.1's tier-0 table read down its lint column, so a
+        // check whose lint this map forgets is wrong here.
         let cases = [
-            (Some("clippy::cognitive_complexity"), 7),
-            (Some("clippy::too_many_lines"), 9),
-            (Some("clippy::missing_docs_in_private_items"), 3),
             (Some("rustdoc::broken_intra_doc_links"), 2),
+            (Some("missing_docs"), 3),
+            (Some("clippy::missing_docs_in_private_items"), 3),
+            (Some("clippy::wildcard_enum_match_arm"), 6),
+            (Some("clippy::cognitive_complexity"), 7),
+            (Some("clippy::fn_params_excessive_bools"), 8),
+            (Some("clippy::too_many_lines"), 9),
             (Some("clippy::needless_borrow"), 0),
             (None, 0),
         ];
@@ -1309,6 +1573,19 @@ Caused by:
             reported.findings.iter().map(|f| (f.message.as_str(), f.source.as_str())).collect();
         assert_eq!(carried, [(SYNC_MESSAGE, "sync")], "{:?}", reported.findings);
         assert_eq!((clean.findings.len(), clean.status), (0, Status::Pass), "{:?}", clean.findings);
+        // The spawning half decides which stream the comparison's message
+        // arrives on, and nothing else does: `sync::check` is this binary's own
+        // work rather than a tool's, so a `spawned` answering on stdout leaves a
+        // comparison that reported differences with no finding at all. Observed
+        // without spawning anything, on a project that resolves nothing — what
+        // the comparison says then is another slice's wording and is not pinned
+        // here, only that it said something, that it arrived on stderr, and that
+        // one finding carries it whole.
+        let unresolvable = Project::from_json("{}").expect("a project that resolves nothing");
+        let spoke = spawned(&unresolvable, "sync", &Invocation::SyncComparison).expect("the comparison answered");
+        let said = findings_of(&Invocation::SyncComparison, &spoke, GATES, "sync");
+        let observed = (spoke.stdout.as_str(), spoke.stderr.is_empty(), said.len(), said.first().map(|f| f.message.as_str()));
+        assert_eq!(observed, ("", false, 1, Some(spoke.stderr.as_str())), "{spoke:?}");
     }
 
     #[test]
