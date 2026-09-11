@@ -119,6 +119,7 @@ it. The order that works:
    variants itself and rebuild the refusal sentence that
    `ASliceNoMemberHoldsIsRefusedByName` owns — one decision duplicated across
    two slices, which is what this slice exists to stop.
+
 Steps 3 and 4 are the `phase` slice's, and **the policy binds a slice to its
 branch name** (`TheSliceComesFromTheBranchName`), so they cannot be committed
 from `lld/layout` — a Phase 2 there is a Phase 2 on `layout`, whatever its
