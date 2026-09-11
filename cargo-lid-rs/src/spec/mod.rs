@@ -236,6 +236,11 @@ pub use layout::{
     ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath,
     ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot,
     ASlicesDocumentIsNeverUnderItsCompanion,
+    ASpecFileBesideTheDocumentIsTheSlicesClaimsFile,
+    ASliceWhoseDirectoryHoldsNoDocumentKeepsItsClaimsUnderSpec,
+    ACrateRootSlicesClaimsFileIsTheSpecBesideItsCode,
+    ANamedFileBesideTheDocumentIsTheSlicesIntentFile,
+    ASliceWhoseDirectoryHoldsNoDocumentKeepsItsIntentFilesUnderDocsIntent,
     ACompanionDirectoryIsTheOneTheManifestNames,
     ACompanionIsNeverReadFromADirectorysShape,
 };
