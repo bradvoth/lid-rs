@@ -13,8 +13,10 @@ Read, in this order:
 
 1. `.claude/skills/lid-rs/references/lld.md` — the guideline. Its questions
    are yours; each carries the incident that put it there.
-2. The slice's LLD: `docs/intent/<slice>/lld.md` in the package that holds it,
-   or at the workspace root for a slice whose product is the workspace.
+2. The slice's LLD: `src/<slice>/lld.md` beside the slice's code in the
+   package that holds it, `src/lld.md` where the crate root is the slice, or
+   `docs/intent/<slice>/lld.md` at the workspace root for a slice whose
+   product is the workspace.
 3. Whatever the document points at that you need to judge it — the HLD, a
    sibling slice's LLD, the skill's phase files.
 

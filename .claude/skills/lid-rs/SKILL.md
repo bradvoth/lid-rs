@@ -51,7 +51,7 @@ this split exists to prevent.
 ## Coherence pre-flight (before starting or resuming any change)
 
 Verify the slice you're about to touch is internally coherent: the LLD
-reflects the HLD, the claims in `src/spec/` trace to the current LLD, and
+reflects the HLD, the claims in `src/<slice>/spec.rs` trace to the current LLD, and
 `cargo test --lib` is green (checks 10/11 prove claims↔tests coherence
 mechanically). If docs have drifted from intent, fix the docs first, then
 implement. Docs are written fresh-author: no narration of how they changed, no

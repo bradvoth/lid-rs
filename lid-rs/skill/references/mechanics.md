@@ -22,9 +22,12 @@
   body-injected). Structs and enums take it too (e.g. a
   `#[non_exhaustive]` closed-set enum implements its closed-set claim).
 - **Spec retirement**: rename the claim struct and keep the old name as
-  `#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;` in
-  `src/spec/mod.rs`. The alias registers no claim; every citation site
-  warns, and the gate's `-D warnings` turns each into a named work item.
+  `#[deprecated = "replaced by <New>"] pub type <Old> = <New>;` beside it in
+  `src/<slice>/spec.rs` — the alias must sit where the *old* path resolved, or
+  it defeats its own purpose. (A crate's `src/spec.rs` holds the aliases from
+  renames that predate colocation, for the same reason.) The alias registers no
+  claim; every citation site warns, and the gate's `-D warnings` turns each
+  into a named work item.
   Never deprecate the struct itself — a registered claim with no
   implementer fails the graph checks. Delete the alias when no citations
   remain.

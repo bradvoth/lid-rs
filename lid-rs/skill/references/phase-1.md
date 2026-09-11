@@ -1,11 +1,19 @@
 # Phase 1 — LLD (human-owned; you draft)
 
-Plain English in `docs/intent/<slice>/lld.md`, wired into the module:
+Plain English in `src/<slice>/lld.md`, beside the code it designs. The
+document marks the directory as a slice, and the module includes it from
+inside:
 
 ```rust
-#[doc = include_str!("../../docs/intent/<slice>/lld.md")]
-pub mod slice_name;
+// src/<slice>/mod.rs
+#![doc = include_str!("lld.md")]
 ```
+
+Three shapes vary this. Where the crate root *is* the slice, the document is
+the crate's `src/lld.md`, included by `lib.rs`'s `#![doc]`. Where the slice has
+no code at all, it stays at the workspace root's `docs/intent/<slice>/lld.md`.
+A companion directory — a slice's second directory in another crate — carries
+no `lld.md`; the slice's one document lives with its primary code.
 
 This layer cannot be recovered from code: rationale, rejected alternatives,
 invariants that aren't type-expressible. Write the Context and Design

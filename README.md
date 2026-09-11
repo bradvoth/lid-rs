@@ -1789,9 +1789,12 @@ Citations are one segment longer than with a crate-wide `spec` module —
 the point: a claim's path names the slice that owns it, and a claim is
 uncitable only if its own module is, which is a mistake nobody makes twice.
 The crate-wide `src/spec/<slice>.rs` layout with a re-exporting `mod.rs` is
-the one this workspace was built in; it holds until the controlled-language
-slice rewrites every claim, at which point the move is one cascade rather than
-two.
+the one this workspace was built in. The move waited for the
+controlled-language slice to rewrite every claim, so the cascade was one rather
+than two; it has since been made. A crate keeps a `src/spec.rs` afterwards only
+where something outlives the move: its own claims when the crate root *is* a
+slice, and retired names whose deprecation windows are still open — an alias
+exists so the old path keeps resolving, so moving it would defeat it.
 
 In a workspace, an intent document lives inside the package root of the crate
 that includes it. `cargo package` ships only files

@@ -15,7 +15,7 @@ confirmation is not optional and not a formality, even under a "continue
 through implementation" waiver from a previous phase — a waiver may not
 cover this phase (main `SKILL.md`, Three rules). The phase agent's stop
 hook runs the same confirmation (`cargo lid-rs phase-check 5`: every claim
-in `src/spec/<slice>.rs` has a `#[validates]` test and every one fails) and
+in `src/<slice>/spec.rs` has a `#[validates]` test and every one fails) and
 refuses the commit otherwise; the commit body should still say what was
 red, for the reader who was not there. A test that is green before
 implementation exists needs an explanation in the commit (usually: its claim

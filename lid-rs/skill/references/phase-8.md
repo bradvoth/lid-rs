@@ -5,8 +5,9 @@ Every change is an LLD edit, cascaded:
 1. Edit the LLD (`phase-1.md`'s discipline applies).
 2. Re-derive affected claims.
 3. Rename changed claims, keeping each old name as
-   `#[deprecated = "replaced by <New>"] pub type <Old> = <slice>::<New>;`
-   in `src/spec/mod.rs` — every citation of the old name *should* start
+   `#[deprecated = "replaced by <New>"] pub type <Old> = <New>;` beside it in
+   `src/<slice>/spec.rs`, where the old path resolved — every citation of the
+   old name *should* start
    warning, that is forced re-review, not friction. Never `#[deprecated]`
    on the struct itself: once its citations move it is a registered claim
    with no implementer, and only Phase 2 may delete it.

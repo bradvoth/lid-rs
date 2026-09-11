@@ -32,7 +32,9 @@ Read, in this order — nothing else about the slice exists outside them:
    convention.
 2. `.claude/skills/lid-rs/`references/phase-6.md` and `references/phase-7.md`` — this phase — and the rows of
    `.claude/skills/lid-rs/references/discipline.md` tagged 7.
-3. The slice's LLD, `docs/intent/<slice>/lld.md` in the slice's crate, and
+3. The slice's LLD, `src/<slice>/lld.md` beside the slice's code — or the
+   crate's `src/lld.md` where the crate root is the slice, or the workspace
+   root's `docs/intent/<slice>/lld.md` where the slice has no code — and
    the branch's history: your prompt carries `git log --oneline`, since
    you have no shell.
 
