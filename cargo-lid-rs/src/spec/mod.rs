@@ -5,6 +5,7 @@
 mod cargo_lid_rs;
 mod headless_canopy_agent;
 mod init;
+mod lld_review;
 mod phase;
 mod sync;
 
@@ -116,6 +117,29 @@ pub use init::{
     MutationOutputIsIgnoredWithoutConflict,
     AnInitialisedPackagePassesItsOwnGate,
     NewCreatesALibraryPackageThenInitialisesIt,
+};
+
+pub use lld_review::{
+    TheSliceIsTheFlagsValueOrTheBranchName,
+    AnyOtherArgumentIsRejectedByName,
+    TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt,
+    AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot,
+    AnUnreadableLldFailsNamingItsPath,
+    LldCheckExitsZeroOnlyWhenEveryCheckHolds,
+    EveryFailureIsReportedNotOnlyTheFirst,
+    AFailureNamesItsCheckItsFileItsLineAndItsRule,
+    ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator,
+    ADocumentWithoutADecisionsTableFails,
+    EveryDecisionsRowFillsItsFourCells,
+    EveryShapeRowNamesAnIdentifierAndARole,
+    ADocumentWithNoShapeTableHoldsThatCheck,
+    EveryDeferredItemIsANumberedListItem,
+    ADocumentWithNoDeferredHeadingHoldsThatCheck,
+    EveryCheckIsNamedInTheGuidelinesChecklist,
+    TheReaderDeclaresOnlyTheObservationTools,
+    AnArtifactFailureWithNoLineToCitePointsAtTheFirstLine,
+    TheArtifactChecksRunWhateverSliceIsNamed,
+    AnUnreadableSyncedArtifactFailsNamingItsPath,
 };
 
 pub use phase::{
