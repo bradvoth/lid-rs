@@ -449,3 +449,313 @@ fn no_crate_refusal(slice: &str) -> String {
     let _ = slice;
     todo!()
 }
+
+#[cfg(test)]
+mod tests {
+    //! One fixture workspace holds a slice of every shape in both layouts, so
+    //! that each resolver is asked the tree the migration actually presents:
+    //! some slices moved beside their code, some not.
+    //!
+    //! | Member | Slice | Shape | Where its document is |
+    //! |---|---|---|---|
+    //! | `app` | `alpha` | module | old — `app/docs/intent/alpha/lld.md` |
+    //! | `app` | `lld-review` | module, hyphenated | old |
+    //! | `app` | `beta` | module | new — `app/src/beta/lld.md` |
+    //! | `mac` | `two-phase` | module, companion in `app` | old |
+    //! | `mac` | `delta` | module, companion in `app` | new |
+    //! | `tool` | `tool` | crate root | old — `tool/docs/intent/tool/lld.md` |
+    //! | `rooted` | `rooted` | crate root | new — `rooted/src/lld.md` |
+    //! | — | `book` | no crate | `docs/intent/book/lld.md` at the root |
+    //!
+    //! `mac` is the proc-macro member whose manifest names `app` as its
+    //! companion, so `app/src/two_phase` and `app/src/delta` are companion
+    //! directories: a `spec.rs`, a `mod.rs`, and no `lld.md`. Two directories
+    //! of exactly that shape are no companion's — `app/src/skipped`, which
+    //! `mac` holds no slice for, and `tool/src/two_phase`, under a crate no
+    //! manifest names — which is what holds the manifest apart from the shape.
+    //!
+    //! Two of the fixture's members carry facts a test would otherwise be
+    //! silently vacuous without, and both are asserted where they matter:
+    //! `rooted` has already migrated, so a resolver taking an unnamed
+    //! `src/lld.md` for any slice's would answer for a slice no member holds;
+    //! and the companion directories hold no `lld.md`, which is the whole
+    //! reason a slice's document is never found under its companion.
+    //!
+    //! The manifests exist only in the metadata document — nothing here parses
+    //! one and cargo is never run — while every path the resolvers read is on
+    //! disk.
+
+    use super::*;
+    use lid_rs::validates;
+
+    use crate::phase::fixture;
+
+    /// The fixture's members, as `(package, target kind, companion)`, in the
+    /// order the resolvers search them. `app` comes first: a resolver that
+    /// took a companion directory for a slice's own would answer `app` for
+    /// `two-phase` and `delta` before reaching `mac`.
+    const MEMBERS: &[(&str, &str, Option<&str>)] =
+        &[("app", "lib", None), ("mac", "proc-macro", Some("app")), ("tool", "lib", None), ("rooted", "lib", None)];
+
+    /// Every file of the fixture tree, each with the content its kind would
+    /// carry. A directory is made by the file written into it.
+    const TREE: &[(&str, &str)] = &[
+        // The slice whose product is the workspace: no member holds it.
+        ("docs/intent/book/lld.md", "# book\n"),
+        // `app`: two slices in the old layout, one moved, and the companion
+        // directories of `mac`'s two.
+        ("app/docs/intent/alpha/lld.md", "# alpha\n"),
+        ("app/src/alpha.rs", "//! The alpha slice.\n"),
+        ("app/src/alpha/leaf.rs", "//! A leaf of alpha.\n"),
+        ("app/docs/intent/lld-review/lld.md", "# lld-review\n"),
+        ("app/src/lld_review.rs", "//! The lld-review slice.\n"),
+        ("app/src/lld_review/leaf.rs", "//! A leaf of lld-review.\n"),
+        ("app/src/beta/lld.md", "# beta\n"),
+        ("app/src/beta/mod.rs", "//! The beta slice.\n"),
+        ("app/src/two_phase/spec.rs", "//! Claims of two-phase.\n"),
+        ("app/src/two_phase/mod.rs", "//! Two-phase's presence in app.\n"),
+        ("app/src/delta/spec.rs", "//! Claims of delta.\n"),
+        ("app/src/delta/mod.rs", "//! Delta's presence in app.\n"),
+        // A companion's shape under no companion relation: `mac` holds no
+        // slice `skipped`, so this is a slice whose Phase 1 was skipped.
+        ("app/src/skipped/spec.rs", "//! Claims of skipped.\n"),
+        ("app/src/skipped/mod.rs", "//! The skipped slice.\n"),
+        // `mac`: the proc-macro crate, one slice in each layout.
+        ("mac/docs/intent/two-phase/lld.md", "# two-phase\n"),
+        ("mac/src/two_phase.rs", "//! The two-phase slice.\n"),
+        ("mac/src/two_phase/leaf.rs", "//! A leaf of two-phase.\n"),
+        ("mac/src/delta/lld.md", "# delta\n"),
+        ("mac/src/delta/mod.rs", "//! The delta slice.\n"),
+        // `tool`: a crate-root slice that has not moved, and a companion's
+        // shape in a crate no manifest names as one.
+        ("tool/docs/intent/tool/lld.md", "# tool\n"),
+        ("tool/src/lib.rs", "//! The tool crate.\n"),
+        ("tool/src/two_phase/spec.rs", "//! Not two-phase's claims.\n"),
+        ("tool/src/two_phase/mod.rs", "//! Not two-phase's module.\n"),
+        // `rooted`: a crate-root slice that has, its document naming no slice.
+        ("rooted/src/lld.md", "# rooted\n"),
+        ("rooted/src/lib.rs", "//! The rooted crate.\n"),
+    ];
+
+    /// The fixture tree at a scratch root of its own, with the project whose
+    /// metadata describes it.
+    fn workspace(name: &str) -> (PathBuf, Project) {
+        let root = fixture::scratch(name).canonicalize().expect("the scratch root");
+        for (relative, content) in TREE {
+            write_at(&root, relative, content);
+        }
+        (root.clone(), Project::from_json(&metadata(&root, MEMBERS)).expect("the metadata document parses"))
+    }
+
+    /// Writes one of the fixture's files, creating the directories above it.
+    fn write_at(root: &Path, relative: &str, content: &str) {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().expect("the path has a parent")).expect("create the directories");
+        std::fs::write(path, content).expect("write the file");
+    }
+
+    /// The `cargo metadata` document for a workspace at `root` with those
+    /// members, each rooted at the directory its package is named for.
+    fn metadata(root: &Path, members: &[(&str, &str, Option<&str>)]) -> String {
+        let packages: Vec<String> = members.iter().map(|member| package(root, member)).collect();
+        format!(
+            r#"{{"workspace_root":"{}","target_directory":"{}","packages":[{}]}}"#,
+            root.display(),
+            root.join("target").display(),
+            packages.join(",")
+        )
+    }
+
+    /// One member's package node: its manifest directory, its one target's
+    /// kind, and the `[package.metadata.lid_rs] companion` key when it names
+    /// one.
+    fn package(root: &Path, member: &(&str, &str, Option<&str>)) -> String {
+        let (name, kind, companion) = *member;
+        let metadata = companion.map_or_else(
+            || "null".to_string(),
+            |companion| format!(r#"{{"lid_rs":{{"companion":"{companion}"}}}}"#),
+        );
+        format!(
+            r#"{{"name":"{name}","manifest_path":"{}","metadata":{metadata},"targets":[{{"kind":["{kind}"],"name":"{name}"}}]}}"#,
+            root.join(name).join("Cargo.toml").display()
+        )
+    }
+
+    #[test]
+    #[validates(spec::AModuleSlicesDirectoryIsTheOneNamedForItUnderSrc)]
+    fn a_module_slices_directory_is_the_one_named_for_it_under_src() {
+        let (root, project) = workspace("layout-module-directory");
+        let found = ["alpha", "beta", "lld-review", "delta"].map(|slice| slice_dir(&project, slice));
+        assert_eq!(
+            found,
+            [
+                // `app/src/alpha.rs` beside `app/src/alpha/`, and the
+                // migrated spelling, `app/src/beta/mod.rs`.
+                Ok(root.join("app/src/alpha")),
+                Ok(root.join("app/src/beta")),
+                // The directory is the module's name, not the slice's.
+                Ok(root.join("app/src/lld_review")),
+                // Under the slice's own crate, never under its companion,
+                // although `app/src/delta` exists.
+                Ok(root.join("mac/src/delta")),
+            ]
+        );
+    }
+
+    #[test]
+    #[validates(spec::ACrateRootSlicesDirectoryIsItsCratesSrc)]
+    fn a_crate_root_slices_directory_is_its_crates_src() {
+        let (root, project) = workspace("layout-crate-root-directory");
+        // Neither crate holds a module named for its slice, in either layout:
+        // the directory is the crate's `src`, and no module is invented.
+        assert_eq!(
+            (slice_dir(&project, "tool"), slice_dir(&project, "rooted")),
+            (Ok(root.join("tool/src")), Ok(root.join("rooted/src")))
+        );
+    }
+
+    #[test]
+    #[validates(spec::ACrateRootSlicesCrateIsTheMemberItIsNamedFor)]
+    fn a_crate_root_slices_crate_is_the_member_it_is_named_for() {
+        let (root, project) = workspace("layout-crate-root-crate");
+        // `rooted/src/lld.md` records no slice name, so the member that
+        // answers for it is the one the slice is named for — the package.
+        assert_eq!(
+            Form::of_slice(&project, "rooted"),
+            Form::CrateRoot { crate_root: root.join("rooted"), slice: "rooted".to_string() }
+        );
+        // And answers for no other name: a member holding an unnamed
+        // `src/lld.md` is not a candidate for every slice it has no module for.
+        assert_eq!(Form::of_slice(&project, "nobody"), Form::NoCrate { slice: "nobody".to_string() });
+    }
+
+    #[test]
+    #[validates(spec::ASliceNoMemberHoldsIsRefusedByName)]
+    fn a_slice_no_member_holds_is_refused_by_name() {
+        let (root, project) = workspace("layout-refusal");
+        // The fixture holds a member that has already migrated. A resolver
+        // accepting a non-matching `src/lld.md` would answer `rooted` below,
+        // and this refusal would stop firing for any slice at all.
+        assert!(root.join("rooted/src/lld.md").is_file(), "the fixture holds a migrated crate-root slice");
+
+        let unheld = slice_dir(&project, "nobody").expect_err("no member holds a document named `nobody`");
+        let workspace_only = slice_dir(&project, "book").expect_err("`book`'s document is the workspace root's");
+        assert_eq!(
+            (unheld.contains("nobody"), unheld.contains("docs/intent/nobody/lld.md"), unheld.contains("no crate")),
+            (true, true, true),
+            "the refusal names the slice, the form its document would have had, and what follows: {unheld}"
+        );
+        assert!(workspace_only.contains("book"), "{workspace_only}");
+    }
+
+    #[test]
+    #[validates(spec::ADocumentBesideTheCodeIsTheSlicesLld)]
+    fn a_document_beside_the_code_is_the_slices_lld() {
+        let (root, project) = workspace("layout-document-beside-the-code");
+        // The three shapes that have moved: a module slice, a module slice
+        // whose claims are a companion's, and a crate-root slice.
+        let found = ["beta", "delta", "rooted"].map(|slice| lld_path(&project, slice));
+        assert_eq!(
+            found,
+            [
+                Ok(root.join("app/src/beta/lld.md")),
+                Ok(root.join("mac/src/delta/lld.md")),
+                Ok(root.join("rooted/src/lld.md")),
+            ]
+        );
+    }
+
+    #[test]
+    #[validates(spec::ASliceWhoseDirectoryHoldsNoDocumentKeepsTheOldPath)]
+    fn a_slice_whose_directory_holds_no_document_keeps_the_old_path() {
+        let (root, project) = workspace("layout-document-old-path");
+        let found = ["alpha", "lld-review", "tool", "two-phase"].map(|slice| lld_path(&project, slice));
+        assert_eq!(
+            found,
+            [
+                Ok(root.join("app/docs/intent/alpha/lld.md")),
+                // The slice as it was named, not as its module is.
+                Ok(root.join("app/docs/intent/lld-review/lld.md")),
+                Ok(root.join("tool/docs/intent/tool/lld.md")),
+                Ok(root.join("mac/docs/intent/two-phase/lld.md")),
+            ]
+        );
+    }
+
+    #[test]
+    #[validates(spec::ASliceWithNoCrateKeepsItsDocumentAtTheWorkspaceRoot)]
+    fn a_slice_with_no_crate_keeps_its_document_at_the_workspace_root() {
+        let (root, project) = workspace("layout-workspace-root-document");
+        // No member holds `book`, in either layout, so its document is the
+        // workspace root's and not any crate's.
+        assert_eq!(lld_path(&project, "book"), Ok(root.join("docs/intent/book/lld.md")));
+    }
+
+    #[test]
+    #[validates(spec::ASlicesDocumentIsNeverUnderItsCompanion)]
+    fn a_slices_document_is_never_under_its_companion() {
+        let (root, project) = workspace("layout-document-not-under-companion");
+        let companion_dir = root.join("app/src/two_phase");
+        // The companion directory is built as the rule has it: a `spec.rs`, a
+        // `mod.rs`, and no `lld.md`. That absence is why the claim holds — the
+        // directory is never enumerated as a slice — so a fixture without the
+        // directory would hold it for the wrong reason.
+        assert_eq!(
+            (
+                companion_dir.join("spec.rs").is_file(),
+                companion_dir.join("mod.rs").is_file(),
+                companion_dir.join("lld.md").exists()
+            ),
+            (true, true, false),
+            "the companion directory carries claims and a module and no document"
+        );
+        // `app` is searched before `mac`, and answers for neither slice.
+        assert_eq!(
+            (lld_path(&project, "two-phase"), lld_path(&project, "delta")),
+            (Ok(root.join("mac/docs/intent/two-phase/lld.md")), Ok(root.join("mac/src/delta/lld.md")))
+        );
+        // Read as a directory, a companion's is a shape with no document.
+        assert_eq!(Form::of_directory(&project, &companion_dir).own_document(), None);
+    }
+
+    #[test]
+    #[validates(spec::ACompanionDirectoryIsTheOneTheManifestNames)]
+    fn a_companion_directory_is_the_one_the_manifest_names() {
+        let (root, project) = workspace("layout-companion-named");
+        // `mac` is the proc-macro member whose manifest names `app`, and it
+        // holds both slices — in either layout.
+        let found = ["app/src/two_phase", "app/src/delta"].map(|dir| is_companion_dir(&project, &root.join(dir)));
+        assert_eq!(found, [true, true]);
+        // The shape carries the slice as the crate holding its document names
+        // it, hyphens and all: the route from a directory back to a slice is
+        // forward, and never an inversion of the module's name.
+        assert_eq!(
+            Form::of_directory(&project, &root.join("app/src/two_phase")),
+            Form::Companion {
+                crate_root: root.join("app"),
+                module: "two_phase".to_string(),
+                slice: "two-phase".to_string(),
+            }
+        );
+    }
+
+    #[test]
+    #[validates(spec::ACompanionIsNeverReadFromADirectorysShape)]
+    fn a_companion_is_never_read_from_a_directorys_shape() {
+        let (root, project) = workspace("layout-companion-not-a-shape");
+        // Both carry a companion's shape exactly — a `spec.rs` and a `mod.rs`
+        // and no `lld.md` — and neither is one: `mac` holds no slice
+        // `skipped`, and no manifest names `tool` as a companion.
+        assert_eq!(
+            (root.join("app/src/skipped/spec.rs").is_file(), root.join("app/src/skipped/lld.md").exists()),
+            (true, false),
+            "the shaped directories carry claims and no document"
+        );
+        let shaped = ["app/src/skipped", "tool/src/two_phase"].map(|dir| is_companion_dir(&project, &root.join(dir)));
+        // A slice's own module directory, the same module in the proc-macro
+        // crate that owns the slice, and a directory under no member at all.
+        let others =
+            ["app/src/alpha", "mac/src/two_phase", "docs"].map(|dir| is_companion_dir(&project, &root.join(dir)));
+        assert_eq!((shaped, others), ([false, false], [false, false, false]));
+    }
+}
