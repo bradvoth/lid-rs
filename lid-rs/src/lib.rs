@@ -13,7 +13,7 @@ pub mod registry;
 // is public API: `$crate::canary` is what `intent_graph!` expands to in every
 // downstream crate. The re-export keeps that path while the file colocates.
 pub use registry::canary;
-pub mod spec;
+pub mod lid_rs_macros;
 
 #[cfg(test)]
 mod intent_graph {
@@ -23,19 +23,19 @@ mod intent_graph {
 
 pub use registry::{Edge, IMPLEMENTATIONS, SPECS, SpecMeta, VALIDATIONS};
 
-pub use lid_rs_macros::{Spec, implements, implements_module, spec, validates};
+pub use ::lid_rs_macros::{Spec, implements, implements_module, spec, validates};
 
 // Hand-authored implementation edges for the citation claims: lid-rs-macros is a
 // proc-macro crate, which links into no target binary and so can neither
 // carry citations nor register anything — its edges live here, at the
 // re-export boundary that is its public surface. This is the standing
 // exception for proc-macro crates, not bootstrap residue.
-#[doc = "Implements [`crate::spec::DerivedSpecsCarryTheirDefinitionPath`], \
-[`crate::spec::DerivedSpecsRegisterIntoSpecs`], \
-[`crate::spec::ImplementsCitationsRegisterEdges`], \
-[`crate::spec::ValidatesCitationsRegisterEdges`], \
-[`crate::spec::ModuleCitationsTraceByContainment`], \
-[`crate::spec::MalformedCitationsFailToCompile`]."]
+#[doc = "Implements [`crate::lid_rs_macros::spec::DerivedSpecsCarryTheirDefinitionPath`], \
+[`crate::lid_rs_macros::spec::DerivedSpecsRegisterIntoSpecs`], \
+[`crate::lid_rs_macros::spec::ImplementsCitationsRegisterEdges`], \
+[`crate::lid_rs_macros::spec::ValidatesCitationsRegisterEdges`], \
+[`crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment`], \
+[`crate::lid_rs_macros::spec::MalformedCitationsFailToCompile`]."]
 const _: () = {
     /// One hand edge per (claim, macro item) pair.
     macro_rules! macro_edge {
@@ -53,12 +53,12 @@ const _: () = {
             };
         };
     }
-    macro_edge!(crate::spec::DerivedSpecsCarryTheirDefinitionPath, "lid_rs_macros::Spec");
-    macro_edge!(crate::spec::DerivedSpecsRegisterIntoSpecs, "lid_rs_macros::Spec");
-    macro_edge!(crate::spec::ImplementsCitationsRegisterEdges, "lid_rs_macros::implements");
-    macro_edge!(crate::spec::ValidatesCitationsRegisterEdges, "lid_rs_macros::validates");
-    macro_edge!(crate::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
-    macro_edge!(crate::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
+    macro_edge!(crate::lid_rs_macros::spec::DerivedSpecsCarryTheirDefinitionPath, "lid_rs_macros::Spec");
+    macro_edge!(crate::lid_rs_macros::spec::DerivedSpecsRegisterIntoSpecs, "lid_rs_macros::Spec");
+    macro_edge!(crate::lid_rs_macros::spec::ImplementsCitationsRegisterEdges, "lid_rs_macros::implements");
+    macro_edge!(crate::lid_rs_macros::spec::ValidatesCitationsRegisterEdges, "lid_rs_macros::validates");
+    macro_edge!(crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
+    macro_edge!(crate::lid_rs_macros::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
 };
 
 // The same exception, for the controlled-language slice: the language is

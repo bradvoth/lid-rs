@@ -1846,16 +1846,16 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     #[test]
     #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
     fn a_compile_time_slice_needs_the_humans_acceptance() {
-        // The workspace's own macros slice lives in a proc-macro crate and
-        // carries no acceptance file. Its document has not migrated, so the
-        // file the refusal asks the human for is the one under `docs/intent`
-        // in that crate — named whole, so the human is asked for a path and
+        // The workspace's own `lid-rs-macros` slice lives in a proc-macro
+        // crate and carries no acceptance file. Its document is colocated at
+        // the crate root, so the file the refusal asks the human for is the
+        // one beside it — named whole, so the human is asked for a path and
         // not for a convention.
         let workspace = fixture::workspace();
-        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/macros.rs");
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/expand.rs");
         let input = fixture::tool_input("m", "Edit", &target);
-        let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
-        assert!(refuses(&verdict, "lid-rs-macros/docs/intent/macros/compile-time-accepted"), "{verdict:?}");
+        let verdict = edit_verdict_for(&workspace, Phase::Seven, "lid-rs-macros", &input).expect("hook");
+        assert!(refuses(&verdict, "lid-rs-macros/src/compile-time-accepted"), "{verdict:?}");
     }
 
     #[test]

@@ -1,4 +1,4 @@
-#![doc = include_str!("../docs/intent/macros/lld.md")]
+#![doc = include_str!("lld.md")]
 
 use proc_macro::TokenStream;
 

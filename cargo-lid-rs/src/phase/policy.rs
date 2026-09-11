@@ -626,7 +626,7 @@ mod tests {
         let workspace = fixture::workspace();
         let expected = Path::new(env!("CARGO_MANIFEST_DIR")).canonicalize().expect("dir");
         assert_eq!(slice_crate(&workspace, "phase").expect("found").canonicalize().expect("dir"), expected);
-        let macros = slice_crate(&workspace, "macros").expect("found");
+        let macros = slice_crate(&workspace, "lid-rs-macros").expect("found");
         assert!(macros.ends_with("lid-rs-macros"), "{}", macros.display());
         let err = slice_crate(&workspace, "skill").expect_err("a workspace-only slice has no crate");
         assert!(err.contains("skill"), "{err}");

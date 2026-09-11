@@ -1,25 +1,20 @@
-//! Atomic claims for `lid-rs` itself. Derived from the LLDs under this crate's `docs/intent/`.
+//! Atomic claims for `lid-rs` itself. The `lid-rs-macros` slice's claims, held in its companion.
 //!
 //! Each item is one EARS claim. Nothing here has runtime behaviour; these
 //! types exist so that citations are resolved by the compiler rather than by
 //! grep.
 
-mod citation;
+pub mod spec;
 
 
 
-pub use citation::{
-    DerivedSpecsCarryTheirDefinitionPath, DerivedSpecsRegisterIntoSpecs,
-    ImplementsCitationsRegisterEdges, MalformedCitationsFailToCompile,
-    ModuleCitationsTraceByContainment, ValidatesCitationsRegisterEdges,
-};
 
 #[cfg(test)]
 mod tests {
     //! Pin tests: assert the exact observable registry state the citation
     //! macros must produce, established against the hand expansions and kept
     //! green across the swap to macro forms
-    //! (`lid-rs-macros/docs/intent/macros/lld.md § Equivalence`).
+    //! (`lid-rs-macros/src/lld.md § Equivalence`).
 
     use crate::{Edge, IMPLEMENTATIONS, SPECS, Spec, VALIDATIONS, validates};
 
@@ -29,31 +24,31 @@ mod tests {
     }
 
     #[test]
-    #[validates(crate::spec::DerivedSpecsCarryTheirDefinitionPath)]
+    #[validates(crate::lid_rs_macros::spec::DerivedSpecsCarryTheirDefinitionPath)]
     fn derived_specs_carry_their_definition_path() {
         assert_eq!(
             <crate::registry::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
             "lid_rs::registry::spec::CanaryConfirmsRegistryPresence"
         );
         assert_eq!(
-            <crate::spec::MalformedCitationsFailToCompile as Spec>::NAME,
-            "lid_rs::spec::citation::MalformedCitationsFailToCompile"
+            <crate::lid_rs_macros::spec::MalformedCitationsFailToCompile as Spec>::NAME,
+            "lid_rs::lid_rs_macros::spec::MalformedCitationsFailToCompile"
         );
     }
 
     #[test]
-    #[validates(crate::spec::DerivedSpecsRegisterIntoSpecs)]
+    #[validates(crate::lid_rs_macros::spec::DerivedSpecsRegisterIntoSpecs)]
     fn derived_specs_register_into_specs() {
         let expected = [
             "lid_rs::registry::spec::LinkedRegistrationsAreEnumerable",
             "lid_rs::registry::spec::CanaryConfirmsRegistryPresence",
             "lid_rs::registry::spec::CanaryDetectsAStrippedRegistry",
-            "lid_rs::spec::citation::DerivedSpecsCarryTheirDefinitionPath",
-            "lid_rs::spec::citation::DerivedSpecsRegisterIntoSpecs",
-            "lid_rs::spec::citation::ImplementsCitationsRegisterEdges",
-            "lid_rs::spec::citation::ValidatesCitationsRegisterEdges",
-            "lid_rs::spec::citation::ModuleCitationsTraceByContainment",
-            "lid_rs::spec::citation::MalformedCitationsFailToCompile",
+            "lid_rs::lid_rs_macros::spec::DerivedSpecsCarryTheirDefinitionPath",
+            "lid_rs::lid_rs_macros::spec::DerivedSpecsRegisterIntoSpecs",
+            "lid_rs::lid_rs_macros::spec::ImplementsCitationsRegisterEdges",
+            "lid_rs::lid_rs_macros::spec::ValidatesCitationsRegisterEdges",
+            "lid_rs::lid_rs_macros::spec::ModuleCitationsTraceByContainment",
+            "lid_rs::lid_rs_macros::spec::MalformedCitationsFailToCompile",
         ];
         for name in expected {
             assert!(
@@ -64,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(crate::spec::ImplementsCitationsRegisterEdges)]
+    #[validates(crate::lid_rs_macros::spec::ImplementsCitationsRegisterEdges)]
     fn implements_citations_register_edges() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
@@ -79,7 +74,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(crate::spec::ValidatesCitationsRegisterEdges)]
+    #[validates(crate::lid_rs_macros::spec::ValidatesCitationsRegisterEdges)]
     fn validates_citations_register_edges() {
         assert!(has_edge(
             &VALIDATIONS,
@@ -99,7 +94,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(crate::spec::ModuleCitationsTraceByContainment)]
+    #[validates(crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment)]
     fn module_citations_trace_by_containment() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
@@ -109,7 +104,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(crate::spec::MalformedCitationsFailToCompile)]
+    #[validates(crate::lid_rs_macros::spec::MalformedCitationsFailToCompile)]
     fn malformed_citations_fail_to_compile() {
         let t = trybuild::TestCases::new();
         t.compile_fail("tests/ui/fail/*.rs");

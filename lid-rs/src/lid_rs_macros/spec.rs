@@ -1,5 +1,5 @@
-//! Claims for the citation-macro slice. Derived from
-//! `docs/intent/macros/lld.md`.
+//! Claims for the `lid-rs-macros` slice. Derived from
+//! `lid-rs-macros/src/lld.md`.
 //!
 //! The implementing code lives in `lid-rs-macros`, a proc-macro crate that links
 //! into no target binary and therefore cannot carry citations itself; its
