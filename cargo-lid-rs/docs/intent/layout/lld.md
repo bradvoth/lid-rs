@@ -27,7 +27,72 @@ So the order is: the resolvers land **accepting both layouts**, then the
 migration moves slices one commit at a time under a tooling that tolerates a
 mixed tree, then a final commit drops the old form.
 
-**The companion key moves to `layout` in the same Phase 8.** `layout` reads
+**The delegation is four commits, not one, and the companion key is not in
+them.** A `phase` Phase 7 agent may write `src/phase.rs` and `src/phase/**`
+only, so it can neither expose anything from `layout` nor move a reader into
+it. The order that works:
+
+1. **A Phase 2 on `layout`**, because the door needs a claim before it can be
+   written. Every existing claim names `slice_dir`, `lld_path`,
+   `is_companion_dir` or `Form::of_slice` in its *when*, and a wrong answer
+   from a free `own_crate` falsifies none of them — it sits **above** them in
+   the call graph, not inside one. Mutate it to `Ok(PathBuf::new())` and every
+   validator still passes. By README §4.3 the honest citation set is empty, and
+   an uncited fn gets check 12's module fallback: the ten validators in
+   `layout.rs`, none of which calls it, so both of its body mutants survive.
+   §4.3's own reading applies — an uncontradictable citation with a mutant that
+   exists to prove it means **a claim is missing from the design**.
+
+   Two claims cover it: one for what the door answers, and a **reword** of
+   `ASliceNoMemberHoldsIsRefusedByName` from *when `slice_dir` is asked* to
+   *when a resolver in `layout` is asked*, which keeps one *when*, keeps the
+   struct's name true, and so needs no rename across its eight citation sites.
+
+   Rejected: citing a claim by association; borrowing `phase`'s
+   `TheSlicesCrateIsTheOneHoldingItsLld` (a slice cites its own claims, and at
+   this step `slice_crate` does not yet delegate, so that validator never
+   reaches the door); adding an assertion about `own_crate` to an existing
+   validator, which asserts what that validator's claim does not state —
+   README §4.4's uncaught fault, deliberately committed; and an `exclude_re`
+   exempting the door from check 12, which is measurement waived on a live
+   public function with two observable answers, not the I/O sequencing the
+   three existing entries stand on.
+
+2. **A Phase 8 on `layout`** exposing `own_crate(project, slice) ->
+   Result<PathBuf, String>`, wrapping the private `Form::own_crate` and
+   `no_crate_refusal`. Without it, `policy` would have to match `Form`'s
+   variants itself and rebuild the refusal sentence that
+   `ASliceNoMemberHoldsIsRefusedByName` owns — one decision duplicated across
+   two slices, which is what this slice exists to stop.
+3. **A Phase 2 on `phase`** rewording `TheSlicesCrateIsTheOneHoldingItsLld`,
+   which the delegation contradicts: it pins `docs/intent/<slice>/lld.md`, and
+   a migrated slice's crate holds no such file. The struct's **name stays
+   true** — the slice's crate *is* the one holding its LLD — so this is a
+   reword, not a rename, and the `#[implements]` on
+   `Project::member_manifest_dirs` needs no cascade.
+4. **The Phase 8 on `phase`** delegating `slice_crate` to `layout::own_crate`.
+
+**The companion key stays where it is, for now.** Moving its reading into
+`layout` would carry the only implementers of five `phase` claims —
+`AnOrdinaryCrateHasNoCompanion` and the four refusal claims — into another
+slice's module, against the rule that a slice cites its own claims, and needs
+two more Phase 2s. What it buys is direction: `layout::companion_owner` calls
+`policy::companion` while `policy::slice_crate` calls `layout`. That is a
+module-level cycle, not a recursive one — `Form::of_slice` never reaches
+`companion_owner` — so it compiles and is correct, and the objection to it is
+architectural rather than a fault. Deferred 6.
+
+**A third site breaks when `claim` moves, and it is not `slice_crate`.**
+`policy::compile_time_accepted` hard-codes
+`docs/intent/<slice>/compile-time-accepted`, and
+`ACompileTimeSliceNeedsTheHumansAcceptance` pins that path. The `claim` slice's
+acceptance file moves with its document, so an unrewired policy refuses **every
+edit to that slice** the moment it does. It must be rewired before `claim` is
+migrated, which is a constraint on the migration order and not only a task:
+`claim` moves last, or this is fixed first.
+
+**Superseded by the three-commit plan above; kept for the argument it makes.**
+`layout` reads
 `[package.metadata.lid_rs] companion` through `phase::policy::companion` today,
 so `layout` depends on `phase` — and the Phase 8 below makes `phase` depend on
 `layout`. Two modules of one crate may depend on each other, but the direction
@@ -392,6 +457,12 @@ worth, and which this document records so they are not rediscovered:
    Deferred 5a). Under colocation a slice's edges and its code share a
    directory, so the mapping that matches an edge by `file!()` may become
    correct for free — measure it here rather than assuming it.
+
+6. The companion key's reading moving into `layout`, with `policy::companion`
+   calling it — deferred above, because it carries five `phase` claims'
+   implementers into another slice's module for an architectural gain rather
+   than a correctness one. The module-level cycle it would remove compiles and
+   is not recursive.
 
 ## Shape
 
