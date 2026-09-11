@@ -69,7 +69,10 @@ impl TryFrom<u8> for Phase {
 /// One step of a phase's check — the closed set of things a check runs,
 /// which is README §4.5's list and the red run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::PhaseTwoChecksTheClaimsBuild)]
+#[implements(
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::PhaseTwoChecksTheClaimsBuild,
+)]
 pub enum Step {
     /// `cargo check --all-targets`.
     Check,
@@ -561,7 +564,7 @@ pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(),
     spec::PhaseTwoChecksTheClaimsBuild,
     spec::WarningsDoNotFailPhaseTwosCheck,
     spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks,
-    spec::PhaseSevenRunsTheGateInOrder,
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
 )]
 pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     match phase {
@@ -575,7 +578,7 @@ pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
 
 /// README §4.5 in order: the five cargo steps, one `cargo package` naming
 /// every publishing member, then the two library steps.
-#[implements(spec::PhaseSevenRunsTheGateInOrder)]
+#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
 fn gate(publishing: &[String]) -> Vec<Step> {
     vec![
         Step::Check,
@@ -605,7 +608,11 @@ fn execute_with(steps: &[Step], mut run: impl FnMut(&Step) -> Result<(), String>
 /// Runs one step: one dispatch over the closed set. The red run needs a
 /// slice; without one it fails naming the branch convention. `Check` denies
 /// no lint, so a workspace that builds with warnings passes it.
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::WarningsDoNotFailPhaseTwosCheck, spec::TheSliceComesFromTheBranchName)]
+#[implements(
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::WarningsDoNotFailPhaseTwosCheck,
+    spec::TheSliceComesFromTheBranchName,
+)]
 fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), String> {
     match step {
         Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
@@ -1158,7 +1165,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhaseSevenRunsTheGateInOrder)]
+    #[validates(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
     fn phase_seven_runs_the_gate_in_order() {
         let expected = [
             Step::Check,
@@ -1175,7 +1182,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhaseSevenRunsTheGateInOrder)]
+    #[validates(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
     fn the_gate_packages_the_workspace_members_that_publish() {
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
         let mut members = Project::load_at(&workspace).expect("cargo metadata").publishing_members();
