@@ -10,9 +10,10 @@ pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
 use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
-use policy::{ExecutionClass, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
+use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
 use tally::Event;
 
+use crate::layout;
 use crate::mapping::EdgeRecord;
 use crate::mutants::{self, Registry, SpecRecord, dump_registry};
 use crate::project::Project;
@@ -324,24 +325,64 @@ fn crate_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: 
 }
 
 /// The reason a compile-time slice's edits are refused until the human
-/// accepts it, or none.
+/// accepts it, or none: one decision over the slice's execution class, which
+/// is a fact about the crate whose target kinds are read, and so the one
+/// thing here a crate is needed for.
 #[implements(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
 fn acceptance_gate(project: &Project, crate_root: &Path, slice: &str) -> Result<Option<String>, String> {
-    Ok(match execution_class(project, crate_root)? {
-        ExecutionClass::Ordinary => None,
-        ExecutionClass::CompileTime(what) => (!compile_time_accepted(crate_root, slice)).then(|| {
-            format!(
-                "`{slice}` is a compile-time slice (its crate has a {what} target): editing it executes your code after \
-                 every edit. Edits are refused until the human accepts that by committing \
-                 docs/intent/{slice}/compile-time-accepted with the LLD. End with a ```stop block naming this."
-            )
-        }),
-    })
+    match execution_class(project, crate_root)? {
+        ExecutionClass::Ordinary => Ok(None),
+        ExecutionClass::CompileTime(what) => acceptance_reason(project, slice, &what),
+    }
+}
+
+/// The reason a compile-time slice's edits are refused, or none once the
+/// human's acceptance is where the layout puts it
+/// ([`policy::compile_time_accepted`]) — so a slice whose document has moved
+/// beside its code is accepted by the file beside it, and the refusal that
+/// names no file at all is the layout's, carried out of here by `?`.
+///
+/// The path is asked for again to name it, rather than carried out of the
+/// decision above: what that door answers the policy is whether the file is
+/// there, and where it belongs is a resolution over the project and the slice
+/// alone — the same question, asked where the sentence is written.
+#[implements(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+fn acceptance_reason(project: &Project, slice: &str, what: &str) -> Result<Option<String>, String> {
+    if compile_time_accepted(project, slice)? {
+        Ok(None)
+    } else {
+        Ok(Some(unaccepted(slice, what, &layout::intent_file(project, slice, ACCEPTANCE_FILE)?)))
+    }
+}
+
+/// What an unaccepted compile-time slice's agent is refused with: what
+/// editing the slice costs, the file the human commits to accept it, and the
+/// ending to make instead.
+///
+/// The file is named at the path this tree holds it at, which is the layout's
+/// answer and never one of the two forms spelled out here, so that the file
+/// the human is asked for is the file the gate then reads.
+#[implements(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+fn unaccepted(slice: &str, what: &str, acceptance: &Path) -> String {
+    format!(
+        "`{slice}` is a compile-time slice (its crate has a {what} target): editing it executes your code after \
+         every edit. Edits are refused until the human accepts that by committing {} with the LLD. \
+         End with a ```stop block naming this.",
+        acceptance.display()
+    )
 }
 
 /// The path policy's verdict for one edit, refusals tallied.
+///
+/// The slice's claims file is Phase 2's artifact and no later phase's, and
+/// under the colocated layout it is Rust source in the same directory as the
+/// slice's code — so the policy has to be told which file it is. Which file
+/// that is is a layout fact: it is asked of `layout::spec_file` here, where
+/// the project is, and answered relative to no crate, so that the one answer
+/// judges the slice's own crate and its companion alike.
 fn path_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: &Path, agent: &str) -> Result<HookVerdict, String> {
-    match allowed(phase, crates, target) {
+    let claims = layout::spec_file(project, &crates.slice)?;
+    match allowed(phase, crates, &claims, target) {
         Verdict::Allowed => Ok(HookVerdict::Allow),
         Verdict::Refused(why) => refuse_edit(project, phase, &workspace_paths(project, phase, crates)?, target, &why, agent),
     }
@@ -1731,12 +1772,35 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
     fn a_compile_time_slice_needs_the_humans_acceptance() {
         // The workspace's own macros slice lives in a proc-macro crate and
-        // carries no acceptance file.
+        // carries no acceptance file. Its document has not migrated, so the
+        // file the refusal asks the human for is the one under `docs/intent`
+        // in that crate — named whole, so the human is asked for a path and
+        // not for a convention.
         let workspace = fixture::workspace();
         let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/macros.rs");
         let input = fixture::tool_input("m", "Edit", &target);
         let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
-        assert!(refuses(&verdict, "compile-time-accepted"), "{verdict:?}");
+        assert!(refuses(&verdict, "lid-rs-macros/docs/intent/macros/compile-time-accepted"), "{verdict:?}");
+    }
+
+    #[test]
+    #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
+    fn the_refusal_names_the_acceptance_where_the_layout_puts_it() {
+        // A compile-time slice whose document has moved beside its code: the
+        // acceptance moved with it, so the refusal asks the human for the
+        // file the gate will then read. Naming the abandoned form would ask
+        // for a file whose presence accepts nothing, and every edit to the
+        // slice would stay refused after the human had committed it.
+        let (dir, _) = fixture::copy("acceptance-refusal");
+        std::fs::write(dir.join("build.rs"), "fn main() {}\n").expect("build.rs");
+        std::fs::create_dir_all(dir.join("src/hello")).expect("the slice's directory");
+        std::fs::write(dir.join("src/hello/lld.md"), "# hello\n\nThe hello slice.\n").expect("the document, beside the code");
+        let project = Project::load_graph_at(&dir.join("Cargo.toml")).expect("metadata");
+        let reason = acceptance_gate(&project, &dir, "hello").expect("the gate").expect("a compile-time slice with no acceptance");
+        assert!(reason.contains("src/hello/compile-time-accepted"), "{reason}");
+        assert!(!reason.contains("docs/intent"), "the path named is the one this tree holds, not the form the migration left: {reason}");
+        std::fs::write(dir.join("src/hello/compile-time-accepted"), "").expect("accept, beside the code");
+        assert_eq!(acceptance_gate(&project, &dir, "hello").expect("the gate"), None, "an accepted slice's edits are the path policy's to judge");
     }
 
     /// The key a proc-macro crate names its companion under, as a refusal
