@@ -1164,10 +1164,49 @@ mod tests {
         assert_eq!(plan(Phase::Four, &[]), [Step::Check]);
     }
 
+    /// The scratch workspace the packaging step is observed against: three
+    /// members, named so that no registry answers for them.
+    const PACKAGE_WORKSPACE: &str = "[workspace]\nresolver = \"2\"\nmembers = [\"lid-rs-red-sibling\", \"lid-rs-red-dependent\", \"lid-rs-red-solo\"]\n";
+
+    /// What makes two of those members need each other: a path dependency
+    /// carrying a version. Packaging strips the path and keeps the version, so
+    /// the tarball's dependency is one only a registry — or a sibling packaged
+    /// in the same invocation — can answer.
+    const SIBLING_DEPENDENCY: &str = "[dependencies]\nlid-rs-red-sibling = { path = \"../lid-rs-red-sibling\", version = \"0.1.0\" }\n";
+
+    /// A packageable member: an empty library whose manifest carries what
+    /// `cargo package` asks of a publishable crate, plus `extra`.
+    fn package_member(root: &Path, name: &str, extra: &str) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(dir.join("src")).expect("member dir");
+        let head = format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\ndescription = \"a scratch member\"\nlicense = \"MIT\"\n\n");
+        std::fs::write(dir.join("Cargo.toml"), head + extra).expect("manifest");
+        std::fs::write(dir.join("src/lib.rs"), "").expect("lib");
+    }
+
+    /// A scratch workspace whose members depend on each other at a version no
+    /// registry holds — the shape every workspace has between releases, this
+    /// one included — beside a member that depends on nothing.
+    fn package_workspace(name: &str) -> Project {
+        let dir = fixture::scratch(name);
+        std::fs::write(dir.join("Cargo.toml"), PACKAGE_WORKSPACE).expect("workspace manifest");
+        package_member(&dir, "lid-rs-red-sibling", "");
+        package_member(&dir, "lid-rs-red-dependent", SIBLING_DEPENDENCY);
+        package_member(&dir, "lid-rs-red-solo", "");
+        Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata")
+    }
+
+    /// A project's publishing members, sorted.
+    fn publishers(project: &Project) -> Vec<String> {
+        let mut members = project.publishing_members();
+        members.sort();
+        members
+    }
+
     #[test]
     #[validates(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
-    fn phase_seven_runs_the_gate_in_order() {
-        let expected = [
+    fn phase_seven_runs_the_gate_in_order_packaging_every_publisher_at_once() {
+        let gate = vec![
             Step::Check,
             Step::Clippy,
             Step::Doc,
@@ -1177,22 +1216,24 @@ mod tests {
             Step::SyncCheck,
             Step::Mutants,
         ];
-        assert_eq!(plan(Phase::Seven, &strings(&["a", "b"])), expected);
-        assert_eq!(plan(Phase::Five, &[]), [Step::Red]);
-    }
-
-    #[test]
-    #[validates(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
-    fn the_gate_packages_the_workspace_members_that_publish() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
-        let mut members = Project::load_at(&workspace).expect("cargo metadata").publishing_members();
-        members.sort();
-        // xtask is `publish = false`; the three published crates remain.
-        assert_eq!(members, strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros"]));
-        // Under full metadata, dependencies are listed too and are not members.
-        let mut with_deps = fixture::workspace().publishing_members();
-        with_deps.sort();
-        assert_eq!(with_deps, members);
+        assert_eq!([plan(Phase::Seven, &strings(&["a", "b"])), plan(Phase::Five, &[])], [gate, vec![Step::Red]]);
+        // Who every publisher is: xtask says `publish = false`, so the three
+        // published crates remain, and full metadata — which lists the
+        // dependencies too, and they are not members — names the same three.
+        let published = strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros"]);
+        let workspace = Project::load_at(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml")).expect("cargo metadata");
+        assert_eq!([publishers(&workspace), publishers(&fixture::workspace())], [published.clone(), published]);
+        // And at once: the two forms differ only against a real workspace, so
+        // the step is run against one. The control packages under either form,
+        // which is what makes the failure below the invocation's shape rather
+        // than a malformed fixture.
+        let project = package_workspace("package-every-publisher-at-once");
+        let alone = run_step(&project, None, &Step::Package(strings(&["lid-rs-red-solo"])));
+        // The dependent is named first, so the per-package form fails on the
+        // first invocation rather than after packaging its sibling.
+        let every = strings(&["lid-rs-red-dependent", "lid-rs-red-sibling", "lid-rs-red-solo"]);
+        let at_once = run_step(&project, None, &Step::Package(every));
+        assert_eq!((alone, at_once), (Ok(()), Ok(())), "the control packages under either form; every publisher packages only at once");
     }
 
     #[test]

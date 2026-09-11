@@ -124,8 +124,8 @@ impl Project {
 
     /// Names of the members that publish — those whose manifest does not
     /// say `publish = false` — which the gate runs `cargo package` for
-    /// (`docs/intent/phase/lld.md`).
-    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrder)]
+    /// (`cargo-lid-rs/src/phase/lld.md`).
+    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
     pub fn publishing_members(&self) -> Vec<String> {
         self.packages()
             .filter(|package| self.is_member(package))
@@ -193,7 +193,7 @@ impl Project {
     /// `packages` lists every dependency too, and `workspace_members` says
     /// which are the workspace's; a document without that list names only
     /// members.
-    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrder, crate::phase::spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce, crate::phase::spec::TheSlicesCrateIsTheOneHoldingItsLld)]
     fn is_member(&self, package: &serde_json::Value) -> bool {
         self.doc
             .pointer("/workspace_members")
