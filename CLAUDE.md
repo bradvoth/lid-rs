@@ -17,8 +17,8 @@ paths the `linked-intent-dev` skill defaults to:
 | Artifact | Location here | Not |
 |---|---|---|
 | HLD | `lid-rs/docs/intent/hld.md` (included via `#![doc = include_str!]` in `lid-rs/src/lib.rs`) | `docs/high-level-design.md` |
-| LLD, per slice | `<crate>/docs/intent/<slice>/lld.md` (included via `#[doc = include_str!]` on the module); workspace-only slices (book, skill, publish) at `docs/intent/<slice>/lld.md` | `docs/llds/` |
-| Atomic claims | `#[derive(Spec)]` unit structs in `src/spec/`, doc comment is the claim, **descriptive names not numbered IDs** | `docs/specs/` EARS files |
+| LLD, per slice | `<crate>/src/<slice>/lld.md`, beside the code (included via `#![doc = include_str!("lld.md")]` inside `mod.rs`); the crate's `src/lld.md` where the crate root is the slice; workspace-only slices (book, skill, publish) at `docs/intent/<slice>/lld.md` | `docs/llds/`, and the pre-colocation `<crate>/docs/intent/<slice>/` |
+| Atomic claims | `#[derive(Spec)]` unit structs in `<crate>/src/<slice>/spec.rs`, beside the slice's `lld.md`; doc comment is the claim, **descriptive names not numbered IDs** | `docs/specs/` EARS files, and the pre-colocation `src/spec/<slice>.rs` |
 | Code → claim link | `#[implements(spec::ClaimName)]` | `// @spec AUTH-001` comments |
 | Test → claim link | `#[validates(spec::ClaimName)]` on `#[cfg(test)]` unit tests in the lib (never under `tests/`) | `@spec` comments |
 
@@ -31,8 +31,8 @@ doc-commented unit structs and one hand-expanded spec/impl/validation triple
 ## The eight phases (README §8)
 
 0. Name the slice (a user-visible operation, not a component)
-1. Write the LLD (human-owned; agent drafts) — `<crate>/docs/intent/<slice>/lld.md`
-2. Derive claims (agent proposes, human approves) — `src/spec/`
+1. Write the LLD (human-owned; agent drafts) — `<crate>/src/<slice>/lld.md`
+2. Derive claims (agent proposes, human approves) — `<crate>/src/<slice>/spec.rs`
 3. Layer-0 skeleton: signatures + `#[implements]` + `todo!()`; `cargo check` passes
 4. Descend one layer, breadth-first; check and review at each layer
 5. Failing-first `#[validates]` tests — confirm red against `todo!()`
@@ -90,4 +90,9 @@ mdbook build book                    # the site is assembled by inclusion; break
   `#[allow]`s inside macro-generated registration statics, per README §5.1.)
 - Put `#[validates]` tests under `tests/` — separate binaries never link into
   the registry (README §5.2).
-- Parse Rust source to reconstruct the graph (README constraint 2).
+- Parse Rust source to **resolve a name** — the graph comes from the registry,
+  never from a second implementation of name resolution (README constraint 2).
+  The constraint's own carve-out permits syntactic passes over one item's
+  tokens, "classifying a body's shape, reading a signature's type tokens,
+  because they resolve nothing; the line is resolution, not parsing" — which is
+  what the shape pass (checks 15–18) is.
