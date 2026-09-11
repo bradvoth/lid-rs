@@ -35,7 +35,8 @@ they need three doors on `layout`. One exists:
 |---|---|---|---|
 | `own_crate` *(built)* | the member holding the slice's document | `docs/intent/<slice>/lld.md` | `policy::slice_crate` |
 | `spec_file` | the slice's claims file | `src/spec/<slice>.rs` | the red set's two claims, and Phase 2's two path claims |
-| `intent_file(name)` | a named file of the slice's intent directory | `docs/intent/<slice>/<name>` | `policy::compile_time_accepted`, and `lld-review`'s three |
+| `intent_file(name)` | a named file of the slice's intent directory | `docs/intent/<slice>/<name>` | `policy::compile_time_accepted` |
+| `lld_path` *(built)* | the slice's document, including the workspace-root answer for a slice with no crate | `docs/intent/<slice>/lld.md` | `lld-review`'s three |
 
 `spec_file` and `intent_file` are two doors and not one because their **old**
 forms differ in shape: a spec file embeds the slice's name in the filename
@@ -280,6 +281,38 @@ already carries its LLD as `lib.rs`'s inner doc, so it moves from
 shortens. No module is invented to hold a document, which is the thing the
 Decisions table refuses.
 
+**The package-name rule and the companion directory can both hold, and the
+reason they seemed not to was a misread error.** Renaming slice `macros` to its
+package name `lid-rs-macros` gives it the module name `lid_rs_macros`, and its
+claims live in the **companion** crate `lid-rs` — whose `lib.rs` does
+`pub use lid_rs_macros::{Spec, implements, …}`, importing from the *crate* of
+that name. Attempted at the migration and reverted, reported then as `E0255:
+the name is defined multiple times`.
+
+**Spiked against a minimal two-crate workspace on edition 2024, and that
+diagnosis is wrong on two counts.** The error is `E0432: unresolved import`,
+not `E0255`: a local `mod lid_rs_macros` *shadows* the extern-prelude entry
+rather than redefining it, which editions 2018 and later permit, and the
+import then resolves into the local module and finds nothing. Because it is
+shadowing, a leading `::` disambiguates — `pub use ::lid_rs_macros::{…}`
+compiles with the companion directory present. So the directory keeps the name
+`Form::of_directory` requires, and both rules hold.
+
+In this crate the blast radius is one line. `lid-rs/src/lib.rs:26` is the only
+compiler-resolved reference to the macro crate; every other `lid_rs_macros::…`
+in that file is a **string literal** handed to `macro_edge!`/`claim_edge!`
+(`$item:literal`), which resolves nothing, and there are no intra-doc links to
+`lid_rs_macros` anywhere under `lid-rs/src`, so check 2 is not exposed either.
+
+What the spike settles is the **mechanism**, not the migration. Performing it
+still means renaming the slice to `lid-rs-macros`, moving its document out of
+`docs/intent/macros/`, moving its claims off `lid-rs/src/spec/citation.rs`, and
+fixing `spec_file_of("macros")` computing a file no crate holds — the cascade
+any Phase 8 of this slice owes, and the reason Deferred 8 stays until it is
+performed. It is no longer blocked on a hole in the four-shape rule, because
+there is none: the rule holds, and what looked like a counter-example was a
+resolution error with a two-character remedy.
+
 **A crate-root slice's name is its package's name.** `<crate>/src/lld.md`
 records no slice name, so a search that accepts it as a candidate for a slice
 resolved *by name* accepts it for every member holding no module of that name —
@@ -511,6 +544,45 @@ worth, and which this document records so they are not rediscovered:
   altogether the file is not compiled and the registry never sees the claim
   either. The same private-vs-public mistake is available in the new `mod.rs`,
   so "a mistake nobody makes twice" is asserted rather than shown.
+
+## The migration, as performed
+
+Twelve slices moved, one per commit, each gated whole. Three never move: `book`,
+`publish` and `skill` are workspace-only, and their documents stay at
+`docs/intent/<slice>/lld.md` — the fourth shape, not an exception. One is
+blocked: `macros`, on the package-name collision above.
+
+**Ten classes of content edit, found by doing rather than by planning.** The
+document predicted three. Four of the ten are invisible to `cargo check`:
+
+| # | Class | Found by |
+|---|---|---|
+| 1 | `use crate::spec;` collides with the slice's own | `cargo check` |
+| 2 | a cross-slice citation, textually identical to a same-slice one | `cargo check` |
+| 3 | a relative `include_str!` deepens by one | `cargo check` |
+| 4 | a module reading its own source by a literal path | **`cargo test`** |
+| 5 | a `#[deprecated]` alias's target *and* its doc link | **`cargo doc`** |
+| 6 | a slice's submodules importing `crate::spec` | `cargo check` |
+| 7 | an earlier slice's `crate::spec::` qualification going stale when its owner moves | `cargo check` |
+| 8 | a test pinning a registry path as a string literal | **`cargo test`** |
+| 9 | a live doctest inside an LLD | **`cargo test --doc`** |
+| 10 | a compound `use crate::{…, spec, …}` | `cargo check` |
+
+Class 7 is the one that changes the plan's shape: the commits are **not**
+independent. A slice already moved holds `crate::spec::` citations of claims
+whose owners have not moved, and each goes stale the day its owner does. A
+topological order over the citation graph would avoid it, but cycles make that
+impossible in general, so each move repairs the ones it invalidates.
+
+**And a gate step that gates nothing.** `mdbook build` exits 0 with a missing
+`{{#include}}`, rendering the error into the page. Nine includes pointed at
+moved documents for nine commits and every one of those commits reported the
+step passing. Two LLDs (`claim`, `layout`) have no including page at all and
+nothing reports that either. This is the same shape as slice 15's lexicon
+harness and the three empty red sets: **a check that answers the same way
+whether or not it found anything.** The canary exists because slice 1
+anticipated exactly this for `SPECS`; nothing analogous guards the book, the red
+set, or a harness's report.
 
 ## Decisions & Alternatives
 

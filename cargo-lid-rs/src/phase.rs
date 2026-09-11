@@ -583,9 +583,10 @@ const NO_SLICE: &str = "phase 5 needs a slice: the branch is not `lld/<slice>`, 
 #[implements(spec::AGreenValidationFailsTheRedCheck)]
 pub fn check_red(project: &Project, slice: &str) -> Result<(), String> {
     let registries = package_registries(project)?;
-    let claims = require_claims(all_slice_claims(&registries, slice), slice)?;
+    let spec_file = layout::spec_file(project, slice)?;
+    let claims = require_claims(all_slice_claims(&registries, &spec_file), slice, &spec_file)?;
     let crates = SliceCrates::resolve(project, slice)?.map_err(|refusal| refusal.reason)?;
-    let red = red_set(project, crates.claims_crate(), slice, claims)?;
+    let red = red_set(project, crates.claims_crate(), &spec_file, claims)?;
     let outcomes = run_validations(project, &registries, &red)?;
     red_verdict(&unvalidated(&red, &outcomes), &outcomes)
 }
@@ -683,21 +684,21 @@ fn package_registries(project: &Project) -> Result<Vec<PackageRegistry>, String>
 }
 
 /// The slice's claims across every package.
-fn all_slice_claims(registries: &[PackageRegistry], slice: &str) -> Vec<String> {
-    registries.iter().flat_map(|r| slice_claims(&r.registry.specs, slice)).collect()
+fn all_slice_claims(registries: &[PackageRegistry], spec_file: &Path) -> Vec<String> {
+    registries.iter().flat_map(|r| slice_claims(&r.registry.specs, spec_file)).collect()
 }
 
-/// The file a slice's claims register from: `src/spec/<slice>.rs`, the
-/// slice name in snake_case.
+/// The names of the specs registered from the slice's claims file.
+///
+/// `spec_file` is crate-relative — `layout::spec_file`'s answer, asked by the
+/// caller that holds the project — because where a slice's claims live is a
+/// layout fact and not a spelling of its name. A registry record's file is
+/// workspace-relative, so the crate-relative answer matches it by suffix; the
+/// leading separator is what keeps `src/a/spec.rs` from matching a slice whose
+/// claims are `src/aa/spec.rs`.
 #[implements(spec::ASlicesClaimsAreTheSpecsInItsSpecFile)]
-pub fn spec_file_of(slice: &str) -> String {
-    format!("src/spec/{}.rs", slice.replace('-', "_"))
-}
-
-/// The names of the specs registered from the slice's spec file.
-#[implements(spec::ASlicesClaimsAreTheSpecsInItsSpecFile)]
-pub fn slice_claims(specs: &[SpecRecord], slice: &str) -> Vec<String> {
-    let file = spec_file_of(slice);
+pub fn slice_claims(specs: &[SpecRecord], spec_file: &Path) -> Vec<String> {
+    let file = spec_file.to_string_lossy().replace('\\', "/");
     let nested = format!("/{file}");
     specs
         .iter()
@@ -706,11 +707,12 @@ pub fn slice_claims(specs: &[SpecRecord], slice: &str) -> Vec<String> {
         .collect()
 }
 
-/// The claims, or the failure for a slice that registers none.
+/// The claims, or the failure for a slice that registers none, naming the
+/// file the layout says holds them.
 #[implements(spec::ASliceWithNoClaimsFailsTheRedCheck)]
-fn require_claims(claims: Vec<String>, slice: &str) -> Result<Vec<String>, String> {
+fn require_claims(claims: Vec<String>, slice: &str, spec_file: &Path) -> Result<Vec<String>, String> {
     if claims.is_empty() {
-        Err(format!("no claims for slice `{slice}`: nothing registers from {}", spec_file_of(slice)))
+        Err(format!("no claims for slice `{slice}`: nothing registers from {}", spec_file.display()))
     } else {
         Ok(claims)
     }
@@ -720,10 +722,10 @@ fn require_claims(claims: Vec<String>, slice: &str) -> Result<Vec<String>, Strin
 /// a fresh slice; after a gate, the claims the branch added since it, which
 /// must not be empty.
 #[implements(spec::AFreshSliceHasEveryClaimInTheRedSet, spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
-pub fn red_set(project: &Project, crate_root: &Path, slice: &str, claims: Vec<String>) -> Result<Vec<String>, String> {
+pub fn red_set(project: &Project, crate_root: &Path, spec_file: &Path, claims: Vec<String>) -> Result<Vec<String>, String> {
     match gate_base(project)? {
         None => Ok(claims),
-        Some(base) => require_red_set(&base, added_since(project, crate_root, slice, &base, &claims)?),
+        Some(base) => require_red_set(&base, added_since(project, crate_root, spec_file, &base, &claims)?),
     }
 }
 
@@ -742,19 +744,19 @@ pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
 }
 
 /// Those of the claims whose `struct <Name>` line is an added line of
-/// `git diff <base> -- src/spec/<slice>.rs` in the slice's crate: the diff,
-/// then the selection over it.
+/// `git diff <base>` over the slice's claims file in the slice's crate: the
+/// diff, then the selection over it.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
-fn added_since(project: &Project, crate_root: &Path, slice: &str, base: &str, claims: &[String]) -> Result<Vec<String>, String> {
-    Ok(added_structs(&spec_diff(project, crate_root, slice, base)?, claims))
+fn added_since(project: &Project, crate_root: &Path, spec_file: &Path, base: &str, claims: &[String]) -> Result<Vec<String>, String> {
+    Ok(added_structs(&spec_diff(project, crate_root, spec_file, base)?, claims))
 }
 
-/// `git diff <base> -- <crate_root>/src/spec/<slice>.rs`, whole: the path
-/// is the slice crate's spec file, which git takes absolute from the
-/// workspace root it runs at.
+/// `git diff <base> -- <crate_root>/<spec_file>`, whole: the path is the
+/// slice's claims file wherever the layout puts it, which git takes absolute
+/// from the workspace root it runs at.
 #[implements(spec::TheRedSetIsTheClaimsAddedSinceTheBase)]
-fn spec_diff(project: &Project, crate_root: &Path, slice: &str, base: &str) -> Result<String, String> {
-    crate::project::capture(project.git()?.args(["diff", base, "--"]).arg(crate_root.join(spec_file_of(slice))))
+fn spec_diff(project: &Project, crate_root: &Path, spec_file: &Path, base: &str) -> Result<String, String> {
+    crate::project::capture(project.git()?.args(["diff", base, "--"]).arg(crate_root.join(spec_file)))
 }
 
 /// Those of the claims that some added line of the diff — a `+` line, not
@@ -1164,14 +1166,33 @@ mod tests {
     #[test]
     #[validates(spec::ASlicesClaimsAreTheSpecsInItsSpecFile)]
     fn a_slices_claims_are_the_specs_in_its_spec_file() {
-        assert_eq!(spec_file_of("phase-gate"), "src/spec/phase_gate.rs");
+        // The claims are the specs registered from the file the layout names,
+        // in either layout. Nothing here spells a path from a slice's name:
+        // had this test done that, it would have agreed with an
+        // implementation that did the same, and neither would have found a
+        // slice's claims once the tree moved — which is what happened.
         let specs = [
             spec_record("A", "cargo-lid-rs/src/spec/phase_gate.rs"),
             spec_record("B", "cargo-lid-rs/src/spec/sync.rs"),
             spec_record("C", "cargo-lid-rs/src/spec/phase_gate.rs"),
+            spec_record("D", "cargo-lid-rs/src/phase_gate/spec.rs"),
+            spec_record("E", "cargo-lid-rs/src/aa/spec.rs"),
         ];
-        assert_eq!(slice_claims(&specs, "phase-gate"), strings(&["A", "C"]));
-        assert!(slice_claims(&specs, "init").is_empty());
+        let cases: [(&str, &[&str]); 5] = [
+            // The pre-migration layout: the crate's `src/spec/<module>.rs`.
+            ("src/spec/phase_gate.rs", &["A", "C"]),
+            ("src/spec/init.rs", &[]),
+            // Colocated: `src/<module>/spec.rs`, the same function asked a
+            // different answer.
+            ("src/phase_gate/spec.rs", &["D"]),
+            // The leading separator keeps a shorter path from matching a
+            // longer neighbour's suffix.
+            ("src/a/spec.rs", &[]),
+            ("src/aa/spec.rs", &["E"]),
+        ];
+        for (file, expected) in cases {
+            assert_eq!(slice_claims(&specs, Path::new(file)), strings(expected), "{file}");
+        }
     }
 
     #[test]
@@ -1276,9 +1297,12 @@ mod tests {
     #[test]
     #[validates(spec::ASliceWithNoClaimsFailsTheRedCheck)]
     fn a_slice_with_no_claims_fails_the_red_check() {
-        let err = require_claims(vec![], "login").expect_err("no claims is a failure");
+        let err = require_claims(vec![], "login", Path::new("src/login/spec.rs")).expect_err("no claims is a failure");
         assert!(err.contains("login") && err.contains("no claims"), "{err}");
-        assert_eq!(require_claims(strings(&["A"]), "login").expect("claims pass through"), strings(&["A"]));
+        assert_eq!(
+            require_claims(strings(&["A"]), "login", Path::new("src/login/spec.rs")).expect("claims pass through"),
+            strings(&["A"])
+        );
     }
 
     /// Stages everything and commits it under `subject`, as a phase's stop
@@ -1291,10 +1315,16 @@ mod tests {
 
     /// Writes a scratch crate's `src/spec/hello.rs`.
     fn write_hello_spec(root: &Path, content: &str) {
-        let spec = root.join("src/spec");
-        std::fs::create_dir_all(&spec).expect("spec dir");
-        std::fs::write(spec.join("hello.rs"), content).expect("spec file");
+        let spec = root.join(HELLO_SPEC);
+        std::fs::create_dir_all(spec.parent().expect("the claims file has a directory")).expect("spec dir");
+        std::fs::write(spec, content).expect("spec file");
     }
+
+    /// Where the fixture slice `hello` keeps its claims, crate-relative: the
+    /// colocated layout this workspace is in. The red-run tests take this
+    /// rather than spelling a path from the slice's name, which is the
+    /// mistake the implementation made.
+    const HELLO_SPEC: &str = "src/hello/spec.rs";
 
     #[test]
     #[validates(spec::TheBaseIsTheNewestGateCommitReachableFromHead)]
@@ -1385,9 +1415,9 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         let base = commit_all(&root, "phase 7: 0.1.0: hello gated");
         write_hello_spec(&root, "/// Says hello.\npub struct Greets;\n\n/// Warmly, unlike `Greets`.\npub struct GreetsWarmly;\n");
         commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
-        let diff = spec_diff(&project, &root, "hello", &base).expect("git diff");
+        let diff = spec_diff(&project, &root, Path::new(HELLO_SPEC), &base).expect("git diff");
         assert!(diff.contains("+pub struct GreetsWarmly;"), "{diff}");
-        let red = red_set(&project, &root, "hello", strings(&["Greets", "GreetsWarmly"])).expect("git");
+        let red = red_set(&project, &root, Path::new(HELLO_SPEC), strings(&["Greets", "GreetsWarmly"])).expect("git");
         assert_eq!(red, strings(&["GreetsWarmly"]));
     }
 
@@ -1406,8 +1436,8 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
         let claims = strings(&["Greets", "GreetsWarmly"]);
         assert_eq!(crates.claims_crate(), root.join("app"), "the companion holds the claims");
-        assert_eq!(red_set(&project, crates.claims_crate(), "hello", claims.clone()).expect("git"), strings(&["GreetsWarmly"]));
-        let err = red_set(&project, &crates.own, "hello", claims).expect_err("diffed in the macro crate, the edit added nothing");
+        assert_eq!(red_set(&project, crates.claims_crate(), Path::new(HELLO_SPEC), claims.clone()).expect("git"), strings(&["GreetsWarmly"]));
+        let err = red_set(&project, &crates.own, Path::new(HELLO_SPEC), claims).expect_err("diffed in the macro crate, the edit added nothing");
         assert!(err.contains(&base), "{err}");
     }
 
@@ -1420,7 +1450,7 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         commit_all(&root, "phase 1: LLD for hello");
         commit_all(&root, "phase 2: claims for hello");
         let claims = strings(&["Greets", "Waves"]);
-        let red = red_set(&project, &root, "hello", claims.clone()).expect("git");
+        let red = red_set(&project, &root, Path::new(HELLO_SPEC), claims.clone()).expect("git");
         assert_eq!(red, claims, "no gate commit: every claim, in the registry's order");
     }
 
@@ -1442,7 +1472,7 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         // A doc-comment edit that renames nothing adds no `struct` line.
         write_hello_spec(&root, "/// When greeted, it shall say hello.\npub struct Greets;\n");
         commit_all(&root, "phase 2: claims for hello (Phase 8 edit)");
-        let err = red_set(&project, &root, "hello", strings(&["Greets"])).expect_err("nothing added since the gate");
+        let err = red_set(&project, &root, Path::new(HELLO_SPEC), strings(&["Greets"])).expect_err("nothing added since the gate");
         assert!(err.contains(&base) && err.contains("no claim added since"), "{err}");
     }
 
