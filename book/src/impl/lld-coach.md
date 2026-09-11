@@ -1,1 +1,1 @@
-{{#include ../../../cargo-lid-rs/docs/intent/coach/lld.md}}
+{{#include ../../../cargo-lid-rs/src/coach/lld.md}}

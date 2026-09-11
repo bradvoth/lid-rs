@@ -1,8 +1,7 @@
-#![doc = include_str!("../docs/intent/cargo-lid-rs/lld.md")]
+#![doc = include_str!("lld.md")]
 
 pub mod coach;
 pub mod headless_canopy_agent;
-#[doc = include_str!("../docs/intent/layout/lld.md")]
 pub mod layout;
 pub mod lld_review;
 pub mod init;

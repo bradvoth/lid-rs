@@ -1,4 +1,4 @@
-#![doc = include_str!("../docs/intent/xtask/lld.md")]
+#![doc = include_str!("lld.md")]
 
 pub mod selftest;
 pub mod spec;

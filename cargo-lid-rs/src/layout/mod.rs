@@ -1,10 +1,10 @@
+#![doc = include_str!("lld.md")]
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
 use crate::phase::policy;
 use crate::project::Project;
-use crate::spec;
 
 /// The directory a slice's document sits under before the migration moves it
 /// beside the code — and for good, for a slice whose product is the workspace
@@ -1347,3 +1347,5 @@ mod tests {
         assert_eq!((shaped, others), ([false, false], [false, false, false]));
     }
 }
+
+pub mod spec;

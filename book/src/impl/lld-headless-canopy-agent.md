@@ -1,1 +1,1 @@
-{{#include ../../../cargo-lid-rs/docs/intent/headless-canopy-agent/lld.md}}
+{{#include ../../../cargo-lid-rs/src/headless_canopy_agent/lld.md}}

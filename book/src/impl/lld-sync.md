@@ -1,1 +1,1 @@
-{{#include ../../../cargo-lid-rs/docs/intent/sync/lld.md}}
+{{#include ../../../cargo-lid-rs/src/sync/lld.md}}

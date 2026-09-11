@@ -1,1 +1,1 @@
-{{#include ../../../cargo-lid-rs/docs/intent/lld-review/lld.md}}
+{{#include ../../../cargo-lid-rs/src/lld_review/lld.md}}

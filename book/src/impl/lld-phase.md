@@ -1,1 +1,1 @@
-{{#include ../../../cargo-lid-rs/docs/intent/phase/lld.md}}
+{{#include ../../../cargo-lid-rs/src/phase/lld.md}}
