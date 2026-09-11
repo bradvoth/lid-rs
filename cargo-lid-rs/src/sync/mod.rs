@@ -1,10 +1,13 @@
+#![doc = include_str!("lld.md")]
+
+pub mod spec;
+
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
 use crate::project::Project;
-use crate::spec;
 
 /// Where the skill lives inside the `lid-rs` package.
 const SKILL_IN_CRATE: &str = "skill";
@@ -43,7 +46,7 @@ fn mode_of(args: &[String]) -> Result<Mode, String> {
 
 /// Writes every file of every artifact the dependency ships to its place in
 /// the project, then registers the hooks; a second run changes nothing.
-#[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+#[implements(spec::TheSkillCopyLivesAtTheWorkspaceRoot, crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn write(project: &Project) -> Result<(), String> {
     artifacts().iter().try_for_each(|artifact| write_artifact(project, artifact))
 }
@@ -55,7 +58,7 @@ fn write_artifact(project: &Project, artifact: &Artifact) -> Result<(), String> 
 
 /// Fails naming every file the project's copies are missing, have extra, or
 /// differ in, against what the dependency ships; writes nothing.
-#[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing, spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+#[implements(spec::SyncCheckFailsOnAnyDifferenceAndWritesNothing, crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn check(project: &Project) -> Result<(), String> {
     let differences: Vec<String> = artifacts()
         .iter()
@@ -166,7 +169,7 @@ pub struct Artifact {
 
 /// Everything the resolved `lid-rs` ships for the project, in mirror order:
 /// the skill directory, the workflows, the phase agents.
-#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+#[implements(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 pub fn artifacts() -> [Artifact; 3] {
     [
         Artifact { in_crate: SKILL_IN_CRATE, in_project: SKILL_IN_PROJECT },
@@ -182,7 +185,7 @@ pub fn artifacts() -> [Artifact; 3] {
 #[implements(
     spec::TheSkillComesFromTheResolvedLidRsDependency,
     spec::AMissingSkillSourceFailsByName,
-    spec::SyncMirrorsEveryArtifactTheDependencyShips,
+    crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips,
 )]
 fn artifact_files(project: &Project, artifact: &Artifact) -> Result<BTreeMap<PathBuf, String>, String> {
     let dir = project
@@ -201,7 +204,7 @@ fn artifact_files(project: &Project, artifact: &Artifact) -> Result<BTreeMap<Pat
 }
 
 /// The project-side root of one artifact.
-#[implements(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+#[implements(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
 fn artifact_root(project: &Project, artifact: &Artifact) -> Result<PathBuf, String> {
     Ok(project.root()?.join(artifact.in_project))
 }
@@ -346,14 +349,14 @@ mod tests {
         );
     }
     #[test]
-    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    #[validates(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
     fn the_mirror_table_names_every_artifact() {
         let rows: Vec<(&str, &str)> = artifacts().iter().map(|a| (a.in_crate, a.in_project)).collect();
         assert_eq!(rows, [("skill", ".claude/skills/lid-rs"), ("workflow", ".claude/workflows"), ("agent", ".claude/agents")]);
     }
 
     #[test]
-    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    #[validates(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
     fn every_artifact_the_checkout_ships_has_files_and_a_project_root() {
         let root = scratch("artifacts");
         let project = project_at(&root);
@@ -365,7 +368,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    #[validates(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
     fn a_write_mirrors_the_workflow_and_the_agents() {
         let root = scratch("artifacts-write");
         let project = project_at(&root);
@@ -376,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::SyncMirrorsEveryArtifactTheDependencyShips)]
+    #[validates(crate::phase::spec::SyncMirrorsEveryArtifactTheDependencyShips)]
     fn an_extra_file_in_any_mirrored_directory_fails_the_check() {
         let root = scratch("artifacts-extra");
         let project = project_at(&root);

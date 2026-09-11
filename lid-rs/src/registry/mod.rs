@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 use linkme::distributed_slice;
 
 /// One registered claim.
@@ -49,4 +50,8 @@ pub static VALIDATIONS: [Edge];
 // The slice declarations above are what deliver the enumeration claim, and
 // statics cannot carry `#[implements]` — the whole module is traced by
 // containment instead.
-lid_rs::implements_module!(crate::spec::LinkedRegistrationsAreEnumerable);
+lid_rs::implements_module!(spec::LinkedRegistrationsAreEnumerable);
+
+pub mod spec;
+
+pub mod canary;

@@ -18,7 +18,7 @@ use super::tools::{REQUESTEE, ToolResult};
 use crate::phase::Phase;
 use crate::phase::tally::{self, Event};
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// How long a tail read is parked, in seconds: the door's ceiling.
 pub const TAIL_WAIT: u64 = 25;

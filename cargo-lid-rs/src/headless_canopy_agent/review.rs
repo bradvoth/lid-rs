@@ -12,7 +12,7 @@ use super::tools::{Tool, declarations};
 use super::turn::Session;
 use crate::phase::Phase;
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// The tools the reviewer's policy admits: the three observation tools.
 pub const REVIEW_TOOLS: [Tool; 3] = [Tool::Read, Tool::Grep, Tool::Glob];

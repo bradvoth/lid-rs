@@ -8,7 +8,7 @@ use lid_rs::implements;
 use super::Phase;
 use super::policy::{SliceCrates, workspace_paths};
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 use crate::sync;
 
 /// The synced artifacts match the dependency's, as a refusal reason.

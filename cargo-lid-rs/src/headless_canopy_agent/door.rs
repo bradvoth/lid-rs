@@ -11,7 +11,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::spec;
+use super::spec;
 
 /// The client over one door: its URL and the API key, which is presented on
 /// the dial and the refresh and nowhere else. Stateless: every method is one

@@ -8,7 +8,7 @@ use lid_rs::implements;
 use super::Phase;
 use super::policy::{SliceCrates, workspace_paths};
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// How the agent's final message ends the phase.
 #[derive(Debug, Clone, PartialEq, Eq)]

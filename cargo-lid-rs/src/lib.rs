@@ -1,22 +1,16 @@
 #![doc = include_str!("../docs/intent/cargo-lid-rs/lld.md")]
 
-#[doc = include_str!("../docs/intent/coach/lld.md")]
 pub mod coach;
-#[doc = include_str!("../docs/intent/headless-canopy-agent/lld.md")]
 pub mod headless_canopy_agent;
 #[doc = include_str!("../docs/intent/layout/lld.md")]
 pub mod layout;
-#[doc = include_str!("../docs/intent/lld-review/lld.md")]
 pub mod lld_review;
-#[doc = include_str!("../docs/intent/init/lld.md")]
 pub mod init;
 pub mod mapping;
 pub mod mutants;
-#[doc = include_str!("../docs/intent/phase/lld.md")]
 pub mod phase;
 pub mod project;
 pub mod spec;
-#[doc = include_str!("../docs/intent/sync/lld.md")]
 pub mod sync;
 
 use lid_rs::implements;

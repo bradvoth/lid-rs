@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 //! Check 13 and check 14: the controlled language, executed by the derive.
 //!
 //! A claim's text is read here — one sentence, one modal, a pattern from its

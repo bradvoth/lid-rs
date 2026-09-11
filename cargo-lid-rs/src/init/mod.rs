@@ -1,10 +1,13 @@
+#![doc = include_str!("lld.md")]
+
+pub mod spec;
+
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
 use crate::project::{Project, capture, cargo_command};
 use crate::sync;
-use crate::spec;
 
 /// Usage shown for `new` without a name.
 const NEW_USAGE: &str = "usage: cargo lid-rs new <name>";
@@ -192,14 +195,14 @@ fn plan(package: &Package, options: &Options) -> Result<Vec<Change>, String> {
     Ok(vec![
         Change::AddDependency { dir: package.dir.clone(), source: options.lid_rs.clone() },
         Change::AppendManifestTables { path: package.dir.join("Cargo.toml") },
-        file("clippy.toml", include_str!("../templates/clippy.toml"))?,
-        file("docs/intent/hld.md", include_str!("../templates/hld.md"))?,
-        file("src/spec/mod.rs", include_str!("../templates/spec_mod.rs"))?,
+        file("clippy.toml", include_str!("../../templates/clippy.toml"))?,
+        file("docs/intent/hld.md", include_str!("../../templates/hld.md"))?,
+        file("src/spec/mod.rs", include_str!("../../templates/spec_mod.rs"))?,
         Change::WireLibrary { path: package.dir.join("src/lib.rs") },
-        file(".github/workflows/gate.yml", include_str!("../templates/gate.yml"))?,
+        file(".github/workflows/gate.yml", include_str!("../../templates/gate.yml"))?,
         Change::EnsureLine { path: package.dir.join(".gitignore"), line: MUTANTS_IGNORE.to_string() },
-        file("AGENTS.md", include_str!("../templates/AGENTS.md"))?,
-        file("CLAUDE.md", include_str!("../templates/CLAUDE.md"))?,
+        file("AGENTS.md", include_str!("../../templates/AGENTS.md"))?,
+        file("CLAUDE.md", include_str!("../../templates/CLAUDE.md"))?,
         Change::SyncSkill {
             manifest: package.dir.join("Cargo.toml"),
             path: package.root.join(sync::SKILL_IN_PROJECT),
@@ -297,7 +300,7 @@ fn append_manifest_tables(path: &Path) -> Result<(), String> {
 /// unit-testable.
 #[implements(spec::InitAppendsTheManifestTables)]
 fn with_manifest_tables(manifest: &str) -> String {
-    format!("{}\n{}", manifest.trim_end_matches('\n'), include_str!("../templates/manifest_tables.toml"))
+    format!("{}\n{}", manifest.trim_end_matches('\n'), include_str!("../../templates/manifest_tables.toml"))
 }
 
 /// Wires `src/lib.rs` into the graph, creating it when the package has none.
@@ -317,8 +320,8 @@ fn wire_library(path: &Path) -> Result<(), String> {
 fn wired_library(existing: &str) -> String {
     format!(
         "{}{existing}{}",
-        include_str!("../templates/lib_header.rs"),
-        include_str!("../templates/lib_footer.rs")
+        include_str!("../../templates/lib_header.rs"),
+        include_str!("../../templates/lib_footer.rs")
     )
 }
 
@@ -611,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::TheSkillComesFromTheResolvedLidRsDependency)]
+    #[validates(crate::sync::spec::TheSkillComesFromTheResolvedLidRsDependency)]
     fn an_initialised_package_carries_its_dependencys_skill() {
         let dir = fresh_package("new-skill");
         let synced = sync::read_relative_files(&dir.join(sync::SKILL_IN_PROJECT)).expect("the skill was synced");

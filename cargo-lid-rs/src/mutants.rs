@@ -459,7 +459,7 @@ mod tests {
         let registry =
             collect_registries(&project).expect("collecting workspace registries must succeed");
         let lid_test_edge = registry.validations.iter().any(|e| {
-            e.item == "lid_rs::canary::tests::canary_confirms_registry_presence"
+            e.item == "lid_rs::registry::canary::tests::canary_confirms_registry_presence"
         });
         assert!(
             lid_test_edge,

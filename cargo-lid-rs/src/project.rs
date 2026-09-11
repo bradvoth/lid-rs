@@ -61,7 +61,7 @@ impl Project {
 
     /// The directory of the resolved `lid-rs` package, registry or path, if
     /// the metadata includes dependencies and the project has one.
-    #[implements(spec::TheSkillComesFromTheResolvedLidRsDependency)]
+    #[implements(crate::sync::spec::TheSkillComesFromTheResolvedLidRsDependency)]
     pub fn lid_rs_package_dir(&self) -> Option<PathBuf> {
         self.packages()
             .find(|package| package.pointer("/name").and_then(serde_json::Value::as_str) == Some("lid-rs"))
@@ -71,7 +71,7 @@ impl Project {
 
     /// The name of the package whose manifest is at `manifest`, if any
     /// (a virtual workspace root has none).
-    #[implements(spec::InitTargetsThePackageInTheCurrentDirectory)]
+    #[implements(crate::init::spec::InitTargetsThePackageInTheCurrentDirectory)]
     pub fn package_at(&self, manifest: &std::path::Path) -> Option<String> {
         self.package_with_manifest(manifest.to_str()?)?
             .pointer("/name")
@@ -125,7 +125,7 @@ impl Project {
     /// Names of the members that publish — those whose manifest does not
     /// say `publish = false` — which the gate runs `cargo package` for
     /// (`docs/intent/phase/lld.md`).
-    #[implements(spec::PhaseSevenRunsTheGateInOrder)]
+    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrder)]
     pub fn publishing_members(&self) -> Vec<String> {
         self.packages()
             .filter(|package| self.is_member(package))
@@ -137,7 +137,7 @@ impl Project {
 
     /// The manifest directories of the workspace members — where a slice's
     /// `docs/intent/<slice>/lld.md` is looked for.
-    #[implements(spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    #[implements(crate::phase::spec::TheSlicesCrateIsTheOneHoldingItsLld)]
     pub fn member_manifest_dirs(&self) -> Vec<PathBuf> {
         self.packages()
             .filter(|package| self.is_member(package))
@@ -148,7 +148,7 @@ impl Project {
 
     /// A `[package.metadata.lid_rs]` setting of the package whose manifest
     /// directory is `dir`, if the package declares it.
-    #[implements(spec::TheCompanionIsTheMemberTheProcMacroCratesMetadataNames)]
+    #[implements(crate::phase::spec::TheCompanionIsTheMemberTheProcMacroCratesMetadataNames)]
     pub fn package_setting_at(&self, dir: &Path, key: &str) -> Option<String> {
         self.packages()
             .find(|package| self.package_dir_is(package, dir))
@@ -157,7 +157,7 @@ impl Project {
 
     /// The manifest directory of the workspace member named `name`, if
     /// there is one.
-    #[implements(spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit)]
+    #[implements(crate::phase::spec::ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit)]
     pub fn member_dir_named(&self, name: &str) -> Option<PathBuf> {
         self.packages()
             .filter(|package| self.is_member(package))
@@ -168,7 +168,7 @@ impl Project {
 
     /// The target kinds (`lib`, `bin`, `proc-macro`, `custom-build`, …) of
     /// the package whose manifest directory is `dir`.
-    #[implements(spec::ACompileTimeSliceIsDisclosed)]
+    #[implements(crate::phase::spec::ACompileTimeSliceIsDisclosed)]
     pub fn target_kinds_at(&self, dir: &Path) -> Vec<String> {
         self.packages()
             .filter(|package| self.package_dir_is(package, dir))
@@ -179,7 +179,7 @@ impl Project {
     }
 
     /// Whether a package's manifest directory is `dir`, compared canonically.
-    #[implements(spec::ACompileTimeSliceIsDisclosed)]
+    #[implements(crate::phase::spec::ACompileTimeSliceIsDisclosed)]
     fn package_dir_is(&self, package: &serde_json::Value, dir: &Path) -> bool {
         let canonical = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
         package
@@ -193,7 +193,7 @@ impl Project {
     /// `packages` lists every dependency too, and `workspace_members` says
     /// which are the workspace's; a document without that list names only
     /// members.
-    #[implements(spec::PhaseSevenRunsTheGateInOrder, spec::TheSlicesCrateIsTheOneHoldingItsLld)]
+    #[implements(crate::phase::spec::PhaseSevenRunsTheGateInOrder, crate::phase::spec::TheSlicesCrateIsTheOneHoldingItsLld)]
     fn is_member(&self, package: &serde_json::Value) -> bool {
         self.doc
             .pointer("/workspace_members")
@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::InitTargetsThePackageInTheCurrentDirectory)]
+    #[validates(crate::init::spec::InitTargetsThePackageInTheCurrentDirectory)]
     fn the_package_at_a_manifest_is_found_by_exact_path() {
         let project = Project::from_json(&doc("null", "null", &[&["lib"], &["bin"]])).expect("parses");
         assert_eq!(

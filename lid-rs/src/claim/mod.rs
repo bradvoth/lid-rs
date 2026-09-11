@@ -13,7 +13,6 @@
 //! hand-authored at the re-export in this crate's root.
 
 use crate::registry::SpecMeta;
-use crate::spec;
 use lid_rs::implements;
 
 /// The five patterns a claim's opener names, as an enum a registration can
@@ -120,7 +119,8 @@ mod tests {
     //! before the derive enforces anything.
 
     use super::{Language, free};
-    use crate::{SPECS, Spec, spec, validates};
+    use super::spec;
+    use crate::{SPECS, Spec, validates};
     use std::path::{Path, PathBuf};
     use std::process::Command;
 
@@ -434,9 +434,11 @@ mod tests {
             "a claim written in the controlled language is not an exemption from it"
         );
         assert!(
-            marked.contains(&<spec::LinkedRegistrationsAreEnumerable as Spec>::NAME),
+            marked.contains(&<crate::registry::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME),
             "a claim marked `#[lid(free)]` is one: {} claims are still marked",
             marked.len()
         );
     }
 }
+
+pub mod spec;

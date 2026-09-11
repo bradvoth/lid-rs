@@ -2,7 +2,6 @@
 
 use proc_macro::TokenStream;
 
-#[doc = include_str!("../docs/intent/claim/lld.md")]
 mod claim;
 mod expand;
 

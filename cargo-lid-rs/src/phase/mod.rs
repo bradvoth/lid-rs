@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 
 use std::path::{Path, PathBuf};
 
@@ -17,7 +18,6 @@ use crate::layout;
 use crate::mapping::EdgeRecord;
 use crate::mutants::{self, Registry, SpecRecord, dump_registry};
 use crate::project::Project;
-use crate::spec;
 use crate::sync;
 
 /// The phases that have a check, as the messages name them.
@@ -1845,3 +1845,5 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         assert!(refuses(&edit_verdict_in(&dir, &project, Phase::Two, "owner/src/spec/m.rs"), COMPANION_KEY));
     }
 }
+
+pub mod spec;

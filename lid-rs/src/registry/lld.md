@@ -56,7 +56,7 @@ Registration statics are wrapped so they cannot collide with user names and
 cannot trip the documentation lints on code the user didn't write:
 
 ```rust
-# use lid_rs::spec::CanaryConfirmsRegistryPresence;
+# use lid_rs::registry::spec::CanaryConfirmsRegistryPresence;
 const _: () = {
     #[allow(missing_docs, clippy::missing_docs_in_private_items)]
     #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::SPECS)]

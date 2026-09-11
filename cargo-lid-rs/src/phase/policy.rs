@@ -9,7 +9,7 @@ use lid_rs::implements;
 use super::Phase;
 use crate::layout;
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// What a tool call does, for the policy and the tally.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 
 use std::collections::BTreeSet;
 use std::ops::Range;
@@ -8,7 +9,6 @@ use lid_rs::implements;
 use crate::layout;
 use crate::phase::resolve_slice;
 use crate::project::Project;
-use crate::spec;
 
 /// What `lld-check` prints beside a rejected argument.
 const LLD_CHECK_USAGE: &str = "usage: cargo lid-rs lld-check [--slice <name>]";
@@ -1291,3 +1291,5 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         );
     }
 }
+
+pub mod spec;

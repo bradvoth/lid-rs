@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 //! Coaching an LLD into existence (`docs/intent/coach/lld.md`): `cargo lid-rs
 //! coach` opens one canopy session whose system prompt is the synced interview
 //! method and the synced guideline, puts the model's questions to the human
@@ -116,7 +117,6 @@ use crate::lld_review::{
 };
 use crate::phase::resolve_slice;
 use crate::project::Project;
-use crate::spec;
 
 /// What `coach` prints beside a rejected argument.
 pub const COACH_USAGE: &str = "usage: cargo lid-rs coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>]";
@@ -2082,7 +2082,7 @@ mod tests {
     /// quoted in one of them cannot stand in for the call it describes — as
     /// the canopy client reads its own host's `silent` out of `ending.rs`.
     fn module_code() -> String {
-        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/coach.rs")).expect("this module's source");
+        let source = std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/src/coach/mod.rs")).expect("this module's source");
         source.split("#[cfg(test)]\nmod tests {").next().expect("the code before the tests").to_string()
     }
 
@@ -3298,3 +3298,5 @@ mod tests {
         assert_ne!(nothing, owed(path, Some(false)), "a run that drafted a failing document drafted something");
     }
 }
+
+pub mod spec;

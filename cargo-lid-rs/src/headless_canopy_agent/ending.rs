@@ -12,7 +12,7 @@ use super::turn::{Halt, Session, drive, silent};
 use crate::phase::ending::{Ending, ending_of};
 use crate::phase::{HookInput, HookVerdict, Phase, hook_stop};
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// The tools a worker's policy admits: all five.
 pub const WORKER_TOOLS: [Tool; 5] = [Tool::Read, Tool::Grep, Tool::Glob, Tool::Edit, Tool::Write];

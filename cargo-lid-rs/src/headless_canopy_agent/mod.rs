@@ -1,3 +1,4 @@
+#![doc = include_str!("lld.md")]
 
 use std::path::{Path, PathBuf};
 
@@ -19,7 +20,6 @@ use crate::layout;
 use crate::phase::policy::{ExecutionClass, execution_class, slice_crate};
 use crate::phase::{Phase, Tag};
 use crate::project::Project;
-use crate::spec;
 
 /// Canopy's production door: `--door`'s default.
 pub const PRODUCTION_DOOR: &str = "https://api.canopyhq.dev";
@@ -1158,3 +1158,5 @@ mod tests {
         assert!(replay.stopped("w3") && replay.stopped("r3"), "the committed rework's session and its reviewer's are both stopped");
     }
 }
+
+pub mod spec;

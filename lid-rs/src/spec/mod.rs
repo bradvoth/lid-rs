@@ -5,55 +5,13 @@
 //! grep.
 
 mod citation;
-mod claim;
-mod graph;
-mod registry;
 
-pub use claim::{
-    ABareLinkTargetsItsBacktickedText, ABehaviourVerbRecordsTheStarTemplate,
-    AClaimWithoutATerminatorFailsToCompile, AFreeClaimCompilesWhateverItsText,
-    AFreeClaimRecordsEmptyParts, ALexiconLineOutsideTheSubsetFailsEveryDerive,
-    ALinkWithAPathTargetsThePath, AMalformedTemplateFailsEveryDerive,
-    AMemberFindsItsWorkspacesLexicon, AMisnamedValidatorFailsToCompile,
-    AModalCountOtherThanOneFailsToCompile, AParsedClaimIsControlled,
-    AProhibitedTermFailsToCompile, AProjectExtraFailsToCompileNamingTheLexiconFile,
-    AProjectVerbAddsToTheBase, AProjectVerbReplacesTheBasesWhole,
-    ASecondTerminatorFailsToCompile, AShapeVerbWithoutAnObjectLinkFailsToCompile,
-    AShapeVerbsTemplatesAreRecordedAsWritten, ASuffixedValidatorNameIsAdmitted,
-    ATriggerClauseWithoutALinkFailsToCompile, AUbiquitousTriggerIsTheFirstLinkInTheSubject,
-    AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName, AValidatorIsNamedForAnyOneCitedClaim,
-    AVerbMissingOrRepeatingAKeyFailsEveryDerive, AVerbNamedTwiceFailsEveryDerive,
-    AnAdmittedNameCarriesNoAssertion, AnIfClauseIsTheWordsUpToCommaThen,
-    AnUnclosedClauseFailsToCompile, AnUndefinedVerbFailsToCompile,
-    AnUnknownLexiconKeyFailsEveryDerive, AnyOtherOpenerIsUbiquitous,
-    ExtraGivenTwiceFailsEveryDerive, FreeEnumeratesTheMarkedClaims,
-    NoLinkAfterABehaviourVerbLeavesTheObjectEmpty, NotBeforeTheVerbIsRecordedAsNegation,
-    SnakeCaseKeepsADigitWithTheWordBeforeIt, SnakeCaseKeepsARunOfCapitalsAsOneWord,
-    SnakeCaseStartsAWordAtACapitalBeforeALowerCaseLetter, TheBaseLexiconIsCompiledIntoTheDerive,
-    TheClaimIsTheDocLinesJoined, TheClauseIsTheWordsUpToTheFirstCommaOutsideBackticks,
-    TheFirstFailingRuleIsReported, TheFreeConstRecordsTheMark,
-    TheMarkTakesOnlyTheWordFree, TheObjectIsTheFirstLinkAfterTheVerb,
-    TheOpenerDecidesThePattern,
-    TheOwnerIsEmptyForAnObjectWithoutAVariant, TheOwnerIsTheObjectTargetWithItsLastSegmentRemoved,
-    TheProjectLexiconIsIncludedInTheExpansion, TheRegistrationCarriesTheClaimsParts,
-    TheTriggerIsTheFirstLinkInTheClause, TheVerbIsTheFirstWordAfterTheModal,
-    TheWalkStopsAtAWorkspaceManifest, TheWalkStopsBelowADirectoryWithoutAManifest,
-};
 
-pub use graph::{
-    CoveredGraphsPassTheGraphCheck, GraphChecksRequireThePresentCanary,
-    GraphChecksScopeToTheCurrentCrate, UncitedSpecsFailTheGraphCheck,
-    UnvalidatedSpecsFailTheGraphCheck,
-};
 
 pub use citation::{
     DerivedSpecsCarryTheirDefinitionPath, DerivedSpecsRegisterIntoSpecs,
     ImplementsCitationsRegisterEdges, MalformedCitationsFailToCompile,
     ModuleCitationsTraceByContainment, ValidatesCitationsRegisterEdges,
-};
-pub use registry::{
-    CanaryConfirmsRegistryPresence, CanaryDetectsAStrippedRegistry,
-    LinkedRegistrationsAreEnumerable,
 };
 
 #[cfg(test)]
@@ -74,8 +32,8 @@ mod tests {
     #[validates(crate::spec::DerivedSpecsCarryTheirDefinitionPath)]
     fn derived_specs_carry_their_definition_path() {
         assert_eq!(
-            <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
-            "lid_rs::spec::registry::CanaryConfirmsRegistryPresence"
+            <crate::registry::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
+            "lid_rs::registry::spec::CanaryConfirmsRegistryPresence"
         );
         assert_eq!(
             <crate::spec::MalformedCitationsFailToCompile as Spec>::NAME,
@@ -87,9 +45,9 @@ mod tests {
     #[validates(crate::spec::DerivedSpecsRegisterIntoSpecs)]
     fn derived_specs_register_into_specs() {
         let expected = [
-            "lid_rs::spec::registry::LinkedRegistrationsAreEnumerable",
-            "lid_rs::spec::registry::CanaryConfirmsRegistryPresence",
-            "lid_rs::spec::registry::CanaryDetectsAStrippedRegistry",
+            "lid_rs::registry::spec::LinkedRegistrationsAreEnumerable",
+            "lid_rs::registry::spec::CanaryConfirmsRegistryPresence",
+            "lid_rs::registry::spec::CanaryDetectsAStrippedRegistry",
             "lid_rs::spec::citation::DerivedSpecsCarryTheirDefinitionPath",
             "lid_rs::spec::citation::DerivedSpecsRegisterIntoSpecs",
             "lid_rs::spec::citation::ImplementsCitationsRegisterEdges",
@@ -110,13 +68,13 @@ mod tests {
     fn implements_citations_register_edges() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
-            <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
-            "lid_rs::canary::present"
+            <crate::registry::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
+            "lid_rs::registry::canary::present"
         ));
         assert!(has_edge(
             &IMPLEMENTATIONS,
-            <crate::spec::CanaryDetectsAStrippedRegistry as Spec>::NAME,
-            "lid_rs::canary::triple_is_present"
+            <crate::registry::spec::CanaryDetectsAStrippedRegistry as Spec>::NAME,
+            "lid_rs::registry::canary::triple_is_present"
         ));
     }
 
@@ -125,18 +83,18 @@ mod tests {
     fn validates_citations_register_edges() {
         assert!(has_edge(
             &VALIDATIONS,
-            <crate::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
-            "lid_rs::canary::tests::linked_registrations_are_enumerable"
+            <crate::registry::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
+            "lid_rs::registry::canary::tests::linked_registrations_are_enumerable"
         ));
         assert!(has_edge(
             &VALIDATIONS,
-            <crate::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
-            "lid_rs::canary::tests::canary_confirms_registry_presence"
+            <crate::registry::spec::CanaryConfirmsRegistryPresence as Spec>::NAME,
+            "lid_rs::registry::canary::tests::canary_confirms_registry_presence"
         ));
         assert!(has_edge(
             &VALIDATIONS,
-            <crate::spec::CanaryDetectsAStrippedRegistry as Spec>::NAME,
-            "lid_rs::canary::tests::canary_detects_a_stripped_registry"
+            <crate::registry::spec::CanaryDetectsAStrippedRegistry as Spec>::NAME,
+            "lid_rs::registry::canary::tests::canary_detects_a_stripped_registry"
         ));
     }
 
@@ -145,7 +103,7 @@ mod tests {
     fn module_citations_trace_by_containment() {
         assert!(has_edge(
             &IMPLEMENTATIONS,
-            <crate::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
+            <crate::registry::spec::LinkedRegistrationsAreEnumerable as Spec>::NAME,
             "lid_rs::registry"
         ));
     }

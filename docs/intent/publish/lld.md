@@ -51,7 +51,7 @@ lid-rs/
   LICENSE
   docs/intent/hld.md             -> #![doc = include_str!("../docs/intent/hld.md")]
   docs/intent/registry/lld.md    -> pub mod registry
-  docs/intent/intent-graph/lld.md-> pub mod graph
+  src/graph/lld.md-> pub mod graph
   src/…                          extern crate self as lid_rs
 lid-rs-macros/
   LICENSE

@@ -8,20 +8,19 @@
 //! guarded.
 
 use crate::registry::{Edge, SpecMeta};
-use crate::spec;
 use lid_rs::implements;
 
 /// The join key the canary triple is looked up by: the type name of
-/// [`crate::spec::CanaryConfirmsRegistryPresence`].
+/// [`crate::registry::spec::CanaryConfirmsRegistryPresence`].
 const CANARY_SPEC: &str =
-    <crate::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME;
+    <crate::registry::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME;
 
 /// Reports whether the canary triple survived linking into this binary.
 ///
 /// Every registry-based check asserts this first (README §5.3): if LTO,
 /// `--gc-sections`, or an unusual target stripped the linker sections, checks
 /// over the registries would otherwise pass trivially over nothing.
-#[implements(spec::CanaryConfirmsRegistryPresence)]
+#[implements(crate::registry::spec::CanaryConfirmsRegistryPresence)]
 pub fn present() -> bool {
     triple_is_present(&crate::SPECS, &crate::IMPLEMENTATIONS, &crate::VALIDATIONS)
 }
@@ -31,7 +30,7 @@ pub fn present() -> bool {
 /// Parameterized over the slices rather than reading the real registries so
 /// the stripped case — which cannot be produced at runtime from the real
 /// statics — is testable with empty inputs.
-#[implements(spec::CanaryDetectsAStrippedRegistry)]
+#[implements(crate::registry::spec::CanaryDetectsAStrippedRegistry)]
 pub(crate) fn triple_is_present(specs: &[SpecMeta], impls: &[Edge], validations: &[Edge]) -> bool {
     specs.iter().any(|s| s.name == CANARY_SPEC)
         && impls.iter().any(|e| e.spec == CANARY_SPEC)
@@ -47,7 +46,7 @@ const _: () = {
     #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::VALIDATIONS)]
     #[linkme(crate = ::lid_rs::__private::linkme)]
     static EDGE: ::lid_rs::Edge = ::lid_rs::Edge {
-        spec: <crate::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME,
+        spec: <crate::registry::spec::CanaryConfirmsRegistryPresence as ::lid_rs::Spec>::NAME,
         item: concat!(module_path!(), "::sentinel"),
         file: file!(),
         line: line!(),
@@ -60,7 +59,7 @@ mod tests {
     use lid_rs::validates;
 
     #[test]
-    #[validates(spec::LinkedRegistrationsAreEnumerable)]
+    #[validates(crate::registry::spec::LinkedRegistrationsAreEnumerable)]
     fn linked_registrations_are_enumerable() {
         assert!(lid_rs::SPECS.iter().any(|s| s.name == CANARY_SPEC));
         assert!(lid_rs::IMPLEMENTATIONS.iter().any(|e| e.spec == CANARY_SPEC));
@@ -68,13 +67,13 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::CanaryConfirmsRegistryPresence)]
+    #[validates(crate::registry::spec::CanaryConfirmsRegistryPresence)]
     fn canary_confirms_registry_presence() {
         assert!(present());
     }
 
     #[test]
-    #[validates(spec::CanaryDetectsAStrippedRegistry)]
+    #[validates(crate::registry::spec::CanaryDetectsAStrippedRegistry)]
     fn canary_detects_a_stripped_registry() {
         assert!(!triple_is_present(&[], &lid_rs::IMPLEMENTATIONS, &lid_rs::VALIDATIONS));
         assert!(!triple_is_present(&lid_rs::SPECS, &[], &lid_rs::VALIDATIONS));

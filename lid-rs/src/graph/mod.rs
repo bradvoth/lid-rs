@@ -1,6 +1,6 @@
+#![doc = include_str!("lld.md")]
 use crate::canary;
 use crate::registry::{Edge, SpecMeta};
-use crate::spec;
 use lid_rs::implements;
 use std::collections::HashSet;
 
@@ -161,7 +161,7 @@ mod tests {
     }
 
     /// The canary join key, so synthetic registries count as trustworthy.
-    const CANARY: &str = <crate::spec::CanaryConfirmsRegistryPresence as crate::Spec>::NAME;
+    const CANARY: &str = <crate::registry::spec::CanaryConfirmsRegistryPresence as crate::Spec>::NAME;
 
     #[test]
     #[validates(spec::UncitedSpecsFailTheGraphCheck)]
@@ -222,3 +222,5 @@ mod tests {
         assert!(orphans.is_empty(), "covered specs must not be reported: {orphans:?}");
     }
 }
+
+pub mod spec;

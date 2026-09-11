@@ -16,7 +16,7 @@ use super::door::ToolDecl;
 use super::turn::Session;
 use crate::phase::{HookInput, HookVerdict, Phase, hook_post_edit, hook_pre_tool};
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// The principal that executes the tools: the requestee every declaration,
 /// allowance, payload, and forward names.

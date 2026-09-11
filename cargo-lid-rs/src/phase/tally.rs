@@ -9,7 +9,7 @@ use lid_rs::implements;
 use super::Phase;
 use super::policy::ToolKind;
 use crate::project::Project;
-use crate::spec;
+use super::spec;
 
 /// One thing the hooks count.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

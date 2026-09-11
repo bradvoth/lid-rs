@@ -5,7 +5,7 @@
 //!
 //! What binds these checks to a phase is deliberately absent here. `phase-check
 //! 1` gains a step that runs them before its doc step, and that step is the
-//! phase slice's claim to widen — `spec::PhaseOneChecksTheDocs` — when it lands
+//! phase slice's claim to widen — `crate::phase::spec::PhaseOneChecksTheDocs` — when it lands
 //! (the LLD's Cascade section). So no claim below says when or by whom the
 //! checks are run: they describe `lld-check` itself, which holds whether it is
 //! reached from a phase's check or from a human's command line.

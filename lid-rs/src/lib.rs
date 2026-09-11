@@ -5,12 +5,14 @@
 // dependency are unsupported (see the registry LLD).
 extern crate self as lid_rs;
 
-pub mod canary;
 pub mod claim;
-#[doc = include_str!("../docs/intent/intent-graph/lld.md")]
 pub mod graph;
-#[doc = include_str!("../docs/intent/registry/lld.md")]
 pub mod registry;
+
+// `canary` is a leaf of the `registry` slice and lives beside it, but its path
+// is public API: `$crate::canary` is what `intent_graph!` expands to in every
+// downstream crate. The re-export keeps that path while the file colocates.
+pub use registry::canary;
 pub mod spec;
 
 #[cfg(test)]
@@ -84,76 +86,76 @@ const _: () = {
     }
 
     // One sentence, one modal.
-    claim_edge!(crate::spec::TheClaimIsTheDocLinesJoined, "lid_rs_macros::claim::sentence");
-    claim_edge!(crate::spec::AClaimWithoutATerminatorFailsToCompile, "lid_rs_macros::claim::sentence");
-    claim_edge!(crate::spec::ASecondTerminatorFailsToCompile, "lid_rs_macros::claim::sentence");
-    claim_edge!(crate::spec::AModalCountOtherThanOneFailsToCompile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheClaimIsTheDocLinesJoined, "lid_rs_macros::claim::sentence");
+    claim_edge!(crate::claim::spec::AClaimWithoutATerminatorFailsToCompile, "lid_rs_macros::claim::sentence");
+    claim_edge!(crate::claim::spec::ASecondTerminatorFailsToCompile, "lid_rs_macros::claim::sentence");
+    claim_edge!(crate::claim::spec::AModalCountOtherThanOneFailsToCompile, "lid_rs_macros::claim::parse");
 
     // The pattern, from the opener.
-    claim_edge!(crate::spec::TheOpenerDecidesThePattern, "lid_rs_macros::claim::pattern");
-    claim_edge!(crate::spec::AnyOtherOpenerIsUbiquitous, "lid_rs_macros::claim::pattern");
-    claim_edge!(crate::spec::TheClauseIsTheWordsUpToTheFirstCommaOutsideBackticks, "lid_rs_macros::claim::pattern");
-    claim_edge!(crate::spec::AnIfClauseIsTheWordsUpToCommaThen, "lid_rs_macros::claim::pattern");
-    claim_edge!(crate::spec::AnUnclosedClauseFailsToCompile, "lid_rs_macros::claim::pattern");
+    claim_edge!(crate::claim::spec::TheOpenerDecidesThePattern, "lid_rs_macros::claim::pattern");
+    claim_edge!(crate::claim::spec::AnyOtherOpenerIsUbiquitous, "lid_rs_macros::claim::pattern");
+    claim_edge!(crate::claim::spec::TheClauseIsTheWordsUpToTheFirstCommaOutsideBackticks, "lid_rs_macros::claim::pattern");
+    claim_edge!(crate::claim::spec::AnIfClauseIsTheWordsUpToCommaThen, "lid_rs_macros::claim::pattern");
+    claim_edge!(crate::claim::spec::AnUnclosedClauseFailsToCompile, "lid_rs_macros::claim::pattern");
 
     // The parts, and which of them must be links.
-    claim_edge!(crate::spec::ALinkWithAPathTargetsThePath, "lid_rs_macros::claim::link");
-    claim_edge!(crate::spec::ABareLinkTargetsItsBacktickedText, "lid_rs_macros::claim::link");
-    claim_edge!(crate::spec::TheTriggerIsTheFirstLinkInTheClause, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::AUbiquitousTriggerIsTheFirstLinkInTheSubject, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::ATriggerClauseWithoutALinkFailsToCompile, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::TheVerbIsTheFirstWordAfterTheModal, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::NotBeforeTheVerbIsRecordedAsNegation, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::TheObjectIsTheFirstLinkAfterTheVerb, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::NoLinkAfterABehaviourVerbLeavesTheObjectEmpty, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::TheOwnerIsTheObjectTargetWithItsLastSegmentRemoved, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::TheOwnerIsEmptyForAnObjectWithoutAVariant, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::AShapeVerbWithoutAnObjectLinkFailsToCompile, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::AnUndefinedVerbFailsToCompile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::ALinkWithAPathTargetsThePath, "lid_rs_macros::claim::link");
+    claim_edge!(crate::claim::spec::ABareLinkTargetsItsBacktickedText, "lid_rs_macros::claim::link");
+    claim_edge!(crate::claim::spec::TheTriggerIsTheFirstLinkInTheClause, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::AUbiquitousTriggerIsTheFirstLinkInTheSubject, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::ATriggerClauseWithoutALinkFailsToCompile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheVerbIsTheFirstWordAfterTheModal, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::NotBeforeTheVerbIsRecordedAsNegation, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheObjectIsTheFirstLinkAfterTheVerb, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::NoLinkAfterABehaviourVerbLeavesTheObjectEmpty, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheOwnerIsTheObjectTargetWithItsLastSegmentRemoved, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheOwnerIsEmptyForAnObjectWithoutAVariant, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::AShapeVerbWithoutAnObjectLinkFailsToCompile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::AnUndefinedVerbFailsToCompile, "lid_rs_macros::claim::parse");
 
     // Prohibited terms, and the order the rules are checked in.
-    claim_edge!(crate::spec::AProhibitedTermFailsToCompile, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::TheFirstFailingRuleIsReported, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::AProhibitedTermFailsToCompile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheFirstFailingRuleIsReported, "lid_rs_macros::claim::parse");
 
     // What the derive records.
-    claim_edge!(crate::spec::TheRegistrationCarriesTheClaimsParts, "lid_rs_macros::claim::expansion");
-    claim_edge!(crate::spec::AParsedClaimIsControlled, "lid_rs_macros::claim::expansion");
-    claim_edge!(crate::spec::AShapeVerbsTemplatesAreRecordedAsWritten, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::ABehaviourVerbRecordsTheStarTemplate, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::TheRegistrationCarriesTheClaimsParts, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::AParsedClaimIsControlled, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::AShapeVerbsTemplatesAreRecordedAsWritten, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::ABehaviourVerbRecordsTheStarTemplate, "lid_rs_macros::claim::parse");
 
     // The validator's name — check 14 — and the name it is compared with.
-    claim_edge!(crate::spec::AMisnamedValidatorFailsToCompile, "lid_rs_macros::claim::validator_name");
-    claim_edge!(crate::spec::ASuffixedValidatorNameIsAdmitted, "lid_rs_macros::claim::validator_name");
-    claim_edge!(crate::spec::AValidatorIsNamedForAnyOneCitedClaim, "lid_rs_macros::claim::validator_name");
-    claim_edge!(crate::spec::AnAdmittedNameCarriesNoAssertion, "lid_rs_macros::claim::validator_name");
-    claim_edge!(crate::spec::AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName, "lid_rs_macros::claim::validator_name");
-    claim_edge!(crate::spec::SnakeCaseStartsAWordAtACapitalBeforeALowerCaseLetter, "lid_rs_macros::claim::snake_case");
-    claim_edge!(crate::spec::SnakeCaseKeepsARunOfCapitalsAsOneWord, "lid_rs_macros::claim::snake_case");
-    claim_edge!(crate::spec::SnakeCaseKeepsADigitWithTheWordBeforeIt, "lid_rs_macros::claim::snake_case");
+    claim_edge!(crate::claim::spec::AMisnamedValidatorFailsToCompile, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::claim::spec::ASuffixedValidatorNameIsAdmitted, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::claim::spec::AValidatorIsNamedForAnyOneCitedClaim, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::claim::spec::AnAdmittedNameCarriesNoAssertion, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::claim::spec::AValidatorCitingOnlyFreeClaimsIsNotHeldToTheName, "lid_rs_macros::claim::validator_name");
+    claim_edge!(crate::claim::spec::SnakeCaseStartsAWordAtACapitalBeforeALowerCaseLetter, "lid_rs_macros::claim::snake_case");
+    claim_edge!(crate::claim::spec::SnakeCaseKeepsARunOfCapitalsAsOneWord, "lid_rs_macros::claim::snake_case");
+    claim_edge!(crate::claim::spec::SnakeCaseKeepsADigitWithTheWordBeforeIt, "lid_rs_macros::claim::snake_case");
 
     // The ramp. `FreeEnumeratesTheMarkedClaims` is cited by `claim::free` itself.
-    claim_edge!(crate::spec::AFreeClaimCompilesWhateverItsText, "lid_rs_macros::claim::expansion");
-    claim_edge!(crate::spec::AFreeClaimRecordsEmptyParts, "lid_rs_macros::claim::expansion");
-    claim_edge!(crate::spec::TheFreeConstRecordsTheMark, "lid_rs_macros::claim::expansion");
-    claim_edge!(crate::spec::TheMarkTakesOnlyTheWordFree, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::AFreeClaimCompilesWhateverItsText, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::AFreeClaimRecordsEmptyParts, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::TheFreeConstRecordsTheMark, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::TheMarkTakesOnlyTheWordFree, "lid_rs_macros::claim::expansion");
 
     // The lexicon: base, project, and the walk.
-    claim_edge!(crate::spec::TheBaseLexiconIsCompiledIntoTheDerive, "lid_rs_macros::claim::lexicon::read");
-    claim_edge!(crate::spec::AProjectVerbAddsToTheBase, "lid_rs_macros::claim::lexicon::read");
-    claim_edge!(crate::spec::AProjectVerbReplacesTheBasesWhole, "lid_rs_macros::claim::lexicon::read");
-    claim_edge!(crate::spec::AProjectExtraFailsToCompileNamingTheLexiconFile, "lid_rs_macros::claim::parse");
-    claim_edge!(crate::spec::AMemberFindsItsWorkspacesLexicon, "lid_rs_macros::claim::lexicon::locate");
-    claim_edge!(crate::spec::TheWalkStopsAtAWorkspaceManifest, "lid_rs_macros::claim::lexicon::locate");
-    claim_edge!(crate::spec::TheWalkStopsBelowADirectoryWithoutAManifest, "lid_rs_macros::claim::lexicon::locate");
-    claim_edge!(crate::spec::TheProjectLexiconIsIncludedInTheExpansion, "lid_rs_macros::claim::expansion");
+    claim_edge!(crate::claim::spec::TheBaseLexiconIsCompiledIntoTheDerive, "lid_rs_macros::claim::lexicon::read");
+    claim_edge!(crate::claim::spec::AProjectVerbAddsToTheBase, "lid_rs_macros::claim::lexicon::read");
+    claim_edge!(crate::claim::spec::AProjectVerbReplacesTheBasesWhole, "lid_rs_macros::claim::lexicon::read");
+    claim_edge!(crate::claim::spec::AProjectExtraFailsToCompileNamingTheLexiconFile, "lid_rs_macros::claim::parse");
+    claim_edge!(crate::claim::spec::AMemberFindsItsWorkspacesLexicon, "lid_rs_macros::claim::lexicon::locate");
+    claim_edge!(crate::claim::spec::TheWalkStopsAtAWorkspaceManifest, "lid_rs_macros::claim::lexicon::locate");
+    claim_edge!(crate::claim::spec::TheWalkStopsBelowADirectoryWithoutAManifest, "lid_rs_macros::claim::lexicon::locate");
+    claim_edge!(crate::claim::spec::TheProjectLexiconIsIncludedInTheExpansion, "lid_rs_macros::claim::expansion");
 
     // The lexicon's format, and what a file outside it does.
-    claim_edge!(crate::spec::ALexiconLineOutsideTheSubsetFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
-    claim_edge!(crate::spec::AVerbMissingOrRepeatingAKeyFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
-    claim_edge!(crate::spec::AnUnknownLexiconKeyFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
-    claim_edge!(crate::spec::AVerbNamedTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
-    claim_edge!(crate::spec::ExtraGivenTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
-    claim_edge!(crate::spec::AMalformedTemplateFailsEveryDerive, "lid_rs_macros::claim::lexicon::Template::parse");
+    claim_edge!(crate::claim::spec::ALexiconLineOutsideTheSubsetFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
+    claim_edge!(crate::claim::spec::AVerbMissingOrRepeatingAKeyFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
+    claim_edge!(crate::claim::spec::AnUnknownLexiconKeyFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
+    claim_edge!(crate::claim::spec::AVerbNamedTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
+    claim_edge!(crate::claim::spec::ExtraGivenTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
+    claim_edge!(crate::claim::spec::AMalformedTemplateFailsEveryDerive, "lid_rs_macros::claim::lexicon::Template::parse");
 };
 
 /// Trait implemented by every claim item, via `derive(Spec)`.
