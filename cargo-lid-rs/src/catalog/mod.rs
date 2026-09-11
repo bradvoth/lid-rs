@@ -577,14 +577,26 @@ mod tests {
     //! canned `ToolOutput`. Nothing here runs cargo, and a wrong answer to the
     //! no-passthrough rule is visible in what the recorder holds.
     //!
-    //! Four fixtures stand in for what a run would otherwise need on disk:
+    //! Five fixtures stand in for what a run would otherwise need on disk:
     //!
     //! | Fixture | Stands for |
     //! |---|---|
     //! | `GATES` | three rows of the synced skill's `references/gates.md`, passed as the text `run_with` takes, so that no test materialises a skill tree to assert a `fix` line |
     //! | `CARGO_STREAM` | cargo's JSON diagnostic stream, holding the records that are no diagnostic among the three that are |
     //! | `RUSTDOC_STDERR` | the other provenance: a tool that prints its diagnostics to stderr, in its own spelling of a lint's name, among its progress and summary lines |
+    //! | `PACKAGE_STDERR` | the other *tool* of that provenance: `cargo package`, whose diagnostics point at no place in the source and carry no `-->` line at all, among the lines it prints while it works |
     //! | `blocked_root` | a workspace root whose `target` is a **regular file**, so `create_dir_all` fails on macOS and Linux alike and `path.is_dir()` is false afterwards — a read-only parent is the wrong mechanism, since it silently succeeds for a test run as root |
+    //!
+    //! `PACKAGE_STDERR` is there because one item reads the stderr of both
+    //! tools. A reader keyed to what rustdoc prints — a `warning:` or `error:`
+    //! line with a `  --> file:line:col` under it — satisfies `RUSTDOC_STDERR`
+    //! exactly and answers nothing at all over a packaging that failed, which is
+    //! the `package` step reporting a pass over every reason it could not
+    //! publish. What the fixture pins is which of its lines are diagnostics and
+    //! what a diagnostic that points at no source carries; whether the `Caused
+    //! by:` block below a failure is folded into that diagnostic's message is
+    //! not pinned, because the design settles which lines are diagnostics and
+    //! does not settle that.
     //!
     //! `GATES` deliberately holds no row for check 9, so that a finding whose
     //! check the table holds no row for can be told from one whose row it
@@ -596,6 +608,29 @@ mod tests {
     //! answer here is the one the rest of this workspace uses: gather what was
     //! observed into one value and compare it with one expected value, so that
     //! a failure prints every case at once instead of the first.
+    //!
+    //! **Why no expectation is read back from the item under test.** The value
+    //! a test compares against is the document read into a fixture — the tokens
+    //! of each built command's invocation in `fixed`, which of the three things
+    //! each unbuilt entry's reason is in `REASONS`, what each stream's
+    //! diagnostics become — and never a second call into the code that produced
+    //! the observation. An expectation built by calling `table` or
+    //! `unbuilt_sentence` holds for every implementation of them, including one
+    //! that is wrong consistently, and such a test records only that the code
+    //! agrees with itself. Where one item's answer *is* compared with another's
+    //! — a refusal's sentence with `unbuilt_sentence`'s — what is asserted is
+    //! that the two agree, which is a property of its own, and what either of
+    //! them says is pinned against a fixture beside it.
+    //!
+    //! **Why each provenance is also observed through a run.** Which of a
+    //! tool's two streams an entry's findings are read from is `findings_of`'s
+    //! dispatch, and a test that calls `findings_from_cargo` or
+    //! `findings_from_stderr` itself never reaches it: with those two arms
+    //! exchanged, every such test still passes while `check` and `doc` report a
+    //! pass over every diagnostic their tools emitted. So each provenance is
+    //! observed twice — once on the reader, and once on a run whose
+    //! `ToolOutput` carries *both* streams filled, where reading the wrong one
+    //! answers the other stream's diagnostics.
 
     use super::*;
     use lid_rs::validates;
@@ -651,6 +686,24 @@ error: unable to read file `cargo-lid-rs/src/catalog/absent.md`
 error: aborting due to 1 previous error; 1 warning emitted
 ";
 
+    /// The other tool of that provenance: `cargo package`, which prints a
+    /// diagnostic that points at no place in the source — no `-->` line follows
+    /// either of these — among the lines it prints while it works and the block
+    /// that details the failure above it.
+    const PACKAGE_STDERR: &str = "\
+    Packaging cargo-lid-rs v0.2.8 (/w/cargo-lid-rs)
+warning: manifest has no documentation, homepage or repository.
+See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info.
+    Updating crates.io index
+   Verifying cargo-lid-rs v0.2.8 (/w/cargo-lid-rs)
+error: failed to verify package tarball
+
+Caused by:
+  no matching package named `lid-rs` found
+  location searched: registry `crates.io`
+  required by package `cargo-lid-rs v0.2.8 (/w/target/package/cargo-lid-rs-0.2.8)`
+";
+
     /// The `sync` comparison's message, as `sync::check` joins its differences
     /// into one string this slice cannot take apart (Deferred 7).
     const SYNC_MESSAGE: &str =
@@ -667,26 +720,46 @@ error: aborting due to 1 previous error; 1 warning emitted
     /// them; every other row of the catalog is unbuilt and carries a reason.
     const BUILT: &[&str] = &["check", "doc", "lint", "package", "sync"];
 
-    /// What the design's table says each unbuilt entry waits on: whether its
-    /// reason is a slice, and what that reason names.
-    const REASONS: &[(&str, bool, &str)] = &[
-        ("shape", true, "18"),
-        ("conform", true, "19"),
-        ("validate", true, "20"),
-        ("site", true, "21"),
-        ("examples", false, "Deferred 1"),
-        ("suite", false, "Deferred 1"),
-        ("graph", false, "Deferred 1"),
-        ("regen", false, "Deferred 1"),
-        ("mutants", false, "Deferred 2"),
-        ("pr-body", false, "pipeline"),
-        ("status", false, "pipeline"),
-        ("commit", false, "pipeline"),
+    /// What the design's table says each unbuilt entry carries: which of the
+    /// three things its reason is, and what that reason names.
+    ///
+    /// Which of the three, and not whether it is a slice: a reason is a slice,
+    /// a question or an owner elsewhere, and a boolean leaves the last two
+    /// alike — so `pr-body` carrying `Question("the pipeline")` would answer
+    /// every question this fixture could ask about it.
+    const REASONS: &[(&str, &str, &str)] = &[
+        ("shape", SLICE, "18"),
+        ("conform", SLICE, "19"),
+        ("validate", SLICE, "20"),
+        ("site", SLICE, "21"),
+        ("examples", QUESTION, "Deferred 1"),
+        ("suite", QUESTION, "Deferred 1"),
+        ("graph", QUESTION, "Deferred 1"),
+        ("regen", QUESTION, "Deferred 1"),
+        ("mutants", QUESTION, "Deferred 2"),
+        ("pr-body", OWNER, "pipeline"),
+        ("status", OWNER, "pipeline"),
+        ("commit", OWNER, "pipeline"),
     ];
+
+    /// A reason that names the slice its command lands with.
+    const SLICE: &str = "slice";
+
+    /// A reason that names the question its command waits on.
+    const QUESTION: &str = "question";
+
+    /// A reason that names what owns its command where this tool builds it at
+    /// no point.
+    const OWNER: &str = "owner";
 
     /// What a finding read from a stderr is compared as: where it points, the
     /// check of the lint that raised it, that check's `fix`, and its grade.
     type Read = (Option<String>, Option<u32>, u32, Option<String>, String);
+
+    /// What a finding read from cargo's JSON stream is compared as: the check
+    /// of the lint that raised it, where it points, its grade, what it says,
+    /// and the command it was recorded against.
+    type Mapped = (u32, Option<u32>, String, String, String);
 
     /// Owned strings, as the entries and the workspace hold them.
     fn strings(list: &[&str]) -> Vec<String> {
@@ -756,15 +829,75 @@ error: aborting due to 1 previous error; 1 warning emitted
         }
     }
 
-    /// Whether a reason names a slice rather than a question.
-    fn is_slice(reason: &Unbuilt) -> bool {
-        matches!(reason, Unbuilt::Slice(_))
+    /// Which of the three things an unbuilt reason is, as a word a test
+    /// compares: a slice, a question, or what owns the command elsewhere.
+    fn case_of(reason: &Unbuilt) -> &'static str {
+        match reason {
+            Unbuilt::Slice(_) => SLICE,
+            Unbuilt::Question(_) => QUESTION,
+            Unbuilt::Owner(_) => OWNER,
+        }
     }
 
     /// Whether this workspace builds an entry: an unbuilt one holds no
     /// invocation at all, rather than one nothing would run.
     fn is_built(entry: &Command) -> bool {
         !matches!(entry.invocation, Invocation::Unbuilt(_))
+    }
+
+    /// Where an invocation's findings come from, as a word a test compares: an
+    /// entry's provenance is half of what its fixed invocation is, and a run
+    /// that named the other one would read the wrong stream.
+    fn provenance_of(invocation: &Invocation) -> &'static str {
+        match invocation {
+            Invocation::JsonDiagnostics { .. } => "cargo's JSON stream",
+            Invocation::StderrDiagnostics { .. } => "the tool's stderr",
+            Invocation::SyncComparison => "the sync comparison",
+            Invocation::Unbuilt(_) => "nothing to run",
+        }
+    }
+
+    /// The arguments an invocation names, whole and in order, where it names
+    /// any — compared as arguments rather than searched for as text, since
+    /// `doc` is a substring of `--document-private-items` and `lid-rs` of
+    /// `cargo-lid-rs`, and a search for either holds where no such argument is.
+    fn args_of(invocation: &Invocation) -> Vec<String> {
+        match invocation {
+            Invocation::JsonDiagnostics { args } | Invocation::StderrDiagnostics { args, .. } => args.clone(),
+            Invocation::SyncComparison | Invocation::Unbuilt(_) => Vec::new(),
+        }
+    }
+
+    /// The fixed invocation the document's table names for each built command:
+    /// where that command's findings come from, and the arguments its entry
+    /// enumerates. Read from the document into a fixture, so that it is not
+    /// `table` compared with itself.
+    ///
+    /// `package`'s arguments name every publishing member, which is the one
+    /// thing here that comes from the workspace rather than from the table.
+    fn fixed(publishing: &[String]) -> Vec<(&'static str, &'static str, Vec<String>)> {
+        let named: Vec<String> = publishing.iter().flat_map(|member| ["-p".to_string(), member.clone()]).collect();
+        vec![
+            ("check", "cargo's JSON stream", strings(&["check", "--all-targets", "--message-format", "json"])),
+            ("doc", "the tool's stderr", strings(&["doc", "--no-deps", "--document-private-items"])),
+            (
+                "lint",
+                "cargo's JSON stream",
+                strings(&["clippy", "--all-targets", "--message-format", "json", "--", "-D", "warnings"]),
+            ),
+            ("package", "the tool's stderr", [strings(&["package"]), named].concat()),
+            ("sync", "the sync comparison", Vec::new()),
+        ]
+    }
+
+    /// The fixed invocation that fixture names for one built command, which
+    /// every command `BUILT` holds must have a row for.
+    fn fixed_for(name: &str, publishing: &[String]) -> (&'static str, Vec<String>) {
+        fixed(publishing)
+            .into_iter()
+            .find(|(command, _, _)| *command == name)
+            .map(|(_, provenance, args)| (provenance, args))
+            .unwrap_or_else(|| panic!("the document names `{name}`'s fixed invocation"))
     }
 
     /// The environment an invocation carries, where it carries one.
@@ -785,6 +918,18 @@ error: aborting due to 1 previous error; 1 warning emitted
     /// The message of the one finding a refusal carries.
     fn first_message(report: &Report) -> String {
         report.findings.first().expect("a refusal carries a finding").message.clone()
+    }
+
+    /// Those five of every finding a stderr was read into, whichever item
+    /// answered them — the reader itself, or a run that chose the stream.
+    fn read_of(findings: &[Finding]) -> Vec<Read> {
+        findings.iter().map(|f| (f.file.clone(), f.line, f.check, f.fix.clone(), f.severity.clone())).collect()
+    }
+
+    /// Those five of every finding cargo's stream was mapped into, whichever
+    /// item answered them.
+    fn mapped_of(findings: &[Finding]) -> Vec<Mapped> {
+        findings.iter().map(|f| (f.check, f.line, f.severity.clone(), f.message.clone(), f.source.clone())).collect()
     }
 
     /// One diagnostic as a tool's reader would answer with.
@@ -820,19 +965,29 @@ error: aborting due to 1 previous error; 1 warning emitted
     fn a_command_runs_the_fixed_invocation_its_entry_names() {
         let root = scratch("fixed-invocation");
         let publishing = members();
-        let entries = table(&publishing);
-        // Each built command hands the runner exactly one invocation, and it
-        // is the one that command's entry names.
-        let handed: Vec<Vec<Invocation>> =
-            BUILT.iter().map(|name| recorded(name, &root, &publishing, ToolOutput::default()).0).collect();
-        let named: Vec<Vec<Invocation>> =
-            BUILT.iter().map(|name| vec![entry_of(&entries, name).invocation]).collect();
-        assert_eq!(handed, named, "{BUILT:?}");
-        // And what the entry names is fixed there: `run_with` takes no
-        // argument a command line could widen `cargo check` with.
-        let shown = format!("{:?}", handed[0]);
-        let fixed = ["check", "--all-targets", "--message-format", "json"];
-        assert!(fixed.iter().all(|token| shown.contains(token)), "{fixed:?} in {shown}");
+        // Each built command hands the runner one invocation, and it is the
+        // fixed one its entry names: the provenance the document gives that
+        // command, and the arguments the command itself enumerates, whole and
+        // in order. Nothing widens them — there is no parameter a command line
+        // could reach — and the expectation is the document rather than `table`
+        // read back, so a row that names the wrong flags is wrong here.
+        let observed: Vec<(&str, usize, &str, Vec<String>)> = BUILT
+            .iter()
+            .map(|name| {
+                let handed = recorded(name, &root, &publishing, ToolOutput::default()).0;
+                let one = handed.first();
+                let provenance = one.map_or("nothing was handed", provenance_of);
+                (*name, handed.len(), provenance, one.map_or_else(Vec::new, args_of))
+            })
+            .collect();
+        let expected: Vec<(&str, usize, &str, Vec<String>)> = BUILT
+            .iter()
+            .map(|name| {
+                let (provenance, args) = fixed_for(name, &publishing);
+                (*name, 1, provenance, args)
+            })
+            .collect();
+        assert_eq!(observed, expected, "the one fixed invocation each built command names");
     }
 
     #[test]
@@ -852,19 +1007,34 @@ error: aborting due to 1 previous error; 1 warning emitted
     #[test]
     #[validates(spec::TheRenderingIsBuiltFromTheFindingsAndNotTheToolsOutput)]
     fn the_rendering_is_built_from_the_findings_and_not_the_tools_output() {
+        let root = scratch("rendering");
+        let answered = Finding {
+            fix: Some(FIX_SEVEN.to_string()),
+            ..finding(7, "a leaf contains decisions nobody declared")
+        };
         let report = Report {
             command: "lint".to_string(),
-            findings: vec![finding(7, "a leaf contains decisions nobody declared"), finding(0, "an unrecognised one")],
+            findings: vec![answered, finding(0, "an unrecognised one")],
             status: Status::Findings,
         };
         let text = render(&report);
         // Every finding the report carries is in the rendering, with where it
-        // points — the report is the only thing the text could be built from.
-        let carried = ["lint", "a leaf contains decisions nobody declared", "an unrecognised one", SOURCE_FILE, "42"];
+        // points and the correct response this project states for its check —
+        // which no tool prints, so a rendering carrying it was built from the
+        // findings and not from what the tool said.
+        let carried =
+            ["lint", "a leaf contains decisions nobody declared", "an unrecognised one", SOURCE_FILE, "42", FIX_SEVEN];
         assert!(carried.iter().all(|needle| text.contains(needle)), "{carried:?} in {text}");
-        // And a report carrying no finding renders none of them.
+        // A report carrying no finding renders none of them.
         let empty = render(&Report { findings: Vec::new(), status: Status::Pass, ..report });
         assert!(!empty.contains("a leaf contains decisions nobody declared"), "{empty}");
+        // And nothing a real run's tool printed reaches the rendering of that
+        // run's report: the two cannot disagree, because only one is read.
+        let both = ToolOutput { stdout: CARGO_STREAM.to_string(), stderr: RUSTDOC_STDERR.to_string() };
+        let rendered = render(&recorded("check", &root, &members(), both).1);
+        let printed =
+            ["compiler-artifact", "build-finished", "is_primary", "Documenting cargo-lid-rs", "aborting due"];
+        assert!(!printed.iter().any(|needle| rendered.contains(needle)), "{printed:?} in {rendered}");
     }
 
     #[test]
@@ -926,19 +1096,24 @@ error: aborting due to 1 previous error; 1 warning emitted
     #[validates(spec::AnUnbuiltEntryNamesASliceAQuestionOrAnOwnerElsewhere)]
     fn an_unbuilt_entry_names_a_slice_a_question_or_an_owner_elsewhere() {
         let entries = table(&members());
-        // Four wait on a slice; the rest wait on a question, because six of
-        // §5.1's rows have no slice to name and a field typed `slice` would be
-        // filled with a deferral's number.
-        let observed: Vec<(&str, bool, bool)> = REASONS
+        // Four name the slice they land with; five name a question, because
+        // those rows have no slice and a field typed `slice` would be filled
+        // with a deferral's number; three name what owns them elsewhere,
+        // because the pipeline's own commands wait on no question either and
+        // `Question("the pipeline")` is that same lie in the other shape.
+        let observed: Vec<(&str, &str, bool)> = REASONS
             .iter()
             .map(|(name, _, named)| {
                 let reason = reason_of(&entries, name);
-                (*name, is_slice(&reason), named_by(&reason).contains(named))
+                (*name, case_of(&reason), named_by(&reason).contains(named))
             })
             .collect();
-        let expected: Vec<(&str, bool, bool)> =
-            REASONS.iter().map(|(name, slice, _)| (*name, *slice, true)).collect();
-        assert_eq!(observed, expected, "each entry as (name, waits on a slice, names what the design says)");
+        let expected: Vec<(&str, &str, bool)> = REASONS.iter().map(|(name, case, _)| (*name, *case, true)).collect();
+        assert_eq!(observed, expected, "each entry as (name, which of the three its reason is, what it names)");
+        // And every unbuilt entry is one of those rows, so the three cases are
+        // stated of the whole catalog and not of a chosen dozen.
+        let unbuilt: Vec<&str> = entries.iter().filter(|entry| !is_built(entry)).map(|entry| entry.name).collect();
+        assert_eq!(unbuilt.len(), REASONS.len(), "every unbuilt entry names one of the three: {unbuilt:?}");
     }
 
     #[test]
@@ -946,10 +1121,13 @@ error: aborting due to 1 previous error; 1 warning emitted
     fn an_unbuilt_command_refuses_with_the_catalogs_reason() {
         let root = scratch("unbuilt-refusal");
         let entries = table(&members());
-        let names = ["shape", "mutants"];
-        // The refusal is that entry's own reason, in the sentence composed in
-        // one place for the printer to call rather than compose a second time;
-        // and no tool ran for it, the refusal coming before any runner.
+        let names = ["shape", "mutants", "pr-body"];
+        // The refusal names the command and the reason that entry carries —
+        // one of each of the three, so a sentence that named the command and
+        // dropped the reason is refused here. What the reason says is read off
+        // the entry rather than composed a second time, but it is asserted to
+        // be *in* the sentence: an expectation that called `unbuilt_sentence`
+        // itself would hold for a sentence that ignored its reason entirely.
         let refused: Vec<(String, bool)> = names
             .iter()
             .map(|name| {
@@ -957,10 +1135,20 @@ error: aborting due to 1 previous error; 1 warning emitted
                 (first_message(&report), seen.is_empty())
             })
             .collect();
-        let expected: Vec<(String, bool)> =
-            names.iter().map(|name| (unbuilt_sentence(name, &reason_of(&entries, name)), true)).collect();
-        assert_eq!(refused, expected);
-        assert!(refused.iter().zip(names).all(|((sentence, _), name)| sentence.contains(name)), "{refused:?}");
+        let observed: Vec<(bool, bool, bool)> = names
+            .iter()
+            .zip(&refused)
+            .map(|(name, (sentence, nothing_ran))| {
+                let reason = reason_of(&entries, name);
+                (sentence.contains(name), sentence.contains(named_by(&reason)), *nothing_ran)
+            })
+            .collect();
+        assert_eq!(observed, vec![(true, true, true); names.len()], "{refused:?}");
+        // And it is the sentence composed in one place, which the printer is to
+        // call rather than compose a second time.
+        let composed: Vec<String> =
+            names.iter().map(|name| unbuilt_sentence(name, &reason_of(&entries, name))).collect();
+        assert_eq!(refused.iter().map(|(sentence, _)| sentence.clone()).collect::<Vec<String>>(), composed);
     }
 
     #[test]
@@ -1048,38 +1236,62 @@ error: aborting due to 1 previous error; 1 warning emitted
     #[test]
     #[validates(spec::EveryDiagnosticOfTheStreamBecomesAFinding)]
     fn every_diagnostic_of_the_stream_becomes_a_finding() {
-        let findings = findings_from_cargo(CARGO_STREAM, GATES, "lint");
+        let root = scratch("cargo-provenance");
         // Every compiler message the stream held reaches a finding — the lint
         // no check names among them — while the records that are no diagnostic
-        // reach none.
-        let observed: Vec<(u32, Option<u32>, &str)> =
-            findings.iter().map(|f| (f.check, f.line, f.severity.as_str())).collect();
-        let expected = [(7, Some(12), "warning"), (0, Some(30), "warning"), (0, Some(44), "error")];
-        assert_eq!(observed, expected, "{findings:?}");
-        let third = &findings[2];
-        assert!(third.message.contains("cannot find value") && third.source == "lint", "{third:?}");
-        // A stream holding no diagnostic answers with no finding.
-        assert!(findings_from_cargo("", GATES, "lint").is_empty());
+        // reach none, and a stream holding none answers with none.
+        //
+        // Observed on the reader and on a run of `check`, whose output carries
+        // a filled stderr beside the stream: a run that read the wrong stream
+        // would answer rustdoc's two diagnostics rather than cargo's three, and
+        // that is the only place the provenance dispatch can be seen at all.
+        let both = ToolOutput { stdout: CARGO_STREAM.to_string(), stderr: RUSTDOC_STDERR.to_string() };
+        let ran = recorded("check", &root, &members(), both).1;
+        let held = |check: u32, line: u32, severity: &str, message: &str| -> Mapped {
+            (check, Some(line), severity.to_string(), message.to_string(), "check".to_string())
+        };
+        let expected: Vec<Mapped> = vec![
+            held(7, 12, "warning", "the function has a cognitive complexity of (5/4)"),
+            held(0, 30, "warning", "this expression creates a reference which is immediately dereferenced"),
+            held(0, 44, "error", "cannot find value `missing` in this scope"),
+        ];
+        let read = mapped_of(&findings_from_cargo(CARGO_STREAM, GATES, "check"));
+        let none = mapped_of(&findings_from_cargo("", GATES, "check"));
+        assert_eq!((read, mapped_of(&ran.findings), none), (expected.clone(), expected, Vec::new()));
     }
 
     #[test]
     #[validates(spec::ADiagnosticFromAToolWithNoJsonStreamIsReadFromStderr)]
     fn a_diagnostic_from_a_tool_with_no_json_stream_is_read_from_stderr() {
-        let findings = findings_from_stderr(RUSTDOC_STDERR, GATES, "doc");
+        let root = scratch("stderr-provenance");
         // Each diagnostic the tool printed is carried; the progress line above
-        // them and the summary line below them are no diagnostics.
+        // them and the summary line below them are no diagnostics. A finding of
+        // this provenance carries what one of the other does: the place it
+        // points at, the check of the lint that raised it — in the spelling the
+        // lint is declared with, not the tool's — and that check's row.
         //
-        // And a finding of this provenance carries what one of the other does:
-        // the place it points at, the check of the lint that raised it — in the
-        // spelling the lint is declared with, not the tool's — and that row.
-        let observed: Vec<Read> =
-            findings.iter().map(|f| (f.file.clone(), f.line, f.check, f.fix.clone(), f.severity.clone())).collect();
+        // Observed on the reader and on a run of `doc`, whose output carries a
+        // full JSON stream on the stdout this provenance does not read: a run
+        // that read the wrong stream would answer cargo's three diagnostics.
+        let both = ToolOutput { stdout: CARGO_STREAM.to_string(), stderr: RUSTDOC_STDERR.to_string() };
+        let ran = recorded("doc", &root, &members(), both).1;
         let expected: Vec<Read> = vec![
             (Some(SOURCE_FILE.to_string()), Some(12), 2, Some(FIX_TWO.to_string()), "warning".to_string()),
             (Some(SOURCE_FILE.to_string()), Some(20), 0, None, "error".to_string()),
         ];
-        assert_eq!(observed, expected, "{findings:?}");
-        assert!(findings_from_stderr("", GATES, "doc").is_empty());
+        let read = read_of(&findings_from_stderr(RUSTDOC_STDERR, GATES, "doc"));
+        let none = read_of(&findings_from_stderr("", GATES, "doc"));
+        assert_eq!((read, read_of(&ran.findings), none), (expected.clone(), expected, Vec::new()));
+        // `cargo package` shares this provenance and points at no place in the
+        // source at all: a reader keyed to rustdoc's `-->` line answers nothing
+        // over a packaging that failed, which is the `package` step passing
+        // over every reason it could not publish.
+        let packaging = findings_from_stderr(PACKAGE_STDERR, GATES, "package");
+        let bare: Vec<Read> =
+            vec![(None, None, 0, None, "warning".to_string()), (None, None, 0, None, "error".to_string())];
+        let said = ["manifest has no documentation", "failed to verify package tarball"];
+        assert_eq!(read_of(&packaging), bare, "{packaging:?}");
+        assert!(packaging.iter().zip(said).all(|(found, sentence)| found.message.contains(sentence)), "{packaging:?}");
     }
 
     #[test]
@@ -1103,15 +1315,20 @@ error: aborting due to 1 previous error; 1 warning emitted
     #[validates(spec::PackageNamesEveryPublishingMemberInOneInvocation)]
     fn package_names_every_publishing_member_in_one_invocation() {
         let root = scratch("package-invocation");
-        let (seen, _) = recorded("package", &root, &members(), ToolOutput::default());
+        let publishing = members();
+        let (seen, _) = recorded("package", &root, &publishing, ToolOutput::default());
         // One invocation naming them all: the per-crate form cannot resolve a
-        // sibling at a version no registry holds.
-        let shown = format!("{seen:?}");
-        assert!(seen.len() == 1 && members().iter().all(|member| shown.contains(member)), "{shown}");
+        // sibling at a version no registry holds. Each member is one whole
+        // argument, since `lid-rs` is a substring of the other two names and an
+        // invocation naming only those would hold a search for it.
+        let args = args_of(seen.first().expect("the package invocation"));
+        let named: Vec<bool> = publishing.iter().map(|member| args.contains(member)).collect();
+        assert_eq!((seen.len(), named), (1, vec![true; publishing.len()]), "{args:?}");
         // The members are the workspace's answer, not the table's own list.
         let (other, _) = recorded("package", &root, &strings(&["only-me"]), ToolOutput::default());
-        let narrowed = format!("{other:?}");
-        assert!(narrowed.contains("only-me") && !narrowed.contains("lid-rs-macros"), "{narrowed}");
+        let narrowed = args_of(other.first().expect("the package invocation"));
+        let held = ["only-me", "lid-rs-macros"].map(|member| narrowed.iter().any(|arg| arg == member));
+        assert_eq!(held, [true, false], "{narrowed:?}");
     }
 
     #[test]
@@ -1121,10 +1338,14 @@ error: aborting due to 1 previous error; 1 warning emitted
         let (seen, _) = recorded("doc", &root, &members(), ToolOutput::default());
         // Without the flag a private item's documentation is never read, and
         // check 3 and rustdoc stop agreeing about what is documented.
-        let shown = format!("{seen:?}");
-        for token in ["doc", "--no-deps", "--document-private-items"] {
-            assert!(shown.contains(token), "{token} in {shown}");
-        }
+        //
+        // Each is one whole argument. `doc` is a substring of
+        // `--document-private-items` and of the `RUSTDOCFLAGS` value, so a
+        // search of the printed invocation for it holds over an invocation that
+        // names neither the command nor the flag.
+        let args = args_of(seen.first().expect("the doc invocation"));
+        let named = ["doc", "--no-deps", "--document-private-items"].map(|token| args.iter().any(|arg| arg == token));
+        assert_eq!(named, [true, true, true], "{args:?}");
     }
 
     #[test]
