@@ -228,8 +228,8 @@ pub fn allowed_paths(phase: Phase, slice: &str, seat: Seat) -> Vec<PathBuf> {
 /// crate — one row per phase. Phase 1 is the human's: no agent writes in it.
 #[implements(
     spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
 )]
 fn own_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
     match phase {
@@ -245,8 +245,8 @@ fn own_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
 /// `tests/ui` fixtures too. Phase 1 is the human's here as well.
 #[implements(
     spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles,
-    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot,
-    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
+    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
 fn companion_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
     match phase {
@@ -268,10 +268,10 @@ fn spec_files(slice: &str) -> Vec<PathBuf> {
 /// the slice name in snake_case as the spec file's is — followed by
 /// `extras`, crate-relative: the rows of Phases 3 to 7 in either table.
 #[implements(
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule,
-    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot,
-    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
+    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
 fn module_and(slice: &str, extras: &[&str]) -> Vec<PathBuf> {
     let module = slice.replace('-', "_");
@@ -543,7 +543,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot)]
+    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent)]
     fn phases_three_and_four_may_write_the_own_crates_slice_module_and_library_root() {
         let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
         assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Own), expected);
@@ -554,7 +554,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot)]
+    #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent)]
     fn phases_three_and_four_refuse_the_rest() {
         let cases = [
             (Phase::Three, "/w/app/src/hello/policy.rs", false),
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule)]
+    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent)]
     fn phases_five_and_seven_may_write_only_the_own_crates_slice_module() {
         let expected = paths(&["src/hello.rs", "src/hello"]);
         assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Own), expected);
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule)]
+    #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent)]
     fn phases_five_and_seven_refuse_the_rest() {
         let cases = [
             (Phase::Seven, "/w/app/src/hello.rs", false),
@@ -698,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot)]
+    #[validates(spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims)]
     fn phases_three_and_four_may_write_the_companions_slice_module_and_library_root() {
         let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
         assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Companion), expected);
@@ -712,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures)]
+    #[validates(spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims)]
     fn phases_five_and_seven_may_write_the_companions_slice_module_and_ui_fixtures() {
         let expected = paths(&["src/hello.rs", "src/hello", "tests/ui"]);
         assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Companion), expected);
