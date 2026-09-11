@@ -54,8 +54,8 @@ pub struct ACheckStopsAtTheFirstFailingStep;
 // ---- phase-check 5: the red run ----------------------------------------------
 
 /// When the slice's claims are identified, they shall be the registered
-/// specs whose source file is `src/spec/<slice>.rs` — the slice name in
-/// snake_case — read from the registry dump, never from Rust source.
+/// specs whose source file is the slice's claims file, wherever the layout
+/// puts that file, read from the registry dump, never from Rust source.
 #[derive(Spec)]
 #[lid(free)]
 pub struct ASlicesClaimsAreTheSpecsInItsSpecFile;
@@ -90,8 +90,8 @@ pub struct ASliceWithNoClaimsFailsTheRedCheck;
 pub struct TheBaseIsTheNewestGateCommitReachableFromHead;
 
 /// When a base exists, the red set shall be those of the slice's registered
-/// claims whose `struct <Name>` line is an added line of `git diff <base> --
-/// src/spec/<slice>.rs`.
+/// claims whose `struct <Name>` line is an added line of `git diff <base>`
+/// taken over the slice's claims file, wherever the layout puts that file.
 #[derive(Spec)]
 #[lid(free)]
 pub struct TheRedSetIsTheClaimsAddedSinceTheBase;
@@ -147,25 +147,39 @@ pub struct AGreenValidationFailsTheRedCheck;
 pub struct TheSlicesCrateIsTheOneHoldingItsLld;
 
 /// When a Phase 2 agent edits or writes under the slice's own crate, the
-/// target shall be the slice's spec file or `src/spec/mod.rs`, and nothing
-/// else in that crate.
+/// target shall be the slice's claims file — the layout's answer for the
+/// slice, placed in that crate — or `src/spec/mod.rs`, and nothing else in
+/// that crate.
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 
-/// When a Phase 3 or 4 agent edits or writes under the slice's own crate,
-/// the target shall be the slice's module, a file under its directory, or
-/// `src/lib.rs`, and nothing else in that crate.
-#[derive(Spec)]
-#[lid(free)]
-pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot;
+// The four claims below — these two and their companion-seat twins — say what
+// a phase may write under the slice's directory rather than naming the
+// directory. Colocation puts the slice's document, its claims file, and every
+// other file of its intent (a compile-time slice's acceptance) in that same
+// directory, and a directory admits everything under it: naming it would hand
+// Phases 3, 4, 5 and 7 the design document, the claims, and the human's
+// acceptance. A phase's own artifact is Rust source, and of the Rust source
+// beside the code only the claims file is another phase's, so that is the rule
+// the directory entry was standing in for — and it refuses an intent file
+// invented later without the policy learning its name.
 
-/// When a Phase 5 or 7 agent edits or writes under the slice's own crate,
-/// the target shall be the slice's module or a file under its directory,
-/// and nothing else in that crate.
+/// When a Phase 3 or 4 agent edits or writes under the slice's own crate, the
+/// target shall be the slice's module file, `src/lib.rs`, or a Rust source
+/// file under the slice's directory other than its claims file — wherever the
+/// layout puts that file — and nothing else in that crate.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule;
+pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent;
+
+/// When a Phase 5 or 7 agent edits or writes under the slice's own crate, the
+/// target shall be the slice's module file or a Rust source file under the
+/// slice's directory other than its claims file — wherever the layout puts
+/// that file — and nothing else in that crate.
+#[derive(Spec)]
+#[lid(free)]
+pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent;
 
 /// When a target path contains a parent component or resolves outside both
 /// the slice's crate and its companion, the policy shall refuse it before
@@ -219,27 +233,30 @@ pub struct ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit;
 pub struct APathUnderTheCompanionIsJudgedByTheCompanionsTable;
 
 /// When a Phase 2 agent edits or writes under the companion, the target
-/// shall be the slice's spec file or `src/spec/mod.rs` there, and nothing
-/// else in the companion.
+/// shall be the slice's claims file — the same answer the layout gives for
+/// the slice, placed in the companion rather than in the slice's own crate
+/// — or `src/spec/mod.rs` there, and nothing else in the companion.
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;
 
 /// When a Phase 3 or 4 agent edits or writes under the companion, the target
-/// shall be the slice's module, a file under its directory, or `src/lib.rs`
-/// there — where the hand-authored edges citing the slice's claims go — and
-/// nothing else in the companion.
+/// shall be the slice's module file there, `src/lib.rs` — where the
+/// hand-authored edges citing the slice's claims go — or a Rust source file
+/// under the slice's directory other than its claims file, which the
+/// companion is the crate that holds, and nothing else in the companion.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot;
+pub struct PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims;
 
 /// When a Phase 5 or 7 agent edits or writes under the companion, the target
-/// shall be the slice's module, a file under its directory, or a file under
-/// `tests/ui/` — the one place a compile-failure fixture can live — and
-/// nothing else in the companion.
+/// shall be the slice's module file there, a Rust source file under the
+/// slice's directory other than its claims file, or a file under `tests/ui/`
+/// — the one place a compile-failure fixture can live — and nothing else in
+/// the companion.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures;
+pub struct PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims;
 
 /// When an edit or write is refused, the reason shall quote the
 /// `discipline.md` row for that moment and name what the phase may do
@@ -372,9 +389,10 @@ pub struct TheTallyIsWrittenAsTrailers;
 #[lid(free)]
 pub struct ACompileTimeSliceIsDisclosed;
 
-/// When the slice is compile-time and `docs/intent/<slice>/compile-time-accepted`
-/// does not exist in the slice's crate, the policy shall refuse every edit,
-/// naming the file the human commits to accept it.
+/// When the slice is compile-time and the `compile-time-accepted` file of
+/// its intent — wherever the layout puts that file in the slice's own crate
+/// — does not exist, the policy shall refuse every edit, naming the file the
+/// human commits to accept it.
 #[derive(Spec)]
 #[lid(free)]
 pub struct ACompileTimeSliceNeedsTheHumansAcceptance;

@@ -290,8 +290,8 @@ pub use phase::{
     AGreenValidationFailsTheRedCheck,
     TheSlicesCrateIsTheOneHoldingItsLld,
     PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
-    PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot,
-    PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule,
+    PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
+    PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
     PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy,
     AnOrdinaryCrateHasNoCompanion,
     TheCompanionIsTheMemberTheProcMacroCratesMetadataNames,
@@ -300,8 +300,8 @@ pub use phase::{
     ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit,
     APathUnderTheCompanionIsJudgedByTheCompanionsTable,
     PhaseTwoMayWriteOnlyTheCompanionsSpecFiles,
-    PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot,
-    PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures,
+    PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+    PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
     ARefusedEditQuotesTheDisciplineRow,
     ReadsAreNeverRefused,
     EveryToolCallIsTallied,
@@ -334,21 +334,46 @@ pub use phase::{
 #[deprecated = "replaced by PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles"]
 pub type PhaseTwoMayWriteOnlyTheSlicesSpecFiles = phase::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 
-/// The name [`PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot`]
-/// carried while the slice's crate was the only crate a phase could write.
-#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot"]
-pub type PhasesThreeAndFourMayWriteTheSliceModuleAndTheLibraryRoot =
-    phase::PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot;
-
-/// The name [`PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule`] carried
-/// while the slice's crate was the only crate a phase could write.
-#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule"]
-pub type PhasesFiveAndSevenMayWriteOnlyTheSliceModule = phase::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule;
-
 /// The name [`PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy`] carried
 /// while there was one crate to be outside of.
 #[deprecated = "replaced by PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy"]
 pub type PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy = phase::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy;
+
+// The four names below are the ones the `phase` slice's path-table claims
+// carried while a phase's allowed set named the slice's *directory*. Colocation
+// puts the slice's document, its claims file and its acceptance file in that
+// directory, so each of those names asserted a permission over artifacts no
+// phase may write. Two older aliases of the first two names — the ones they
+// carried before a companion — are gone rather than re-pointed: no citation
+// named them, and an alias no citation names is deleted by the next Phase 2 on
+// the slice.
+
+/// The name [`PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent`]
+/// carried while a phase's set named the slice's directory rather than the
+/// code in it.
+#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent"]
+pub type PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot =
+    phase::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent;
+
+/// The name [`PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent`]
+/// carried while a phase's set named the slice's directory rather than the
+/// code in it.
+#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent"]
+pub type PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule = phase::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent;
+
+/// The name [`PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims`]
+/// carried while a phase's set named the slice's directory in the companion
+/// rather than the code in it.
+#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims"]
+pub type PhasesThreeAndFourMayWriteTheCompanionsSliceModuleAndLibraryRoot =
+    phase::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims;
+
+/// The name [`PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims`]
+/// carried while a phase's set named the slice's directory in the companion
+/// rather than the code in it.
+#[deprecated = "replaced by PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims"]
+pub type PhasesFiveAndSevenMayWriteTheCompanionsSliceModuleAndUiFixtures =
+    phase::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims;
 
 pub use sync::{
     TheSkillComesFromTheResolvedLidRsDependency,
