@@ -15,7 +15,8 @@ use door::Door;
 use ending::{WorkerEnd, number, worker};
 use review::{Review, review};
 
-use crate::phase::policy::{ExecutionClass, compile_time_accepted, execution_class, slice_crate};
+use crate::layout;
+use crate::phase::policy::{ExecutionClass, execution_class, slice_crate};
 use crate::phase::{Phase, Tag};
 use crate::project::Project;
 use crate::spec;
@@ -307,27 +308,64 @@ pub fn committed_phases(subjects: &[String]) -> Vec<Phase> {
 /// The one decision over the slice's execution class
 /// ([`crate::phase::policy::execution_class`]): a compile-time slice needs
 /// the human's acceptance ([`accepted`]); an ordinary slice needs nothing.
+///
+/// The crate is the one whose target kinds say whether the slice is
+/// compile-time; where the acceptance of one then sits is the layout's
+/// answer, not this crate joined onto a path, so [`accepted`] is given the
+/// workspace and asks.
 #[implements(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
 pub fn acceptance(project: &Project, crate_root: &Path, slice: &str) -> Result<(), Stop> {
     match execution_class(project, crate_root).map_err(at_precondition)? {
         ExecutionClass::Ordinary => Ok(()),
-        ExecutionClass::CompileTime(_) => accepted(crate_root, slice),
+        ExecutionClass::CompileTime(_) => accepted(project, slice),
     }
 }
 
-/// A compile-time slice's acceptance: the human's file
-/// ([`crate::phase::policy::compile_time_accepted`]) is present, or the run
-/// stops naming it — `docs/intent/<slice>/compile-time-accepted` in the
-/// slice's crate.
+/// The name the human's acceptance of a compile-time slice is filed under,
+/// in whichever layout the slice is in.
+const ACCEPTANCE_FILE: &str = "compile-time-accepted";
+
+/// A compile-time slice's acceptance: the file the layout
+/// ([`crate::layout::intent_file`]) answers with is present, or the run stops
+/// naming it. The layout is asked where that file is rather than told — it is
+/// beside the slice's code once the slice's document has moved there, and
+/// under `docs/intent/<slice>` in the slice's crate until then — so the stop
+/// names the path this tree actually holds the acceptance at and an operator
+/// reads it from the tree. A reader that assumed one of the two forms would,
+/// the moment a slice migrated, report a slice the human *has* accepted as
+/// unaccepted, and every edit to a working slice would be refused.
+///
+/// The one decision is over the layout's answer, and it fails closed. A slice
+/// the layout cannot resolve has nowhere its acceptance could be, so the
+/// answer is *not accepted*, carrying the layout's own sentence after the
+/// name of the file it could not place: an acceptance that cannot be located
+/// is not an acceptance, and the permissive reading is the one failure mode
+/// this precondition exists to prevent — a compile-time slice's code run
+/// after every edit without the human having said so.
 #[implements(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
-pub fn accepted(crate_root: &Path, slice: &str) -> Result<(), Stop> {
-    compile_time_accepted(crate_root, slice).then_some(()).ok_or_else(|| Stop {
+pub fn accepted(project: &Project, slice: &str) -> Result<(), Stop> {
+    match layout::intent_file(project, slice, ACCEPTANCE_FILE) {
+        Ok(path) if path.exists() => Ok(()),
+        Ok(path) => Err(unaccepted(slice, &format!("commit {} to accept that, or run another slice", path.display()))),
+        Err(refusal) => Err(unaccepted(slice, &format!("where its `{ACCEPTANCE_FILE}` file belongs cannot be resolved, so it is not accepted: {refusal}"))),
+    }
+}
+
+/// The stop a compile-time slice without acceptance is: what editing the
+/// slice costs, and then the remedy [`accepted`]'s decision produced — the
+/// path to commit, or why no path could be named.
+///
+/// It cites the claim because the sentence is half of it: a stop that named
+/// no file, or one at some other point of the run, would leave the claim
+/// false however right the decision above it was.
+#[implements(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
+fn unaccepted(slice: &str, remedy: &str) -> Stop {
+    Stop {
         at: At::Precondition,
         decisions: vec![format!(
-            "`{slice}` is a compile-time slice: editing it executes the model's code after every edit. Commit \
-             docs/intent/{slice}/compile-time-accepted in the slice's crate to accept that, or run another slice."
+            "`{slice}` is a compile-time slice: editing it executes the model's code after every edit; {remedy}."
         )],
-    })
+    }
 }
 
 /// The two terminal states; there is no third and no waiver.
@@ -917,16 +955,46 @@ mod tests {
         let (dir, project) = fixture::copy("canopy-acceptance");
         let root = project.root().expect("root");
         acceptance(&project, &root, "hello").expect("an ordinary slice needs no acceptance");
-        let stop = accepted(&root, "hello").expect_err("no acceptance file");
-        assert_eq!(stop.at, At::Precondition);
-        assert!(stop.decisions[0].contains("docs/intent/hello/compile-time-accepted"), "{stop:?}");
+        let stop = accepted(&project, "hello").expect_err("no acceptance file");
+        stop_says(&stop, At::Precondition, &["docs/intent/hello/compile-time-accepted"]);
         std::fs::write(dir.join("build.rs"), "fn main() {}\n").expect("build.rs");
         let compile_time = Project::load_graph_at(&dir.join("Cargo.toml")).expect("metadata");
         let stop = acceptance(&compile_time, &root, "hello").expect_err("a compile-time slice without acceptance");
-        assert!(stop.decisions[0].contains("compile-time-accepted"), "{stop:?}");
+        stop_says(&stop, At::Precondition, &["compile-time-accepted"]);
         std::fs::write(dir.join("docs/intent/hello/compile-time-accepted"), "").expect("accept");
         acceptance(&compile_time, &root, "hello").expect("accepted");
-        accepted(&root, "hello").expect("accepted");
+        accepted(&project, "hello").expect("accepted");
+    }
+
+    #[test]
+    #[validates(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
+    fn the_acceptance_of_a_migrated_slice_is_the_one_beside_its_code() {
+        // The same slice, its document moved beside its code: the acceptance
+        // moves with it, and a reader that looked under `docs/intent` would
+        // read a slice the human has accepted as unaccepted and refuse every
+        // edit to it.
+        let (dir, project) = fixture::copy("canopy-acceptance-colocated");
+        std::fs::create_dir_all(dir.join("src/hello")).expect("the slice's directory");
+        std::fs::write(dir.join("src/hello/lld.md"), "# hello\n\nThe hello slice.\n").expect("the document, beside the code");
+        let stop = accepted(&project, "hello").expect_err("no acceptance file, in either layout");
+        stop_says(&stop, At::Precondition, &["src/hello/compile-time-accepted"]);
+        assert!(!stop.decisions[0].contains("docs/intent"), "the path named is the one this tree holds, not the form the migration left: {stop:?}");
+        std::fs::write(dir.join("docs/intent/hello/compile-time-accepted"), "").expect("the old form of the file");
+        accepted(&project, "hello").expect_err("an acceptance left behind at the old path accepts nothing");
+        std::fs::write(dir.join("src/hello/compile-time-accepted"), "").expect("accept, beside the code");
+        accepted(&project, "hello").expect("accepted where the layout says the acceptance belongs");
+    }
+
+    #[test]
+    #[validates(spec::ACompileTimeSliceStopsAtThePreconditionWithoutAcceptance)]
+    fn an_acceptance_the_layout_cannot_place_is_not_an_acceptance() {
+        // Fail closed: a slice no workspace member holds a document for has
+        // nowhere its acceptance could be, so it is not accepted — never
+        // accepted — and the stop names the file it could not place and the
+        // layout's own sentence for why.
+        let (_dir, project) = fixture::copy("canopy-acceptance-unresolved");
+        let stop = accepted(&project, "no-such-slice").expect_err("the layout can place no acceptance for a slice it cannot resolve");
+        stop_says(&stop, At::Precondition, &["compile-time-accepted", "no-such-slice", "has no crate"]);
     }
 
     #[test]

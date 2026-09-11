@@ -259,7 +259,7 @@ pub fn within(root: &Path, resolved: &Path) -> Result<(), String> {
 }
 
 /// One forwarded call, and this host's executor: the function
-/// [`super::ending::turn`] hands each [`super::turn::drive`] as its
+/// `super::ending::turn` hands each [`super::turn::drive`] as its
 /// [`super::turn::Executor`], so a host with tools of its own runs those
 /// through the same turn rather than these. The `op` must be a tool the
 /// session's declarations carry ([`declared`]) — an edit forwarded to the
@@ -343,13 +343,26 @@ pub fn judged(project: &Project, session: &Session, phase: Phase, tool: Tool, pa
 /// post-edit verdict's text ([`post_edit`]); one that does not asks for no
 /// check, since the check the phase library runs writes the tally, and a
 /// session with no phase has none for it to be written under.
+///
+/// What it answers instead is that the change was made and nothing was
+/// checked. A phaseless session's edits are unmeasured by design (the LLD's
+/// Security posture), and clippy's verdict is not reachable without a
+/// phase: the phase library's check and its tally are one call. Saying so
+/// is what keeps that plain to whoever reads the answer — an empty result
+/// would be indistinguishable from a clean workspace, which is the one
+/// thing this answer cannot claim.
 #[implements(spec::AnAllowedEditReturnsThePostEditVerdictsText, spec::ASessionWithoutAPhaseKeepsNoTally)]
 pub fn checked(project: &Project, session: &Session, tool: Tool, path: &Path) -> ToolResult {
     match session.phase {
         Some(_) => post_edit(project, session, tool, path),
-        None => todo!("what an edit answers in a session with no phase to write the post-edit check's tally under"),
+        None => Ok(UNCHECKED.to_string()),
     }
 }
+
+/// What an edit or write answers with in a session carrying no phase: the
+/// change is on disk and no check was run, so nothing in the answer says
+/// the workspace still compiles.
+pub const UNCHECKED: &str = "the change was made and nothing was checked: this session carries no phase to run the check under, so nothing here says the workspace still compiles";
 
 /// The post-edit verdict after an allowed edit or write, asked as
 /// [`crate::phase::hook_post_edit`] with the session's agent id: its text

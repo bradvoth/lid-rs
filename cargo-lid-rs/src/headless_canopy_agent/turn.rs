@@ -144,7 +144,7 @@ pub struct Forward {
     /// The requestee the forward is addressed to; this program answers
     /// `lid-rs`.
     pub to: String,
-    /// The tool's name: what [`Tool::of`] classifies.
+    /// The tool's name: what [`Tool::of`](super::tools::Tool::of) classifies.
     pub op: String,
     /// The digest of the payload this forward admits.
     pub payload_digest: String,
