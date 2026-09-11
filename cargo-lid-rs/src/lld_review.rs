@@ -1,10 +1,11 @@
 
+use std::collections::BTreeSet;
 use std::ops::Range;
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
-use crate::phase::policy::slice_crate;
+use crate::layout;
 use crate::phase::resolve_slice;
 use crate::project::Project;
 use crate::spec;
@@ -52,6 +53,20 @@ const EVERY_CHECK: [Check; 6] = [
 /// the separator under it.
 const HEADER_AND_SEPARATOR: usize = 2;
 
+/// The character a markdown table delimits its cells with.
+const CELL_DELIMITER: char = '|';
+
+/// The character a markdown heading starts with, which is what ends the
+/// section above it.
+const HEADING_MARK: char = '#';
+
+/// The markers a markdown list item carries when it carries no number.
+const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
+
+/// The cells a decisions row fills: the decision, what was chosen, the
+/// alternatives considered, and the rationale.
+const DECISION_CELLS: usize = 4;
+
 /// The line a failure points at when its file holds no line to cite.
 const FIRST_LINE: usize = 1;
 
@@ -70,43 +85,39 @@ pub struct Lld {
 }
 
 impl Lld {
-    /// The slice's document: the path the slice names, under the package that
-    /// holds it or at the workspace root, read into lines.
+    /// The slice's document, wherever the layout puts it: the `lld.md` beside
+    /// the slice's code once its directory holds one, the
+    /// `docs/intent/<slice>/lld.md` the package that holds the slice keeps
+    /// until then, and — for a slice no workspace package holds a document for
+    /// — that same path under the workspace root, where a slice whose product
+    /// is the workspace rather than a crate keeps it. Read into lines, so that
+    /// every failure about the document names a file and a line.
+    ///
+    /// The layout is asked rather than rebuilt here, and that is the whole of
+    /// what this function decides. `lld-check` is a step of `phase-check 1`,
+    /// so a document it located by a rule of its own would answer for one
+    /// shape of the tree while every other resolver answered for four: the
+    /// first slice whose document moved beside its code would fail Phase 1,
+    /// for itself and for every slice committed after it, with a sentence
+    /// naming a path nothing put a document at.
+    #[implements(
+        spec::TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt,
+        spec::AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot,
+        spec::AnUnreadableLldFailsNamingItsPath,
+    )]
     pub fn read(project: &Project, slice: &str) -> Result<Self, String> {
-        let path = lld_path(project, slice)?;
+        let path = layout::lld_path(project, slice)?;
         Ok(Self { slice: slice.to_string(), lines: read_lines(&path)?, path })
     }
-}
-
-/// Where the slice's document is: `docs/intent/<slice>/lld.md` under the
-/// workspace package whose manifest directory holds it, or — for a slice whose
-/// product is the workspace rather than a crate — the same path at the
-/// workspace root, where a virtual manifest holds no package to find. A slice
-/// under neither gets the root's path, which is then the one an unreadable
-/// document names.
-#[implements(
-    spec::TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt,
-    spec::AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot,
-)]
-fn lld_path(project: &Project, slice: &str) -> Result<PathBuf, String> {
-    match slice_crate(project, slice) {
-        Ok(package) => Ok(package.join(document_relative(slice))),
-        Err(_) => Ok(project.root()?.join(document_relative(slice))),
-    }
-}
-
-/// A slice's document, relative to the directory that holds it:
-/// `docs/intent/<slice>/lld.md`.
-#[implements(spec::TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt)]
-fn document_relative(slice: &str) -> PathBuf {
-    todo!("docs/intent/{slice}/lld.md, as a relative path")
 }
 
 /// A text file's lines, or an error naming the path that was looked for — a
 /// file that is absent, a directory, or not text is not read.
 #[implements(spec::AnUnreadableLldFailsNamingItsPath)]
 fn read_lines(path: &Path) -> Result<Vec<String>, String> {
-    todo!("the lines of {path:?}, or an error naming it")
+    std::fs::read_to_string(path)
+        .map(|text| text.lines().map(str::to_string).collect())
+        .map_err(|unreadable| format!("{}: {unreadable}", path.display()))
 }
 
 /// The closed set of mechanical checks — the properties of the text that hold
@@ -166,7 +177,16 @@ fn artifact_failure(check: Check, path: &Path, line: usize, found: &str) -> Fail
 /// The sentence the skill states a check's rule in, which its failure quotes.
 #[implements(spec::AFailureNamesItsCheckItsFileItsLineAndItsRule)]
 fn rule(check: Check) -> &'static str {
-    todo!("the guideline's sentence for {check:?}")
+    match check {
+        Check::DecisionsExist => "the document has a `## Decisions & Alternatives` heading with a table under it",
+        Check::Alternatives => "every row of that table has four non-empty cells",
+        Check::ShapeRows => {
+            "where a `## Shape` table exists, every row names at least one backticked identifier and gives a non-empty role"
+        }
+        Check::DeferredNumbered => "every item under `### Deferred` is a numbered list item",
+        Check::GuidelineNamesEveryCheck => "the guideline's checklist names every check the tool knows",
+        Check::ReaderObservesOnly => "the reader declares `Read`, `Grep`, `Glob` and nothing else",
+    }
 }
 
 /// The document line number of a zero-based index into [`Lld::lines`] — the
@@ -229,7 +249,7 @@ fn slice_of(project: &Project, given: Option<String>) -> Result<String, String> 
 /// Zero when every check held, and otherwise every failure in the error the
 /// binary prints before exiting non-zero.
 #[implements(spec::LldCheckExitsZeroOnlyWhenEveryCheckHolds)]
-fn report(failures: &[Failure]) -> Result<(), String> {
+pub fn report(failures: &[Failure]) -> Result<(), String> {
     if failures.is_empty() { Ok(()) } else { Err(rendered(failures)) }
 }
 
@@ -237,7 +257,11 @@ fn report(failures: &[Failure]) -> Result<(), String> {
 /// its message — the whole list, so a human sees it rather than the first item.
 #[implements(spec::EveryFailureIsReportedNotOnlyTheFirst)]
 fn rendered(failures: &[Failure]) -> String {
-    todo!("a line for each of {failures:?}")
+    failures
+        .iter()
+        .map(|failure| format!("{}:{}: {:?}: {}", failure.path.display(), failure.line, failure.check, failure.message))
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 /// Every check over one document, in the table's order: the four document
@@ -289,7 +313,7 @@ pub fn alternatives(lld: &Lld) -> Vec<Failure> {
 /// Whether a decisions row has four cells with something in each.
 #[implements(spec::EveryDecisionsRowFillsItsFourCells)]
 fn fills_four_cells(row: &Row) -> bool {
-    todo!("whether {row:?} has four cells and none of them is empty")
+    row.cells.len() == DECISION_CELLS && row.cells.iter().all(|cell| !cell.is_empty())
 }
 
 /// Every row of the `## Shape` table names a backticked identifier and gives a
@@ -320,7 +344,9 @@ fn rows_without_identifier_or_role(lld: &Lld, table: &Table) -> Vec<Failure> {
 /// [`identifiers`] its first cell holds — and gives a non-empty role.
 #[implements(spec::EveryShapeRowNamesAnIdentifierAndARole)]
 fn names_identifier_and_role(row: &Row) -> bool {
-    todo!("whether {row:?} names an identifier and gives a role")
+    let names = row.cells.first().is_some_and(|item| !identifiers(item).is_empty());
+    let role = row.cells.get(1).is_some_and(|role| !role.is_empty());
+    names && role
 }
 
 /// Every item under `### Deferred` is a numbered list item: an unnumbered
@@ -348,7 +374,7 @@ fn unnumbered_items(lld: &Lld, deferred: Range<usize>) -> Vec<Failure> {
 /// and a numbered item alike are not.
 #[implements(spec::EveryDeferredItemIsANumberedListItem)]
 fn is_unnumbered_item(line: &str) -> bool {
-    todo!("whether {line} is a list item without a number")
+    BULLETS.iter().any(|bullet| line.trim_start().starts_with(bullet))
 }
 
 /// The checklist in the project's synced `.claude/skills/lid-rs/references/lld.md`
@@ -413,7 +439,7 @@ fn spelled(checks: &[Check]) -> String {
 /// How the checklist spells one check: its variant name, in backticks.
 #[implements(spec::EveryCheckIsNamedInTheGuidelinesChecklist)]
 fn spelling(check: Check) -> String {
-    todo!("the backticked name of {check:?}")
+    format!("`{check:?}`")
 }
 
 /// The frontmatter of the project's synced `.claude/agents/lid-rs-lld-review.md`
@@ -447,14 +473,17 @@ fn tool_failures(path: &Path, lines: &[String]) -> Vec<Failure> {
 /// line, which declares no tool.
 #[implements(spec::TheReaderDeclaresOnlyTheObservationTools)]
 fn declared_tools(lines: &[String]) -> Vec<String> {
-    todo!("the comma-separated tools the `tools:` line of {lines:?} names")
+    lines
+        .iter()
+        .find_map(|line| line.trim_start().strip_prefix(TOOLS_DECLARATION))
+        .map_or_else(Vec::new, |declared| declared.split(',').map(|tool| tool.trim().to_string()).collect())
 }
 
 /// Whether the declared tools are the observation set and nothing else, in
 /// whatever order they were declared.
 #[implements(spec::TheReaderDeclaresOnlyTheObservationTools)]
 fn observes_only(declared: &[String]) -> bool {
-    todo!("whether {declared:?} is exactly {OBSERVATION_TOOLS:?}, in any order")
+    declared.iter().map(String::as_str).collect::<BTreeSet<&str>>() == OBSERVATION_TOOLS.into_iter().collect()
 }
 
 /// Where a synced artifact is: the path it is at, relative to the workspace
@@ -462,7 +491,7 @@ fn observes_only(declared: &[String]) -> bool {
 /// checks reserve theirs for.
 #[implements(spec::AnUnreadableSyncedArtifactFailsNamingItsPath)]
 fn artifact_path(project: &Project, relative: &str) -> Result<PathBuf, String> {
-    todo!("{relative} under the root of {project:?}")
+    Ok(project.root()?.join(relative))
 }
 
 /// The number of the first line that starts with `marker`, and the file's
@@ -490,7 +519,12 @@ pub fn table_at(lld: &Lld, heading: &str) -> Option<Table> {
 /// no line starts with the heading.
 #[implements(spec::ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator)]
 fn section_range(lines: &[String], heading: &str) -> Option<Range<usize>> {
-    todo!("the lines of {lines:?} under {heading}, up to the next heading")
+    let start = lines.iter().position(|line| line.starts_with(heading))? + 1;
+    let end = lines[start..]
+        .iter()
+        .position(|line| line.starts_with(HEADING_MARK))
+        .map_or(lines.len(), |offset| start + offset);
+    Some(start..end)
 }
 
 /// The pipe-delimited lines of a section, in order, each as the row it is:
@@ -507,20 +541,25 @@ fn pipe_rows(lld: &Lld, section: Range<usize>) -> Vec<Row> {
 /// not, and the separator under a header is.
 #[implements(spec::ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator)]
 fn is_pipe_row(line: &str) -> bool {
-    todo!("whether {line} is a pipe-delimited row")
+    line.trim_start().starts_with(CELL_DELIMITER)
 }
 
 /// The cells a pipe-delimited line holds: what lies between its pipes,
 /// trimmed, less the empty ends the leading and trailing pipes make.
 #[implements(spec::ATableIsTheRowsUnderItsHeadingLessHeaderAndSeparator)]
 fn cells(line: &str) -> Vec<String> {
-    todo!("the cells of {line}")
+    line.trim()
+        .trim_start_matches(CELL_DELIMITER)
+        .trim_end_matches(CELL_DELIMITER)
+        .split(CELL_DELIMITER)
+        .map(|cell| cell.trim().to_string())
+        .collect()
 }
 
 /// The backticked identifiers a cell names.
 #[implements(spec::EveryShapeRowNamesAnIdentifierAndARole)]
 pub fn identifiers(cell: &str) -> Vec<String> {
-    todo!("the backticked spans of {cell}")
+    cell.split('`').skip(1).step_by(2).map(str::to_string).collect()
 }
 
 #[cfg(test)]
@@ -804,16 +843,29 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         let unknown = run(&strings(&["--bogus"])).expect_err("an unknown flag is rejected");
         let stray = run(&strings(&["lld-review"])).expect_err("a bare argument is rejected");
         let nameless = run(&strings(&["--slice"])).expect_err("`--slice` without a name is rejected");
+        // A flag with a value is not `--slice <name>` unless the flag is
+        // `--slice`: it is rejected by name, not taken for the slice.
+        let valued = run(&strings(&["--bogus", "x"])).expect_err("an unknown flag with a value is rejected");
         // And `--slice <name>` is not rejected: the run goes on to look for
         // that slice's document and fails on the document instead.
         let accepted = run(&strings(&["--slice", "no-such-slice"])).expect_err("no such slice has a document");
 
-        let usage = [&unknown, &stray, &nameless].map(|rejection| rejection.contains(LLD_CHECK_USAGE));
+        let usage = [&unknown, &stray, &nameless, &valued].map(|rejection| rejection.contains(LLD_CHECK_USAGE));
 
         assert_eq!(
             (usage, unknown.contains("--bogus"), stray.contains("lld-review"), nameless.contains("--slice")),
-            ([true; 3], true, true, true),
+            ([true; 4], true, true, true),
             "each rejection names the argument, and says how the subcommand is called:\n{unknown}\n{stray}\n{nameless}"
+        );
+        assert_eq!(
+            (
+                valued.contains("unknown argument `--bogus`"),
+                valued.contains("docs/intent/x/lld.md"),
+                nameless.contains("--slice requires a name"),
+                nameless.contains("unknown argument"),
+            ),
+            (true, false, true, false),
+            "a flag that is not `--slice` names no slice whatever follows it, and `--slice` itself is the flag, told to name a slice rather than rejected as unknown:\n{valued}\n{nameless}"
         );
         assert_eq!(
             (accepted.contains("unknown argument"), accepted.contains("docs/intent/no-such-slice/lld.md")),
@@ -825,23 +877,52 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
     #[test]
     #[validates(spec::TheDocumentIsTheSlicesLldUnderThePackageThatHoldsIt)]
     fn the_document_is_the_slices_lld_under_the_package_that_holds_it() {
+        // One member, holding a slice in each layout: `inner`'s document is
+        // still under `docs/intent`, and `moved-slice`'s sits beside its code.
+        // Both are asked, because the document is wherever the layout puts it
+        // and a test asking only the first could not tell that from a path
+        // built out of the slice's name.
         let root = fixture::scratch("lld-review-document");
         write_at(&root.join("app/docs/intent/inner/lld.md"), "# inner\n\nThe inner slice.\n");
         write_at(&root.join("docs/intent/inner/lld.md"), "# a decoy at the workspace root\n");
+        write_at(&root.join("app/src/moved_slice/mod.rs"), "//! The moved slice.\n");
+        write_at(&root.join("app/src/moved_slice/lld.md"), "# moved-slice\n\nBeside the code.\n");
+        write_at(&root.join("app/docs/intent/moved-slice/lld.md"), "# a decoy the migration left behind\n");
         let project = project_at(&root, &["app"]);
 
         let read = Lld::read(&project, "inner").expect("the member package holds it");
+        let moved = Lld::read(&project, "moved-slice").expect("the member package holds it beside the code");
+        // The pre-migration path holds a document of its own, so the answer
+        // for `moved-slice` is the layout's and not the only file to be found.
+        let left_behind = read_lines(&root.join("app/docs/intent/moved-slice/lld.md")).expect("the old path holds one too");
 
-        assert_eq!(read.path, root.join("app/docs/intent/inner/lld.md"), "the package that holds it, not the root");
-        assert_eq!(read.lines, ["# inner", "", "The inner slice."]);
+        assert_eq!(
+            [read.path, moved.path],
+            [root.join("app/docs/intent/inner/lld.md"), root.join("app/src/moved_slice/lld.md")],
+            "the package that holds it and not the workspace root; beside the code and not under `docs/intent`"
+        );
+        assert_eq!(
+            [read.lines, moved.lines, left_behind],
+            [
+                strings(&["# inner", "", "The inner slice."]),
+                strings(&["# moved-slice", "", "Beside the code."]),
+                strings(&["# a decoy the migration left behind"]),
+            ],
+            "each document read is the one at the path the layout answered"
+        );
     }
 
     #[test]
     #[validates(spec::AWorkspaceOnlySlicesDocumentIsAtTheWorkspaceRoot)]
     fn a_workspace_only_slices_document_is_at_the_workspace_root() {
+        // The member holds a slice in each layout — one still under
+        // `docs/intent`, one already beside its code — because a mixed tree is
+        // the migration's normal state, and `skill` is held by neither.
         let root = fixture::scratch("lld-review-workspace-only");
         write_at(&root.join("docs/intent/skill/lld.md"), "# skill\n");
         write_at(&root.join("app/docs/intent/other/lld.md"), "# other\n");
+        write_at(&root.join("app/src/moved_slice/mod.rs"), "//! The moved slice.\n");
+        write_at(&root.join("app/src/moved_slice/lld.md"), "# moved-slice\n");
         let project = project_at(&root, &["app"]);
 
         let read = Lld::read(&project, "skill").expect("no member holds it, so the root does");
@@ -853,18 +934,33 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
     #[validates(spec::AnUnreadableLldFailsNamingItsPath)]
     fn an_unreadable_lld_fails_naming_its_path() {
         let root = fixture::scratch("lld-review-unreadable");
-        let project = project_at(&root, &[]);
+        let project = project_at(&root, &["app"]);
         std::fs::create_dir_all(root.join("docs/intent/a-directory/lld.md")).expect("a directory where a document should be");
         std::fs::create_dir_all(root.join("docs/intent/not-text")).expect("the directories");
         std::fs::write(root.join("docs/intent/not-text/lld.md"), [0xff_u8, 0xfe, 0xff]).expect("bytes that are not text");
+        // A fourth, beside the code in the member: the document the layout
+        // answers for a migrated slice is there and is unreadable, so the path
+        // the failure names is that one and no path built from the slice's
+        // name.
+        write_at(&root.join("app/src/moved/mod.rs"), "//! The moved slice.\n");
+        std::fs::write(root.join("app/src/moved/lld.md"), [0xff_u8, 0xfe, 0xff]).expect("bytes that are not text");
 
         let absent = Lld::read(&project, "absent").expect_err("there is no such document");
         let directory = Lld::read(&project, "a-directory").expect_err("a directory is not a document");
         let not_text = Lld::read(&project, "not-text").expect_err("bytes that are not text are not a document");
+        let moved = Lld::read(&project, "moved").expect_err("bytes beside the code are not a document either");
 
-        assert!(absent.contains(&root.join("docs/intent/absent/lld.md").display().to_string()), "{absent}");
-        assert!(directory.contains(&root.join("docs/intent/a-directory/lld.md").display().to_string()), "{directory}");
-        assert!(not_text.contains(&root.join("docs/intent/not-text/lld.md").display().to_string()), "{not_text}");
+        assert_eq!(
+            [
+                absent.contains(&root.join("docs/intent/absent/lld.md").display().to_string()),
+                directory.contains(&root.join("docs/intent/a-directory/lld.md").display().to_string()),
+                not_text.contains(&root.join("docs/intent/not-text/lld.md").display().to_string()),
+                moved.contains(&root.join("app/src/moved/lld.md").display().to_string()),
+                moved.contains("docs/intent"),
+            ],
+            [true, true, true, true, false],
+            "each failure names the path the layout answered, and the migrated slice's names that one alone:\n{absent}\n{directory}\n{not_text}\n{moved}"
+        );
     }
 
     #[test]
@@ -1118,8 +1214,33 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         let guideline = guideline_names_every_check(&project).expect("the root is locatable");
         let reader = reader_observes_only(&project).expect("the root is locatable");
 
-        assert_eq!(all_located(&guideline), [(Check::GuidelineNamesEveryCheck, root.join(GUIDELINE).as_path(), FIRST_LINE)]);
-        assert_eq!(all_located(&reader), [(Check::ReaderObservesOnly, root.join(READER).as_path(), FIRST_LINE)]);
+        // The same two checks over artifacts that do hold such a line: each
+        // failure is on the line it read, so the first line is the fallback
+        // when there is none rather than the answer either way.
+        let declaring = reader_declaring("Read, Grep, Glob, Edit");
+        write_at(&root.join(GUIDELINE), PARTIAL_CHECKLIST);
+        write_at(&root.join(READER), &declaring);
+        let cited = guideline_names_every_check(&project).expect("the root is locatable");
+        let cited_reader = reader_observes_only(&project).expect("the root is locatable");
+
+        assert_eq!(
+            (all_located(&guideline), all_located(&reader)),
+            (
+                vec![(Check::GuidelineNamesEveryCheck, root.join(GUIDELINE).as_path(), FIRST_LINE)],
+                vec![(Check::ReaderObservesOnly, root.join(READER).as_path(), FIRST_LINE)]
+            ),
+            "neither failure has a line of its own to cite, so each points at its file's first line"
+        );
+        assert_eq!(
+            (cited[0].line, cited_reader[0].line, cited[0].line == FIRST_LINE, cited_reader[0].line == FIRST_LINE),
+            (
+                line_at(PARTIAL_CHECKLIST, "## The checklist — what the tool refuses"),
+                line_at(&declaring, "tools: Read, Grep, Glob, Edit"),
+                false,
+                false
+            ),
+            "a marker that is there is cited on its own line, which is not the first"
+        );
         assert!(guideline[0].message.starts_with("`DecisionsExist`"), "a checklist that is not there names none of them: {}", guideline[0].message);
     }
 
