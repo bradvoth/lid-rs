@@ -91,6 +91,35 @@ Whether the branch is squash-merged, merged, or rebased into the default
 branch afterward is the human's call at PR time; this convention only
 prescribes the shape of the working branch.
 
+### Every phase commit records its decisions and its review targets
+
+A phase commit's body ends with two blocks, before the `Lid-Rs-*` trailers:
+
+```
+Decisions:
+- <what was chosen> over <what was rejected> — <why, in one clause>.
+  -> <pointer: path:line, LLD section, or claim name>
+
+Review:
+- <path:line> — <what a reviewer should judge there>
+```
+
+`Decisions:` is what a review that walks the commits reads. The branch's log
+then answers "what was decided, and why" without opening a diff, and
+`git log --grep='^Decisions:'` collects every decision on a branch in phase
+order. Record what the *phase* decided — a choice the LLD left open, or one the
+LLD settled that the phase found it could not keep — never a restatement of
+what the LLD already prescribes.
+
+`Review:` is the pointer list for a targeted review: the two or three places
+where judgment rather than mechanism was applied, each with what to judge
+there. It is not a list of changed files; the diff already has one.
+
+A phase that decided nothing says so — `Decisions: none — the LLD settled
+everything this phase touched.` That is information about the document's
+quality, and a run of such lines is the evidence that the LLD has got ahead of
+the work.
+
 The same branch can be built unattended: the `lid-rs` workflow (synced to
 `.claude/workflows/lid-rs.js`) walks phases 2–7 from a human-approved
 `phase 1:` commit with the same phase agents and a read-only reviewer
