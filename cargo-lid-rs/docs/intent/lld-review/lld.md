@@ -73,8 +73,12 @@ are the reason the reader is not decoration.
 ### `cargo lid-rs lld-check [--slice <name>]`
 
 Reads one slice's LLD, the slice defaulting to the branch name with
-`lld/` removed, as `phase-check` reads it. The document is
-`docs/intent/<slice>/lld.md` in the workspace package that holds it, or —
+`lld/` removed, as `phase-check` reads it. **The document is whatever
+`layout::lld_path` answers for the slice** — this slice asks and does not
+compute. Before the colocation migration that answer is
+`docs/intent/<slice>/lld.md` in the workspace package that holds it; after it,
+the `lld.md` beside the slice's code, or `<crate>/src/lld.md` for a slice that
+is its crate. Either way, or —
 for a slice whose product is the workspace rather than a crate, as `book`,
 `publish` and `skill` are here — the same path at the workspace root,
 since a virtual manifest holds no package to find. It applies the
