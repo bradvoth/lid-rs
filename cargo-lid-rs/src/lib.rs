@@ -4,6 +4,8 @@
 pub mod coach;
 #[doc = include_str!("../docs/intent/headless-canopy-agent/lld.md")]
 pub mod headless_canopy_agent;
+#[doc = include_str!("../docs/intent/layout/lld.md")]
+pub mod layout;
 #[doc = include_str!("../docs/intent/lld-review/lld.md")]
 pub mod lld_review;
 #[doc = include_str!("../docs/intent/init/lld.md")]
