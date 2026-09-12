@@ -36,6 +36,16 @@ impl Outcome for CanaryOutcome {
     const NAME: &'static str = concat!(module_path!(), "::", stringify!(CanaryOutcome));
 }
 
+/// The identifiers of the variants [`CanaryOutcome`] declares, as the
+/// registrations below spell them.
+///
+/// Written out rather than read back from the slice being examined: what a
+/// canary is for is that the thing looked for is known before the registry is
+/// consulted, so an `OUTCOMES` the linker stripped answers `false` instead of
+/// answering for itself. Adding a variant to the enum adds an entry below and a
+/// name here, and a registration that never arrives is the failure this reports.
+const VARIANTS: [&str; 2] = ["First", "Second"];
+
 /// Reports whether `outcomes` carries an entry for each variant
 /// [`CanaryOutcome`] declares.
 ///
@@ -53,7 +63,11 @@ impl Outcome for CanaryOutcome {
 /// function to the real static.
 #[implements(crate::outcome::spec::TheCanaryOutcomeIsEnumerableWhereverTheCrateIsLinked)]
 pub fn present(outcomes: &[crate::outcome::OutcomeMeta]) -> bool {
-    todo!("present over {} outcomes", outcomes.len())
+    VARIANTS.into_iter().all(|variant| {
+        outcomes
+            .iter()
+            .any(|entry| entry.owner == CanaryOutcome::NAME && entry.variant == variant)
+    })
 }
 
 // The registrations, in the shape `derive(Outcome)` emits: the owning key read
@@ -85,21 +99,55 @@ const _: () = {
 
 #[cfg(test)]
 mod tests {
-    use super::present;
+    use super::{CanaryOutcome, present};
+    use crate::outcome::{Outcome, OutcomeMeta};
     use lid_rs::validates;
+
+    /// One entry, for the cases the real slice cannot produce.
+    fn entry(owner: &'static str, variant: &'static str) -> OutcomeMeta {
+        OutcomeMeta { owner, variant, file: file!(), line: line!() }
+    }
 
     /// The canary reaches the registry of a binary that links this crate.
     ///
-    /// Applied to the real [`OUTCOMES`](crate::OUTCOMES) and not to a synthetic
-    /// slice, because what is asserted is that the registrations survived
-    /// linking into *this* binary: a hand-built input would pass over a section
-    /// the linker had stripped, which is the one thing the canary exists to
-    /// tell apart from a binary that legitimately registers no outcome of its
-    /// own. Registered outside `cfg(test)`, so the same holds for a consumer's
-    /// test binary, which links this crate compiled without it.
+    /// The first assertion is the claim itself and must be made against the
+    /// real [`OUTCOMES`](crate::OUTCOMES): what it asserts is that the
+    /// registrations survived linking into *this* binary, and a hand-built
+    /// input would pass over a section the linker had stripped, which is the
+    /// one thing the canary exists to tell apart from a binary that
+    /// legitimately registers no outcome of its own. Registered outside
+    /// `cfg(test)`, so the same holds for a consumer's test binary, which links
+    /// this crate compiled without it.
+    ///
+    /// The three that follow are the cases the real slice *cannot* produce, and
+    /// they are why [`present`] takes a slice rather than reading the static.
+    /// Without them the assertion above holds for a `present` that answers
+    /// `true` unconditionally, which is a canary that never sings — check 12
+    /// found exactly that. The stripped case pins the answer; the two beside it
+    /// pin the two halves of what "an entry for each variant" means, since a
+    /// registry carrying the right owner under wrong names, or the right names
+    /// under a foreign owner, is not this enum's registration.
     #[test]
     #[validates(crate::outcome::spec::TheCanaryOutcomeIsEnumerableWhereverTheCrateIsLinked)]
     fn the_canary_outcome_is_enumerable_wherever_the_crate_is_linked() {
         assert!(present(&crate::OUTCOMES), "the canary's registrations were stripped");
+        for (outcomes, absent) in registries_without_the_canary() {
+            assert!(!present(&outcomes), "{absent}");
+        }
+    }
+
+    /// The registries the canary is not in, which the real slice cannot be.
+    ///
+    /// A stripped section; this enum's key under names it does not declare; and
+    /// its names under another enum's key. The last two are the two halves of
+    /// "an entry for each variant", and each is a registry some other crate
+    /// could genuinely produce.
+    fn registries_without_the_canary() -> Vec<(Vec<OutcomeMeta>, &'static str)> {
+        let mine = CanaryOutcome::NAME;
+        vec![
+            (vec![], "a stripped section answers for itself"),
+            (vec![entry(mine, "Third"), entry(mine, "Fourth")], "not the variants it declares"),
+            (vec![entry("other::E", "First"), entry("other::E", "Second")], "not this enum's key"),
+        ]
     }
 }
