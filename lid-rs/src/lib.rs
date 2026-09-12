@@ -7,6 +7,7 @@ extern crate self as lid_rs;
 
 pub mod claim;
 pub mod graph;
+pub mod outcome;
 pub mod registry;
 
 // `canary` is a leaf of the `registry` slice and lives beside it, but its path
