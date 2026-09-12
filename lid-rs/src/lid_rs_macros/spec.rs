@@ -5,6 +5,37 @@
 //! into no target binary and therefore cannot carry citations itself; its
 //! implementation edges are hand-authored at the re-export site in `lid-rs`'s
 //! crate root (the standing exception for proc-macro crates).
+//!
+//! The last three claims are the async refusal and the shape pins
+//! (`lid-rs-macros/src/lld.md`, "Citing an `async fn` is refused" and "The
+//! shape pins"). They are three and not four because the document makes the
+//! refusal one unconditional act shared by both verbs — `refuse_async` runs
+//! before `cite_fn` wraps anything, whichever attribute called it — so one
+//! claim names both attributes and a validator that showed the two verbs
+//! differing would falsify it. The pins are two claims because their two
+//! behaviours fail separately: an expansion that dropped an attribute of the
+//! pinned item would falsify [`PinsExpandToTheirItemUnchanged`] while every
+//! argument was still refused, and one that accepted and ignored an argument
+//! would falsify [`PinsRefuseArguments`] while every item still came through
+//! unchanged.
+//!
+//! None of the six claims above is falsified by the change, so none is renamed.
+//! [`MalformedCitationsFailToCompile`] enumerates a closed list of five
+//! malformations, each of which still fails; the async fn and the pin argument
+//! are two new refusals with two new claims, not a sixth and seventh case of
+//! that one. The edge-registration claims describe what a compiled program's
+//! registry holds, and a refused `async fn` compiles into no program.
+//!
+//! Each trigger links the attribute as `lid-rs` re-exports it —
+//! [`implements`](crate::implements), [`flow`](crate::flow),
+//! [`leaf`](crate::leaf) — because the items that keep the claims,
+//! `refuse_async` and `passthrough_pin` in `lid_rs_macros::expand`, are private
+//! to a crate this one cannot link into by intra-doc link. The hand edges in
+//! `lid-rs/src/lib.rs` name that module as the implementer, as the document's
+//! "What Phase 3 writes in the companion" spells them. The three new claims are
+//! written in the controlled language and carry no `#[lid(free)]` mark; the
+//! six earlier claims keep theirs, since rewording them is the slice's own
+//! burn-down and not this change's.
 
 use lid_rs::Spec;
 
@@ -46,3 +77,24 @@ pub struct ModuleCitationsTraceByContainment;
 #[derive(Spec)]
 #[lid(free)]
 pub struct MalformedCitationsFailToCompile;
+
+// ---- Citing an `async fn` is refused -----------------------------------------
+
+/// When [`implements`](crate::implements) or [`validates`](crate::validates)
+/// is written on an `async fn`, compilation shall fail with one diagnostic
+/// spanned on the `async` keyword, the same for either attribute.
+#[derive(Spec)]
+pub struct AsyncCitationsFailToCompile;
+
+// ---- The shape pins ----------------------------------------------------------
+
+/// When [`flow`](crate::flow) or [`leaf`](crate::leaf) with no arguments is
+/// written on a fn, the expansion shall be that fn's tokens unchanged.
+#[derive(Spec)]
+pub struct PinsExpandToTheirItemUnchanged;
+
+/// When [`flow`](crate::flow) or [`leaf`](crate::leaf) is given a non-empty
+/// argument list, compilation shall fail with one diagnostic spanned on those
+/// arguments.
+#[derive(Spec)]
+pub struct PinsRefuseArguments;
