@@ -46,7 +46,7 @@ Run in a directory holding a package manifest (`Cargo.toml` with
 | `clippy.toml` (README §7 thresholds) | new file | exists → conflict |
 | `docs/intent/hld.md` — HLD skeleton with the section headings this workspace's HLD uses | new file | exists → conflict |
 | `src/lld.md` — the crate-root slice's document: the package's first slice is the crate root until a `src/<slice>/` directory exists | new file | exists → conflict |
-| `src/spec.rs` — the crate-root slice's claims file: `//!` doc, no claims | new file | exists, or a `src/spec/` directory exists (the pre-colocation claims module, which `pub mod spec;` would make ambiguous) → conflict |
+| `src/spec.rs` — the crate-root slice's claims file: `//!` doc, no claims | new file | exists, or a `src/spec/` directory exists (the claims file `init` writes would become that directory's parent module: a `mod.rs` inside makes `pub mod spec;` ambiguous, and files no module declares are the user's to resolve first) → conflict |
 | `src/lib.rs` — `#![doc = include_str!("../docs/intent/hld.md")]` and `#![doc = include_str!("lld.md")]` prepended; `pub mod spec;` and the `intent_graph!()` test module appended | edit in place; created if absent (a bin-only package gains a library target, which LID needs for `#[validates]` tests) | `intent_graph!` already present → conflict |
 | `.github/workflows/gate.yml` — README §4.5 in order, installing `cargo-mutants` and `cargo-lid-rs` | new file | exists → conflict |
 | `.gitignore` — `mutants.out/` | appended line | line present → skipped, not a conflict |

@@ -593,7 +593,7 @@ mod tests {
 
     #[test]
     #[validates(spec::AnInitialisedPackagePassesItsOwnGate, spec::NewCreatesALibraryPackageThenInitialisesIt)]
-    fn a_new_package_passes_its_own_gate() {
+    fn new_creates_a_library_package_then_initialises_it_and_passes_its_own_gate() {
         let dir = fresh_package("new-gate");
         let (tests_ok, tests_out) = cargo_in(&dir, &["test", "--lib"]);
         let (clippy_ok, clippy_out) = cargo_in(&dir, &["clippy", "--all-targets", "--", "-D", "warnings"]);
