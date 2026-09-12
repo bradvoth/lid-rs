@@ -391,14 +391,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "lid-rs-shape"
-version = "0.2.8"
-dependencies = [
- "lid-rs",
- "syn 2.0.119",
-]
-
-[[package]]
 name = "linkme"
 version = "0.3.37"
 source = "registry+https://github.com/rust-lang/crates.io-index"
