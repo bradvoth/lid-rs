@@ -13,7 +13,7 @@ jobs:
       - run: rustup show
       - run: cargo check --all-targets
       - run: cargo clippy --all-targets -- -D warnings
-      - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
+      - run: RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps --document-private-items
       - run: cargo test --doc
       # cargo-mutants must exist before `cargo test --lib`: the gate
       # self-test's vacuous_test fixture spawns it (check 12's demonstration).
