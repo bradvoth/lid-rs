@@ -546,10 +546,13 @@ pub fn allowed(phase: Phase, crates: &SliceCrates, claims: &Path, own: &SliceCod
 /// the rule the table's directory entry stands in for, both built from the one
 /// `code` — so the directory a row admits and the directory the rule judges
 /// are the same directory, and the other slices the rule subtracts are exactly
-/// the ones that entry would otherwise hand over.
-#[implements(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
+/// the ones that entry would otherwise hand over. The claims file is the
+/// seat's too (`seat_claims`): the layout's answer for the own seat, the module
+/// directory's `spec.rs` for the companion.
+#[implements(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable, spec::TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec)]
 fn seat_verdict(phase: Phase, seat: Seat, code: &SliceCode, claims: &Path, relative: &Path) -> Verdict {
-    verdict_of(relative, &allowed_paths(phase, seat, claims, code), code, claims)
+    let claims = seat_claims(seat, claims, code);
+    verdict_of(relative, &allowed_paths(phase, seat, &claims, code), code, &claims)
 }
 
 /// The phase's allowed paths of both crates — each seat's table relative to
@@ -569,8 +572,9 @@ pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) ->
 }
 
 /// One seat's table, workspace-relative: each entry under the crate's own
-/// prefix.
-#[implements(spec::TheStopStagesBothCratesStagedPaths)]
+/// prefix, the claims file being that seat's (`seat_claims`) — so the file the
+/// companion seat stages is the one its verdict judged by.
+#[implements(spec::TheStopStagesBothCratesStagedPaths, spec::TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec)]
 fn seat_workspace_paths(
     root: &Path,
     phase: Phase,
@@ -580,7 +584,8 @@ fn seat_workspace_paths(
     code: &SliceCode,
 ) -> Result<Vec<PathBuf>, String> {
     let prefix = crate_prefix(root, crate_root)?;
-    Ok(allowed_paths(phase, seat, claims, code).into_iter().map(|entry| prefix.join(entry)).collect())
+    let claims = seat_claims(seat, claims, code);
+    Ok(allowed_paths(phase, seat, &claims, code).into_iter().map(|entry| prefix.join(entry)).collect())
 }
 
 /// A crate's manifest directory relative to the workspace root, or the
@@ -612,7 +617,10 @@ pub fn staged_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Re
 /// `Cargo.lock` the bump wrote at Phase 7, and nothing at every other phase.
 #[implements(spec::TheBumpsRootFilesJoinTheStagedSetAtPhaseSevenOnly)]
 pub fn hook_written_paths(phase: Phase) -> Vec<PathBuf> {
-    todo!("what the hook writes at {phase:?}")
+    match phase {
+        Phase::Seven => ["Cargo.toml", "Cargo.lock"].map(PathBuf::from).to_vec(),
+        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => Vec::new(),
+    }
 }
 
 /// Whether a crate-relative path is in the phase's set: an entry admits it,
@@ -1249,8 +1257,10 @@ mod tests {
         let crates = with_companion();
         // At Phase 5 the two rows differ: fixtures are the companion's to write.
         check_refusals(&crates, Phase::Five, &[("/w/app/tests/ui/fail.rs", false), ("/w/mac/tests/ui/fail.rs", true)]);
-        // Each row is relative to its own crate: the union, not one set.
-        check_refusals(&crates, Phase::Two, &[("/w/app/src/spec/hello.rs", false), ("/w/app/src/hello.rs", true)]);
+        // Each row is relative to its own crate: the union, not one set. The
+        // companion's Phase 2 row names its module directory's `spec.rs`
+        // (`seat_claims`), whatever the own crate's claims file is.
+        check_refusals(&crates, Phase::Two, &[("/w/app/src/hello/spec.rs", false), ("/w/app/src/hello.rs", true)]);
         assert_ne!(
             allowed_paths(Phase::Five, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")),
             allowed_paths(Phase::Five, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello"))

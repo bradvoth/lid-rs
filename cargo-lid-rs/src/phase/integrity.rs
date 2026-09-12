@@ -25,7 +25,12 @@ pub fn synced_artifacts_match(project: &Project) -> Result<(), String> {
 /// holds them to what the bump wrote.
 #[implements(spec::ChangesOutsideTheStagedSetRefuseTheStop, spec::IntegrityFiltersAgainstBothCratesStagedPaths)]
 pub fn outside_policy_clean(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<(), String> {
-    todo!("nothing outside the staged set of {crates:?} at {phase:?} changed in {project:?}")
+    let staged = super::policy::staged_paths(project, phase, crates)?;
+    let outside: Vec<String> = changed_paths(project)?.iter().filter(|path| !under_any(path, &staged)).map(|path| path.display().to_string()).collect();
+    outside
+        .is_empty()
+        .then_some(())
+        .ok_or_else(|| format!("changed outside the phase's staged set — code the check ran may have written them: {}", outside.join(", ")))
 }
 
 /// Each of the files the hook itself wrote — `version_files`, the root
@@ -34,7 +39,16 @@ pub fn outside_policy_clean(project: &Project, phase: Phase, crates: &SliceCrate
 /// differs. Nothing to hold at any other phase, which passes.
 #[implements(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
 pub fn bumped_files_untouched(project: &Project, version_files: &[(PathBuf, Vec<u8>)]) -> Result<(), String> {
-    todo!("hold {version_files:?} to what the bump wrote in {project:?}")
+    let root = project.root()?;
+    let moved: Vec<String> = version_files
+        .iter()
+        .filter(|(path, written)| std::fs::read(root.join(path)).ok().as_ref() != Some(written))
+        .map(|(path, _)| path.display().to_string())
+        .collect();
+    moved
+        .is_empty()
+        .then_some(())
+        .ok_or_else(|| format!("changed since the bump wrote it — code the check ran may have rewritten it: {}", moved.join(", ")))
 }
 
 /// The workspace-relative `paths` with each one's bytes as it is now — what
@@ -42,7 +56,11 @@ pub fn bumped_files_untouched(project: &Project, version_files: &[(PathBuf, Vec<
 /// hold the tree to after the check.
 #[implements(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
 pub fn contents_of(project: &Project, paths: &[PathBuf]) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
-    todo!("read {paths:?} under the root of {project:?}")
+    let root = project.root()?;
+    paths
+        .iter()
+        .map(|path| std::fs::read(root.join(path)).map(|bytes| (path.clone(), bytes)).map_err(|e| format!("reading {}: {e}", path.display())))
+        .collect()
 }
 
 /// The changed paths within `set` — the editing set for the nothing-to-commit

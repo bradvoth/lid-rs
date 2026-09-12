@@ -32,6 +32,13 @@ const PHASE_CHECK_USAGE: &str = "usage: cargo lid-rs phase-check <n> [--slice <n
 /// Usage for `hook`.
 const HOOK_USAGE: &str = "usage: cargo lid-rs hook <pre-tool <n> | post-edit <n> | stop <n>>";
 
+/// The header of the root manifest's table whose `version` the Phase 7 bump
+/// raises.
+const WORKSPACE_PACKAGE_HEADER: &str = "[workspace.package]";
+
+/// How the version line under that header begins.
+const VERSION_PREFIX: &str = "version = \"";
+
 /// A phase with a commit of its own and a check attached — the closed set.
 /// Phases 0, 6, and 8 have no commit (skill, working state) and no check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,18 +84,19 @@ impl TryFrom<u8> for Phase {
     spec::PhaseTwoChecksTheClaimsBuild,
 )]
 pub enum Step {
-    /// `cargo check --all-targets`.
+    /// `cargo check --all-targets --locked`.
     Check,
-    /// `cargo clippy --all-targets -- -D warnings`.
+    /// `cargo clippy --all-targets --locked -- -D warnings`.
     Clippy,
-    /// `cargo doc --no-deps` with broken intra-doc links denied.
+    /// `cargo doc --no-deps --document-private-items --locked` with broken
+    /// intra-doc links denied.
     Doc,
-    /// `cargo test --doc`.
+    /// `cargo test --doc --locked`.
     DocTests,
-    /// `cargo test --lib`.
+    /// `cargo test --lib --locked`.
     LibTests,
-    /// One `cargo package -p <a> -p <b> … --allow-dirty` naming every
-    /// publishing package, so the members resolve against each other.
+    /// One `cargo package -p <a> -p <b> … --allow-dirty --locked` naming
+    /// every publishing package, so the members resolve against each other.
     Package(Vec<String>),
     /// `sync --check`, through the library.
     SyncCheck,
@@ -547,18 +555,22 @@ pub fn bump_workspace_version(project: &Project) -> Result<String, String> {
 }
 
 /// The workspace root's `Cargo.toml` as committed at `HEAD` — `git show
-/// HEAD:Cargo.toml` — and never the working tree's, which a refused stop's
-/// earlier bump has already raised.
+/// HEAD:./Cargo.toml` — and never the working tree's, which a refused stop's
+/// earlier bump has already raised. The `./` is what makes the path the
+/// workspace root's: `Project::git` runs at that root, and a bare
+/// `HEAD:Cargo.toml` is relative to the repository's, which need not be the
+/// same directory.
 #[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
 fn manifest_at_head(project: &Project) -> Result<String, String> {
-    todo!("the root manifest of {project:?} as committed at HEAD")
+    crate::project::capture(project.git()?.args(["show", "HEAD:./Cargo.toml"]))
 }
 
 /// Writes `manifest` over the workspace root's `Cargo.toml` in the working
 /// tree — the one file the bump edits.
 #[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
 fn write_root_manifest(project: &Project, manifest: &str) -> Result<(), String> {
-    todo!("write {manifest} over the root manifest of {project:?}")
+    let path = project.root()?.join("Cargo.toml");
+    std::fs::write(&path, manifest).map_err(|e| format!("writing {}: {e}", path.display()))
 }
 
 /// `cargo update --workspace --offline`: `Cargo.lock` brought to the members'
@@ -566,7 +578,7 @@ fn write_root_manifest(project: &Project, manifest: &str) -> Result<(), String> 
 /// consulted.
 #[implements(spec::TheBumpUpdatesTheLockForTheMembersAloneOffline)]
 fn update_lock_offline(project: &Project) -> Result<(), String> {
-    todo!("cargo update --workspace --offline in {project:?}")
+    crate::project::capture(project.cargo()?.args(["update", "--workspace", "--offline"])).map(|_| ())
 }
 
 /// The manifest text with its `[workspace.package]` version line raised one
@@ -590,7 +602,11 @@ pub fn bump_patch_version(manifest: &str) -> Result<String, String> {
 /// correctly passed over, so the version-line rule is this leaf's too.
 #[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable)]
 fn with_value_on_line(manifest: &str, index: usize, from: &str, to: &str) -> String {
-    todo!("line {index} of {manifest} with {from} replaced by {to}")
+    manifest
+        .split_inclusive('\n')
+        .enumerate()
+        .map(|(at, line)| if at == index { line.replacen(from, to, 1) } else { line.to_string() })
+        .collect()
 }
 
 /// The version line of a root manifest: the index of the first line beginning
@@ -607,7 +623,10 @@ pub fn version_line(manifest: &str) -> Result<(usize, String), String> {
 /// holding no such line fails naming the header it looked for.
 #[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
 fn workspace_package_table(manifest: &str) -> Result<usize, String> {
-    todo!("the line of the workspace package header in {manifest}")
+    manifest
+        .lines()
+        .position(|line| line.trim() == WORKSPACE_PACKAGE_HEADER)
+        .ok_or_else(|| format!("no `{WORKSPACE_PACKAGE_HEADER}` header in the root manifest: nothing to raise the version of"))
 }
 
 /// The first line after line `after` that begins `version = "`, stopping at
@@ -616,22 +635,34 @@ fn workspace_package_table(manifest: &str) -> Result<usize, String> {
 /// line it looked for, so a later table's `version` is never the answer.
 #[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
 fn first_version_line(manifest: &str, after: usize) -> Result<(usize, String), String> {
-    todo!("the first version line of {manifest} after line {after} and before the next table")
+    manifest
+        .lines()
+        .enumerate()
+        .skip(after + 1)
+        .take_while(|(_, line)| !line.starts_with('['))
+        .find_map(|(index, line)| line.strip_prefix(VERSION_PREFIX).map(|rest| (index, rest.split('"').next().unwrap_or("").to_string())))
+        .ok_or_else(|| format!("no `{VERSION_PREFIX}` line under `{WORKSPACE_PACKAGE_HEADER}` before the next table: nothing to raise"))
 }
 
 /// Three dot-separated numbers with the last raised by one; anything else is
 /// a failure naming the value.
 #[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
 pub fn next_patch(version: &str) -> Result<String, String> {
-    todo!("raise the patch level of {version}")
+    let numbers: Result<Vec<u64>, _> = version.split('.').map(str::parse).collect();
+    match numbers.ok().as_deref() {
+        Some([major, minor, patch]) => Ok(format!("{major}.{minor}.{}", patch + 1)),
+        Some(_) | None => Err(format!("`{version}` is not three dot-separated numbers, so it has no patch level to raise")),
+    }
 }
 
-/// The `<version>` field of a `phase 7: <version>: <what and why>` subject,
-/// or none when the subject has no such field; the hook compares it against
-/// the bump's answer after the bump and before the check.
+/// The `<version>` field of a `phase 7: <version>: <what and why>` subject —
+/// what stands between the tag's colon and the next — or none when the
+/// subject has no such field; the hook compares it against the bump's answer
+/// after the bump and before the check.
 #[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
 pub fn subject_version(subject: &str) -> Option<String> {
-    todo!("read the version field of the subject {subject}")
+    let (_, after_tag) = subject.split_once(':')?;
+    after_tag.split_once(':').map(|(version, _)| version.trim().to_string())
 }
 
 /// The phase's check, tallied, in a fresh process of this binary so its
@@ -790,12 +821,15 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
 }
 
 /// One step's cargo arguments as data, so what a step invokes is assertable
-/// without invoking it: the six cargo steps' lists, the one `cargo package`
-/// naming every member as a `-p <name>` pair in a single argument vector —
-/// so the members resolve against each other rather than each against a
-/// registry that holds no unreleased sibling — with `--allow-dirty`. A step
-/// that invokes no cargo — the library steps, the red run, the LLD checks —
-/// answers with nothing.
+/// without invoking it: the six cargo steps' lists, each carrying `--locked`
+/// where cargo reads it — before the `--` that hands clippy its own flags —
+/// so the check builds from the lock the commit carries; the doc step's
+/// `--document-private-items`, so rustdoc reads the private items a slice's
+/// claims mostly cite; and the one `cargo package` naming every member as a
+/// `-p <name>` pair in a single argument vector — so the members resolve
+/// against each other rather than each against a registry that holds no
+/// unreleased sibling — with `--allow-dirty`. A step that invokes no cargo —
+/// the library steps, the red run, the LLD checks — answers with nothing.
 #[implements(
     spec::EveryCargoStepIsLocked,
     spec::TheDocStepDocumentsPrivateItems,
@@ -803,15 +837,15 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
 )]
 pub fn args_of(step: &Step) -> Vec<String> {
     match step {
-        Step::Check => ["check", "--all-targets"].map(String::from).to_vec(),
-        Step::Clippy => ["clippy", "--all-targets", "--", "-D", "warnings"].map(String::from).to_vec(),
-        Step::Doc => ["doc", "--no-deps"].map(String::from).to_vec(),
-        Step::DocTests => ["test", "--doc"].map(String::from).to_vec(),
-        Step::LibTests => ["test", "--lib"].map(String::from).to_vec(),
+        Step::Check => ["check", "--all-targets", "--locked"].map(String::from).to_vec(),
+        Step::Clippy => ["clippy", "--all-targets", "--locked", "--", "-D", "warnings"].map(String::from).to_vec(),
+        Step::Doc => ["doc", "--no-deps", "--document-private-items", "--locked"].map(String::from).to_vec(),
+        Step::DocTests => ["test", "--doc", "--locked"].map(String::from).to_vec(),
+        Step::LibTests => ["test", "--lib", "--locked"].map(String::from).to_vec(),
         Step::Package(names) => ["package".to_string()]
             .into_iter()
             .chain(names.iter().flat_map(|name| ["-p".to_string(), name.clone()]))
-            .chain(["--allow-dirty".to_string()])
+            .chain(["--allow-dirty".to_string(), "--locked".to_string()])
             .collect(),
         Step::SyncCheck | Step::Mutants | Step::Red | Step::LldChecks => Vec::new(),
     }
@@ -1005,7 +1039,9 @@ pub fn mutation_base(project: &Project) -> Result<String, String> {
 /// would mean something else.
 #[implements(spec::WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain, spec::NoMergeBaseWithMainFailsTheMutationStepNamingTheRef)]
 pub fn merge_base_with_main(project: &Project) -> Result<String, String> {
-    todo!("the merge base of main and HEAD in {project:?}")
+    crate::project::capture(project.git()?.args(["merge-base", "main", "HEAD"]))
+        .map(|hash| hash.trim().to_string())
+        .map_err(|e| format!("no merge base of `main` and HEAD — the base the mutation step falls back to when no gate commit is reachable: {e}"))
 }
 
 /// Those of the claims whose `struct <Name>` line is an added line of
@@ -1426,14 +1462,17 @@ mod tests {
 
     /// A scratch workspace whose members depend on each other at a version no
     /// registry holds — the shape every workspace has between releases, this
-    /// one included — beside a member that depends on nothing.
+    /// one included — beside a member that depends on nothing. Loaded with its
+    /// graph resolved, which writes the `Cargo.lock` every workspace at a gate
+    /// carries: the packaging step is `--locked`, and a workspace with no lock
+    /// is refused by that flag before any member is packaged.
     fn package_workspace(name: &str) -> Project {
         let dir = fixture::scratch(name);
         std::fs::write(dir.join("Cargo.toml"), PACKAGE_WORKSPACE).expect("workspace manifest");
         package_member(&dir, "lid-rs-red-sibling", "");
         package_member(&dir, "lid-rs-red-dependent", SIBLING_DEPENDENCY);
         package_member(&dir, "lid-rs-red-solo", "");
-        Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata")
+        Project::load_graph_at(&dir.join("Cargo.toml")).expect("cargo metadata")
     }
 
     /// Whether the packaging step wrote a member's tarball. This is what
