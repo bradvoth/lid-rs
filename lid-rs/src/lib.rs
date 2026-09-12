@@ -256,4 +256,10 @@ pub trait Spec {
 pub mod __private {
     pub use crate::vocab::Declared;
     pub use linkme;
+    // The path the `#[implements]` span and the `#[validates]` capture reach
+    // `tracing` by, for the same reason `linkme` stands here: four of the five
+    // workspace crates carrying citations have no `tracing` dependency and no
+    // reason to gain one, and an expansion naming `::tracing::` would require
+    // every consumer to add it. See `crate::validate`.
+    pub use tracing;
 }
