@@ -148,23 +148,13 @@ pub type PathsOutsideTheSlicesCrateAreRefusedBeforeThePolicy = crate::phase::spe
 // carried while a phase's allowed set named the slice's *directory*. Colocation
 // puts the slice's document, its claims file and its acceptance file in that
 // directory, so each of those names asserted a permission over artifacts no
-// phase may write. Two older aliases of the first two names — the ones they
-// carried before a companion — are gone rather than re-pointed: no citation
-// named them, and an alias no citation names is deleted by the next Phase 2 on
-// the slice.
-
-/// The name [`crate::phase::spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent`]
-/// carried while a phase's set named the slice's directory rather than the
-/// code in it.
-#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent"]
-pub type PhasesThreeAndFourMayWriteTheOwnCratesSliceModuleAndLibraryRoot =
-    crate::phase::spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent;
-
-/// The name [`crate::phase::spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent`]
-/// carried while a phase's set named the slice's directory rather than the
-/// code in it.
-#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent"]
-pub type PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceModule = crate::phase::spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent;
+// phase may write. Older aliases of the first two names are gone rather than
+// re-pointed: no citation named them, and an alias no citation names is
+// deleted by the next Phase 2 on the slice. That has now happened twice — the
+// pair from before a companion, and the pair these names carried while a
+// phase's set named the slice's directory rather than the code in it, retired
+// when `lld/phase--crate-root-paths` narrowed both to exclude another slice's
+// code.
 
 /// The name [`crate::phase::spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims`]
 /// carried while a phase's set named the slice's directory in the companion

@@ -11,7 +11,7 @@ pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
 use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
-use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
+use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
 use tally::Event;
 
 use crate::layout;
@@ -384,9 +384,18 @@ fn unaccepted(slice: &str, what: &str, acceptance: &Path) -> String {
 /// that is is a layout fact: it is asked of `layout::spec_file` here, where
 /// the project is, and answered relative to no crate, so that the one answer
 /// judges the slice's own crate and its companion alike.
+///
+/// Where the slice's code is in that crate is the other layout fact the
+/// policy is told rather than spells, and it is asked here for the same
+/// reason: a directory spelled from the slice's name is one a crate-root
+/// slice keeps no code in, and the crate's `src` that slice's code *is* holds
+/// every module slice the crate has, so the answer is a directory and the
+/// other slices' directories under it together
+/// ([`policy::SliceCode::of_own_crate`]).
 fn path_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: &Path, agent: &str) -> Result<HookVerdict, String> {
     let claims = layout::spec_file(project, &crates.slice)?;
-    match allowed(phase, crates, &claims, target) {
+    let code = SliceCode::of_own_crate(project, crates)?;
+    match allowed(phase, crates, &claims, &code, target) {
         Verdict::Allowed => Ok(HookVerdict::Allow),
         Verdict::Refused(why) => refuse_edit(project, phase, &workspace_paths(project, phase, crates)?, target, &why, agent),
     }
@@ -1234,10 +1243,13 @@ mod tests {
             Step::Mutants,
         ];
         assert_eq!([plan(Phase::Seven, &strings(&["a", "b"])), plan(Phase::Five, &[])], [gate, vec![Step::Red]]);
-        // Who every publisher is: xtask says `publish = false`, so the three
-        // published crates remain, and full metadata — which lists the
-        // dependencies too, and they are not members — names the same three.
-        let published = strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros"]);
+        // Who every publisher is: `xtask` and `lid-rs-pipeline` say `publish =
+        // false`, so the published crates remain, and full metadata — which
+        // lists the dependencies too, and they are not members — names the
+        // same set. The list grows with the workspace: `lid-rs-shape` joined
+        // it when slice 18's crate became a member, and `publishers` read it
+        // from the metadata without being told.
+        let published = strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros", "lid-rs-shape"]);
         let workspace = Project::load_at(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml")).expect("cargo metadata");
         assert_eq!([publishers(&workspace), publishers(&fixture::workspace())], [published.clone(), published]);
         // And at once: the two forms differ only against a real workspace, so

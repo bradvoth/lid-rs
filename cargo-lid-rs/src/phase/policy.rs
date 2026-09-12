@@ -213,15 +213,183 @@ fn companion_refusal(what: &str) -> Refusal {
     }
 }
 
+/// A crate's `src`: the directory a crate-root slice's code is, and the one
+/// every module slice's directory sits under. It is named because the rule
+/// below now turns on it — a slice's directory that *is* a crate's `src` has
+/// no module file beside it to put in a row.
+const CRATE_SRC: &str = "src";
+
+/// Where a slice's code is in one crate: the directory a phase's rows name,
+/// and the directories under it that are other slices' of that same crate.
+///
+/// One value, because the rule is one — a phase writes the slice's code,
+/// which is what lies under the slice's directory and under no other slice's
+/// directory in that crate. For a slice that is a module of its crate the
+/// second half is empty and this is the directory the rows always carried.
+/// For a crate-root slice the directory is its crate's `src`, which is where
+/// that slice's code is and also where every module slice the crate holds
+/// sits: `cargo-lid-rs` is such a slice and holds eight, so the directory
+/// alone would hand its phases all eight, and the directory spelled from the
+/// slice's name — which is what the policy did before — names a directory
+/// holding none of its code at all, leaving Phases 5 and 7 nothing to write.
+///
+/// The two travel together so that they cannot come apart. `allowed_paths`
+/// builds a row's entries from this value and `seat_verdict` judges the target
+/// against the same one, as both did from the single `module_dir` before; a
+/// directory taken from one door and a subtraction from another could be
+/// passed without each other, and the half that goes missing is silently the
+/// wider permission rather than a failure anything observes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SliceCode {
+    /// The slice's directory, crate-relative.
+    dir: PathBuf,
+    /// The other slices' directories under it, crate-relative: empty unless
+    /// the slice's directory is its crate's `src`.
+    other_slices: Vec<PathBuf>,
+}
+
+impl SliceCode {
+    /// The slice's code in its own crate: the layout's answer for the slice's
+    /// directory, made crate-relative, and the other slices' directories that
+    /// crate holds under it.
+    ///
+    /// This is the door the project is needed for, and the caller asks it once
+    /// per hook call beside `layout::spec_file`, for the same reason: the
+    /// policy holds no `Project` where it judges a path, so what the layout
+    /// answers is resolved where the project is and threaded in.
+    #[implements(
+        spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+        spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+    )]
+    pub fn of_own_crate(project: &Project, crates: &SliceCrates) -> Result<Self, String> {
+        let dir = crate_relative(&crates.own, &layout::slice_dir(project, &crates.slice)?)?;
+        Ok(Self { other_slices: other_slice_dirs(project, &crates.own, &dir), dir })
+    }
+
+    /// The code of a slice that is a module of its crate: `src/<module>`, with
+    /// no other slice's directory under it — a module slice's directory holds
+    /// that slice's code and nothing else's.
+    ///
+    /// This is the companion seat's whole answer: a companion is one slice's
+    /// presence in another crate, always a module directory and never a crate
+    /// root, whatever shape the slice's own crate has, so the second table is
+    /// unchanged by the subtraction above and needs no resolution to build.
+    #[implements(
+        spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+        spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
+    )]
+    fn of_module(slice: &str) -> Self {
+        Self { dir: module_dir(slice), other_slices: Vec::new() }
+    }
+
+    /// The entries a phase's row carries for this code: the slice's module
+    /// file, where it has one, and the slice's directory.
+    #[implements(
+        spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+        spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+        spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+        spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
+    )]
+    fn entries(&self) -> Vec<PathBuf> {
+        self.module_file().into_iter().chain(std::iter::once(self.dir.clone())).collect()
+    }
+
+    /// The slice's module file beside its directory: `src/<module>.rs` for a
+    /// slice that is a module of its crate, and none for one whose directory
+    /// is its crate's `src`.
+    ///
+    /// A crate-root slice's module file is the `src/lib.rs` its directory
+    /// holds, which the rows admit as Rust source of the slice's own like any
+    /// other file there; the `src.rs` a sibling spelling would name is beside
+    /// the crate's `src` rather than in it, is no slice's module file, and is
+    /// a path outside the slice's code that a row must not carry.
+    #[implements(
+        spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+        spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+        spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+        spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
+    )]
+    fn module_file(&self) -> Option<PathBuf> {
+        (self.dir.as_path() != Path::new(CRATE_SRC)).then(|| self.dir.with_extension("rs"))
+    }
+
+    /// Whether a crate-relative target lies under the slice's directory, where
+    /// the rule the directory entry stands in for decides what is the phase's.
+    fn under_the_slices_dir(&self, relative: &Path) -> bool {
+        relative.starts_with(&self.dir)
+    }
+
+    /// Whether a crate-relative target lies under another slice's directory in
+    /// the same crate: that slice's code, which is no phase of this slice's to
+    /// write however wide the entry that admitted it.
+    #[implements(
+        spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+        spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+    )]
+    fn under_another_slices_dir(&self, relative: &Path) -> bool {
+        matches_any(relative, &self.other_slices)
+    }
+}
+
+/// A path under a crate, made relative to it: the crate-relative terms every
+/// row and every verdict is written in, for what the layout answers as a path
+/// on disk — or the failure naming both, for a directory that is not under the
+/// crate it was resolved for.
+#[implements(
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+)]
+fn crate_relative(crate_root: &Path, path: &Path) -> Result<PathBuf, String> {
+    todo!()
+}
+
+/// The directories under a slice's own that are other slices' of the same
+/// crate, crate-relative: none under a module slice's directory, which holds
+/// that slice's code alone, and the module slices the crate holds under a
+/// crate-root slice's directory, which is the `src` they sit in.
+///
+/// Which directories those are is the layout's answer and never a second
+/// reading of the tree for what a slice is: a candidate's name is put back to
+/// the door that resolves a slice's directory, and a directory that door
+/// answers with is that slice's.
+///
+/// This is the LLD's reading 1 — a crate-root slice's code is its crate's
+/// `src` minus the module-slice directories that crate holds — and it is this
+/// one function, so the readings the Open Question left standing beside it are
+/// a change here and nowhere else.
+#[implements(
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+)]
+fn other_slice_dirs(project: &Project, crate_root: &Path, dir: &Path) -> Vec<PathBuf> {
+    todo!()
+}
+
 /// One phase's allowed set for one seat, as paths relative to that seat's
 /// crate; a directory entry admits what is under it, and the slice's own
 /// directory admits only the files `admits_file` says are the phase's.
 /// `Seat::Own` is the LLD's first path table, `Seat::Companion` its second.
+///
+/// `code` is that seat's answer to where the slice's code is, which is what
+/// the rows' directory and module-file entries are built from — never the
+/// slice's name, which for a crate-root slice names neither.
 #[implements(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
-pub fn allowed_paths(phase: Phase, slice: &str, seat: Seat) -> Vec<PathBuf> {
+pub fn allowed_paths(phase: Phase, seat: Seat, claims: &Path, code: &SliceCode) -> Vec<PathBuf> {
     match seat {
-        Seat::Own => own_table(phase, slice),
-        Seat::Companion => companion_table(phase, slice),
+        Seat::Own => own_table(phase, claims, code),
+        Seat::Companion => companion_table(phase, claims, code),
+    }
+}
+
+/// One seat's answer to where the slice's code is: for the slice's own crate
+/// the layout's, which the caller resolved and threaded in; for the companion
+/// the module directory spelled from the slice's name, a companion's directory
+/// being a module's whatever shape the slice's own crate has.
+#[implements(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
+fn seat_code(seat: Seat, slice: &str, own: &SliceCode) -> SliceCode {
+    match seat {
+        Seat::Own => own.clone(),
+        Seat::Companion => SliceCode::of_module(slice),
     }
 }
 
@@ -229,15 +397,15 @@ pub fn allowed_paths(phase: Phase, slice: &str, seat: Seat) -> Vec<PathBuf> {
 /// crate — one row per phase. Phase 1 is the human's: no agent writes in it.
 #[implements(
     spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
 )]
-fn own_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
+fn own_table(phase: Phase, claims: &Path, code: &SliceCode) -> Vec<PathBuf> {
     match phase {
         Phase::One => Vec::new(),
-        Phase::Two => spec_files(slice),
-        Phase::Three | Phase::Four => module_and(slice, &["src/lib.rs"]),
-        Phase::Five | Phase::Seven => module_and(slice, &[]),
+        Phase::Two => spec_files(claims),
+        Phase::Three | Phase::Four => module_and(code, &["src/lib.rs"]),
+        Phase::Five | Phase::Seven => module_and(code, &[]),
     }
 }
 
@@ -249,57 +417,71 @@ fn own_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
     spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
-fn companion_table(phase: Phase, slice: &str) -> Vec<PathBuf> {
+fn companion_table(phase: Phase, claims: &Path, code: &SliceCode) -> Vec<PathBuf> {
     match phase {
         Phase::One => Vec::new(),
-        Phase::Two => spec_files(slice),
-        Phase::Three | Phase::Four => module_and(slice, &["src/lib.rs"]),
-        Phase::Five | Phase::Seven => module_and(slice, &["tests/ui"]),
+        Phase::Two => spec_files(claims),
+        Phase::Three | Phase::Four => module_and(code, &["src/lib.rs"]),
+        Phase::Five | Phase::Seven => module_and(code, &["tests/ui"]),
     }
 }
 
-/// Phase 2's row of either table: the slice's spec file (`spec_file_of` —
-/// the slice name in snake_case) and `src/spec/mod.rs`.
+/// Phase 2's row of either table: the slice's claims file as the layout puts
+/// it, and `src/spec/mod.rs`.
+///
+/// The claims file is the layout's answer and not a spelling of the slice's
+/// name. Before colocation the two agreed, and the rule was written as the
+/// spelling; afterwards they disagree for every migrated slice, and the
+/// spelling names a file that does not exist — which refuses Phase 2 its own
+/// artifact while admitting a path that, were it written, would put the slice
+/// alone in the old layout. The claim this row implements already says "the
+/// layout's answer for the slice"; this asks for it.
+///
+/// `src/spec/mod.rs` stays because a crate that still holds retired names
+/// keeps them there, and a rename's alias belongs where the old path
+/// resolved.
 #[implements(spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles, spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles)]
-fn spec_files(slice: &str) -> Vec<PathBuf> {
-    vec![PathBuf::from(super::spec_file_of(slice)), PathBuf::from("src/spec/mod.rs")]
+fn spec_files(claims: &Path) -> Vec<PathBuf> {
+    vec![claims.to_path_buf(), PathBuf::from("src/spec/mod.rs")]
 }
 
-/// The slice's module — `src/<slice>.rs` and the directory `src/<slice>`,
-/// the slice name in snake_case as the spec file's is — followed by
-/// `extras`, crate-relative: the rows of Phases 3 to 7 in either table.
+/// The slice's code in this seat's crate — its module file, where it has one,
+/// and its directory — followed by `extras`, crate-relative: the rows of
+/// Phases 3 to 7 in either table.
 ///
 /// The directory entry is where the code of a slice is, and under the
 /// colocated layout it is where the slice's intent is too. This row says
 /// which directory a phase writes in; `admits_file` below says which of the
 /// files in it are that phase's, and the two are built from the one
-/// `module_dir` so that the entry and the rule cannot come apart.
+/// `SliceCode` so that the entry and the rule cannot come apart.
 #[implements(
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
     spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
-fn module_and(slice: &str, extras: &[&str]) -> Vec<PathBuf> {
-    let dir = module_dir(slice);
-    let mut paths = vec![dir.with_extension("rs"), dir];
+fn module_and(code: &SliceCode, extras: &[&str]) -> Vec<PathBuf> {
+    let mut paths = code.entries();
     paths.extend(extras.iter().map(PathBuf::from));
     paths
 }
 
-/// The slice's directory, crate-relative: `src/<module>`, the slice name in
-/// snake_case as the spec file's is. The entry every row from Phase 3 on
-/// carries, and the directory a target is judged against — a wider one hands
-/// a phase another slice's code, and a narrower one refuses the phase its
-/// own.
+/// A module's directory, crate-relative: `src/<module>`, the slice name in
+/// snake_case as the spec file's is.
+///
+/// This is the companion's directory and the only place the policy still
+/// spells one from the slice's name, because a companion's is a module's
+/// whatever shape the slice's own crate has. The slice's own crate's is the
+/// layout's answer: a crate-root slice keeps no code in a directory of this
+/// name, so spelling one here named a directory holding none of that slice's
+/// code — and Phases 5 and 7, whose row carries no `src/lib.rs`, could then
+/// write nothing at all.
 #[implements(
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
     spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
 fn module_dir(slice: &str) -> PathBuf {
-    Path::new("src").join(slice.replace('-', "_"))
+    Path::new(CRATE_SRC).join(slice.replace('-', "_"))
 }
 
 /// The verdict for a target: refused before any table when it has a parent
@@ -316,12 +498,28 @@ fn module_dir(slice: &str) -> PathBuf {
 /// same place while holding no document at all. Reading it from the crate a
 /// target lies under would make the companion's copy of a colocated slice's
 /// claims writable by every phase.
+///
+/// `own` is where the slice's code is in its own crate, asked of
+/// [`SliceCode::of_own_crate`] by that same caller and for the same reason.
+/// Only the own seat's is threaded: the companion's is a module directory
+/// whatever shape the slice's own crate has, so `seat_code` spells it here
+/// and no project is needed for it.
 #[implements(spec::PathsOutsideTheSlicesCratesAreRefusedBeforeThePolicy, spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
-pub fn allowed(phase: Phase, crates: &SliceCrates, claims: &Path, target: &Path) -> Verdict {
+pub fn allowed(phase: Phase, crates: &SliceCrates, claims: &Path, own: &SliceCode, target: &Path) -> Verdict {
     match crates.seat_of(target) {
         None => Verdict::Refused(format!("`{}` has a parent component or lies outside the slice's crates", target.display())),
-        Some((seat, relative)) => verdict_of(&relative, &allowed_paths(phase, &crates.slice, seat), &module_dir(&crates.slice), claims),
+        Some((seat, relative)) => seat_verdict(phase, seat, &seat_code(seat, &crates.slice, own), claims, &relative),
     }
+}
+
+/// The verdict for a target in the seat it lies under: that seat's table, and
+/// the rule the table's directory entry stands in for, both built from the one
+/// `code` — so the directory a row admits and the directory the rule judges
+/// are the same directory, and the other slices the rule subtracts are exactly
+/// the ones that entry would otherwise hand over.
+#[implements(spec::APathUnderTheCompanionIsJudgedByTheCompanionsTable)]
+fn seat_verdict(phase: Phase, seat: Seat, code: &SliceCode, claims: &Path, relative: &Path) -> Verdict {
+    verdict_of(relative, &allowed_paths(phase, seat, claims, code), code, claims)
 }
 
 /// The phase's allowed paths of both crates — each seat's table relative to
@@ -330,10 +528,12 @@ pub fn allowed(phase: Phase, crates: &SliceCrates, claims: &Path, target: &Path)
 #[implements(spec::TheStopStagesBothCratesAllowedPaths)]
 pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<Vec<PathBuf>, String> {
     let root = project.root()?;
+    let claims = crate::layout::spec_file(project, &crates.slice)?;
+    let own = SliceCode::of_own_crate(project, crates)?;
     let per_seat: Vec<Vec<PathBuf>> = crates
         .seats()
         .into_iter()
-        .map(|(seat, crate_root)| seat_workspace_paths(&root, phase, &crates.slice, seat, crate_root))
+        .map(|(seat, crate_root)| seat_workspace_paths(&root, phase, seat, crate_root, &claims, &seat_code(seat, &crates.slice, &own)))
         .collect::<Result<_, _>>()?;
     Ok(per_seat.concat())
 }
@@ -341,9 +541,16 @@ pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) ->
 /// One seat's table, workspace-relative: each entry under the crate's own
 /// prefix.
 #[implements(spec::TheStopStagesBothCratesAllowedPaths)]
-fn seat_workspace_paths(root: &Path, phase: Phase, slice: &str, seat: Seat, crate_root: &Path) -> Result<Vec<PathBuf>, String> {
+fn seat_workspace_paths(
+    root: &Path,
+    phase: Phase,
+    seat: Seat,
+    crate_root: &Path,
+    claims: &Path,
+    code: &SliceCode,
+) -> Result<Vec<PathBuf>, String> {
     let prefix = crate_prefix(root, crate_root)?;
-    Ok(allowed_paths(phase, slice, seat).into_iter().map(|entry| prefix.join(entry)).collect())
+    Ok(allowed_paths(phase, seat, claims, code).into_iter().map(|entry| prefix.join(entry)).collect())
 }
 
 /// A crate's manifest directory relative to the workspace root, or the
@@ -358,8 +565,8 @@ fn crate_prefix(root: &Path, crate_root: &Path) -> Result<PathBuf, String> {
 
 /// Whether a crate-relative path is in the phase's set: an entry admits it,
 /// and the file it names is one this phase writes where it lies.
-fn verdict_of(relative: &Path, allowed: &[PathBuf], dir: &Path, claims: &Path) -> Verdict {
-    if matches_any(relative, allowed) && admits_file(relative, dir, claims) {
+fn verdict_of(relative: &Path, allowed: &[PathBuf], code: &SliceCode, claims: &Path) -> Verdict {
+    if matches_any(relative, allowed) && admits_file(relative, code, claims, allowed) {
         Verdict::Allowed
     } else {
         Verdict::Refused(format!("`{}` is not in this phase's allowed set", relative.display()))
@@ -367,19 +574,73 @@ fn verdict_of(relative: &Path, allowed: &[PathBuf], dir: &Path, claims: &Path) -
 }
 
 /// Whether the file a target names is one the phase may write where it lies:
-/// under the slice's directory the rule below decides, and anywhere else the
-/// entry that admitted it has already said all there is to say — the module
-/// file and the library root are files of their own, and the companion's
-/// `tests/ui` holds a compile-failure fixture and the `.stderr` beside it,
-/// which is not Rust source and is not held to being any.
+/// nothing under another slice's directory is, whatever entry admitted it,
+/// and the rest is the question below.
+///
+/// The subtraction is here rather than in the entries because `git add --
+/// <paths>` cannot express "everything under this directory except these":
+/// the refusal narrows now, and the staging that must narrow with it is the
+/// open half the LLD records.
 #[implements(
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
     spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
-fn admits_file(relative: &Path, dir: &Path, claims: &Path) -> bool {
-    if relative.starts_with(dir) { rust_source_but_the_claims(relative, claims) } else { true }
+fn admits_file(relative: &Path, code: &SliceCode, claims: &Path, allowed: &[PathBuf]) -> bool {
+    !code.under_another_slices_dir(relative) && this_slices_file(relative, code, claims, allowed)
+}
+
+/// Whether a target that is no other slice's is one the phase may write where
+/// it lies: under the slice's directory the rule below decides, and anywhere
+/// else the entry that admitted it has already said all there is to say — the
+/// module file and the library root are files of their own, and the
+/// companion's `tests/ui` holds a compile-failure fixture and the `.stderr`
+/// beside it, which is not Rust source and is not held to being any.
+#[implements(
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
+)]
+fn this_slices_file(relative: &Path, code: &SliceCode, claims: &Path, allowed: &[PathBuf]) -> bool {
+    if code.under_the_slices_dir(relative) { source_this_phase_may_write(relative, claims, allowed) } else { true }
+}
+
+/// Whether a file under the slice's directory is Rust source this phase may
+/// write: the claims file is excluded unless the phase's table names it.
+///
+/// Colocation put the claims file inside the slice's directory, where before
+/// it was the crate's `src/spec/<module>.rs` and under no slice's directory
+/// at all. The exclusion below exists to keep Phases 3 to 7 out of Phase 2's
+/// artifact, and while the file lay outside the directory it never met Phase
+/// 2's own row. Now it does, so an exclusion that did not ask whose row it was
+/// refuses Phase 2 the one file it exists to write. The table is the authority
+/// on what a phase writes; this asks it rather than naming Phase 2, so a
+/// later phase that gains the claims file is admitted by saying so in its row
+/// and no second place has to agree.
+#[implements(
+    spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles,
+    spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
+    spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
+    spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
+)]
+fn source_this_phase_may_write(relative: &Path, claims: &Path, allowed: &[PathBuf]) -> bool {
+    if names_claims(allowed, claims) { is_rust_source(relative) } else { rust_source_but_the_claims(relative, claims) }
+}
+
+/// Whether the phase's table names the claims file itself — an exact entry,
+/// never a directory that happens to contain it, which is how every row from
+/// Phase 3 on reaches the file without being entitled to it.
+fn names_claims(allowed: &[PathBuf], claims: &Path) -> bool {
+    allowed.iter().any(|entry| entry == claims)
+}
+
+/// Whether the target is Rust source.
+fn is_rust_source(relative: &Path) -> bool {
+    relative.extension().is_some_and(|extension| extension == "rs")
 }
 
 /// Whether a file under the slice's directory is a phase's to write: Rust
@@ -396,13 +657,13 @@ fn admits_file(relative: &Path, dir: &Path, claims: &Path) -> bool {
 /// `spec.rs` beside the code is then nobody's claims file and this phase's
 /// source like any other.
 #[implements(
-    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent,
-    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent,
+    spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices,
+    spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
     spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims,
     spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims,
 )]
 fn rust_source_but_the_claims(relative: &Path, claims: &Path) -> bool {
-    relative.extension().is_some_and(|extension| extension == "rs") && relative != claims
+    is_rust_source(relative) && relative != claims
 }
 
 /// The target relative to the crate root, or none when it has a parent
@@ -545,10 +806,21 @@ mod tests {
     /// `colocated` below is the tree where it is.
     const NOTIONAL_CLAIMS: &str = "src/spec/hello.rs";
 
+    /// Where a slice's code is, for a slice that is a module of its crate:
+    /// `src/<module>`, with no other slice's directory under it. Every slice
+    /// in the fixtures below is such a slice, so this is what the layout's
+    /// door answers for it; the door itself is `SliceCode::of_own_crate`, and
+    /// the crate-root slice whose directory is its crate's `src` — the form
+    /// this threading exists for — has no fixture here yet.
+    fn module_code(slice: &str) -> SliceCode {
+        SliceCode::of_module(slice)
+    }
+
     /// Whether a phase refuses a target for these crates, whose slice keeps
     /// its claims in `claims`.
     fn refused_for(crates: &SliceCrates, claims: &str, phase: Phase, target: &str) -> bool {
-        matches!(allowed(phase, crates, Path::new(claims), Path::new(target)), Verdict::Refused(_))
+        let verdict = allowed(phase, crates, Path::new(claims), &module_code(&crates.slice), Path::new(target));
+        matches!(verdict, Verdict::Refused(_))
     }
 
     /// Whether a phase refuses a target under `/w/app`, the one crate.
@@ -656,18 +928,45 @@ mod tests {
     #[test]
     #[validates(spec::PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles)]
     fn phase_two_may_write_only_the_own_crates_spec_files() {
-        assert_eq!(allowed_paths(Phase::Two, "hello", Seat::Own), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
+        assert_eq!(
+            allowed_paths(Phase::Two, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")),
+            paths(&["src/spec/hello.rs", "src/spec/mod.rs"])
+        );
         check_refusals(&own_only(), Phase::Two, &[("/w/app/src/spec/hello.rs", false), ("/w/app/src/hello.rs", true)]);
         // With a companion, the own crate is still judged by its own row.
         check_refusals(&with_companion(), Phase::Two, &[("/w/mac/src/spec/mod.rs", false), ("/w/mac/src/lib.rs", true)]);
+        // Colocated, the row is the layout's answer and not the slice's name
+        // spelled into the old path — and the claims file lies inside the
+        // slice's directory, where the rule keeping later phases out of it
+        // would refuse Phase 2 the one file it exists to write. Asserting
+        // this against a notional path cannot see either: the fixture is a
+        // tree so that the layout is read rather than assumed.
+        let (project, crates) = colocated("phase_two_colocated");
+        assert_eq!(
+            allowed_paths(
+                Phase::Two,
+                Seat::Own,
+                &layout::spec_file(&project, "m").expect("the slice's claims file"),
+                &module_code(&crates.slice)
+            ),
+            paths(&["src/m/spec.rs", "src/spec/mod.rs"])
+        );
+        check_refusals_under(&project, &crates, Phase::Two, &[("owner/src/m/spec.rs", false), ("owner/src/m/mod.rs", true)]);
+        // The companion holds the same file at the same place, and it is
+        // Phase 2's there too.
+        check_refusals_under(&project, &crates, Phase::Two, &[("app/src/m/spec.rs", false), ("app/src/m/leaf.rs", true)]);
+        // And the exclusion still holds where the row does not name the file:
+        // Phases 3 to 7 reach it through the directory entry and are refused.
+        check_refusals_under(&project, &crates, Phase::Three, &[("owner/src/m/spec.rs", true)]);
+        check_refusals_under(&project, &crates, Phase::Five, &[("owner/src/m/spec.rs", true)]);
     }
 
     #[test]
     #[validates(spec::PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent)]
     fn phases_three_and_four_may_write_the_own_crates_slice_module_and_library_root() {
         let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
-        assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Own), expected);
-        assert_eq!(allowed_paths(Phase::Four, "hello", Seat::Own), expected);
+        assert_eq!(allowed_paths(Phase::Three, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
+        assert_eq!(allowed_paths(Phase::Four, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
         // What that row admits under the slice's directory is the code in
         // it, never the design document colocation puts there.
         check_refusals(&own_only(), Phase::Three, &[("/w/app/src/hello/lld.md", true)]);
@@ -702,8 +1001,8 @@ mod tests {
     #[validates(spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent)]
     fn phases_five_and_seven_may_write_only_the_own_crates_slice_module() {
         let expected = paths(&["src/hello.rs", "src/hello"]);
-        assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Own), expected);
-        assert_eq!(allowed_paths(Phase::Seven, "hello", Seat::Own), expected);
+        assert_eq!(allowed_paths(Phase::Five, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
+        assert_eq!(allowed_paths(Phase::Seven, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
         // The code in that directory, never the human's acceptance of
         // running this slice's code, which colocation puts beside it.
         check_refusals(&own_only(), Phase::Five, &[("/w/app/src/hello/compile-time-accepted", true)]);
@@ -783,7 +1082,9 @@ mod tests {
         // either — even one that resolves inside — is refused as outside.
         let targets = ["/w/other/src/hello.rs", "/w/app/src/hello/../../Cargo.toml", "/w/mac/../app/src/hello.rs", "/w/app/../mac/src/hello.rs"];
         for target in targets {
-            let Verdict::Refused(why) = allowed(Phase::Three, &with_companion(), Path::new(NOTIONAL_CLAIMS), Path::new(target)) else {
+            let crates = with_companion();
+            let code = module_code(&crates.slice);
+            let Verdict::Refused(why) = allowed(Phase::Three, &crates, Path::new(NOTIONAL_CLAIMS), &code, Path::new(target)) else {
                 panic!("{target} was allowed")
             };
             assert!(why.contains("outside the slice's crates"), "{target}: {why}");
@@ -814,14 +1115,26 @@ mod tests {
         check_refusals(&crates, Phase::Five, &[("/w/app/tests/ui/fail.rs", false), ("/w/mac/tests/ui/fail.rs", true)]);
         // Each row is relative to its own crate: the union, not one set.
         check_refusals(&crates, Phase::Two, &[("/w/app/src/spec/hello.rs", false), ("/w/app/src/hello.rs", true)]);
-        assert_ne!(allowed_paths(Phase::Five, "hello", Seat::Own), allowed_paths(Phase::Five, "hello", Seat::Companion));
+        assert_ne!(
+            allowed_paths(Phase::Five, Seat::Own, Path::new(NOTIONAL_CLAIMS), &module_code("hello")),
+            allowed_paths(Phase::Five, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello"))
+        );
     }
 
     #[test]
     #[validates(spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles)]
     fn phase_two_may_write_only_the_companions_spec_files() {
-        assert_eq!(allowed_paths(Phase::Two, "hello", Seat::Companion), paths(&["src/spec/hello.rs", "src/spec/mod.rs"]));
-        assert_eq!(allowed_paths(Phase::Two, "phase-gate", Seat::Companion), paths(&["src/spec/phase_gate.rs", "src/spec/mod.rs"]));
+        assert_eq!(
+            allowed_paths(Phase::Two, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")),
+            paths(&["src/spec/hello.rs", "src/spec/mod.rs"])
+        );
+        // The row is the claims file it is given and not the slice's name
+        // spelled into a path: a hyphenated slice whose claims the layout
+        // puts elsewhere gets that answer, not `src/spec/phase_gate.rs`.
+        assert_eq!(
+            allowed_paths(Phase::Two, Seat::Companion, Path::new("src/phase_gate/spec.rs"), &module_code("phase-gate")),
+            paths(&["src/phase_gate/spec.rs", "src/spec/mod.rs"])
+        );
         let cases = [("/w/app/src/spec/mod.rs", false), ("/w/app/src/lib.rs", true), ("/w/app/tests/ui/fail.rs", true)];
         check_refusals(&with_companion(), Phase::Two, &cases);
     }
@@ -830,8 +1143,8 @@ mod tests {
     #[validates(spec::PhasesThreeAndFourMayWriteTheCompanionsSliceCodeAndLibraryRootNotItsClaims)]
     fn phases_three_and_four_may_write_the_companions_slice_module_and_library_root() {
         let expected = paths(&["src/hello.rs", "src/hello", "src/lib.rs"]);
-        assert_eq!(allowed_paths(Phase::Three, "hello", Seat::Companion), expected);
-        assert_eq!(allowed_paths(Phase::Four, "hello", Seat::Companion), expected);
+        assert_eq!(allowed_paths(Phase::Three, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
+        assert_eq!(allowed_paths(Phase::Four, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
         // `src/lib.rs` is where the hand-authored edges go; fixtures and claims are not this row's.
         check_refusals(&with_companion(), Phase::Four, &[("/w/app/src/lib.rs", false)]);
         check_refusals(&with_companion(), Phase::Three, &[("/w/app/tests/ui/fail.rs", true), ("/w/app/src/spec/hello.rs", true)]);
@@ -844,8 +1157,8 @@ mod tests {
     #[validates(spec::PhasesFiveAndSevenMayWriteTheCompanionsSliceCodeAndUiFixturesNotItsClaims)]
     fn phases_five_and_seven_may_write_the_companions_slice_module_and_ui_fixtures() {
         let expected = paths(&["src/hello.rs", "src/hello", "tests/ui"]);
-        assert_eq!(allowed_paths(Phase::Five, "hello", Seat::Companion), expected);
-        assert_eq!(allowed_paths(Phase::Seven, "hello", Seat::Companion), expected);
+        assert_eq!(allowed_paths(Phase::Five, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
+        assert_eq!(allowed_paths(Phase::Seven, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")), expected);
         // The fixtures are `tests/ui` alone; the library root is not this row's.
         check_refusals(&with_companion(), Phase::Seven, &[("/w/app/tests/ui/fail.rs", false), ("/w/app/tests/other.rs", true)]);
         check_refusals(&with_companion(), Phase::Five, &[("/w/app/src/hello/part.rs", false), ("/w/app/src/lib.rs", true)]);
