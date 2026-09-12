@@ -7,8 +7,8 @@ use quote::{ToTokens, quote};
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::{
-    Attribute, Data, DataEnum, DeriveInput, Fields, Ident, ItemEnum, ItemFn, ItemStruct, LitStr,
-    Path, Token, parse_quote,
+    Attribute, Block, Data, DataEnum, DeriveInput, Fields, Ident, ItemEnum, ItemFn, ItemStruct,
+    LitStr, Path, Token, parse_quote,
 };
 
 use crate::claim::Unwanted;
@@ -235,17 +235,94 @@ fn name_guard(ident: &syn::Ident, paths: &[Path], verb: &Verb) -> TokenStream {
     }
 }
 
-/// Cites a fn by injecting one registration per spec at the top of its body
-/// and appending the doc lines — uniform for free fns and methods, since
-/// `impl` blocks admit no free consts but every fn body admits items.
+/// Cites a fn: the runtime observation around its body, one registration per
+/// spec at the top of it, and the doc lines — uniform for free fns and
+/// methods, since `impl` blocks admit no free consts but every fn body admits
+/// items.
 fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
     let item_expr = item_path_expr(&f.sig.ident);
+    f.block = Box::new(observed(&f, paths, verb));
     for path in paths {
         let registration = edge_registration(verb, path, &item_expr);
         f.block.stmts.insert(0, parse_quote!(#registration));
     }
     f.attrs.extend(doc_attrs(verb, paths));
     f.into_token_stream()
+}
+
+/// The body a cited fn runs under: a span for the code that keeps a claim, a
+/// capture for the test that observes one (README §6.4).
+fn observed(f: &ItemFn, paths: &[Path], verb: &Verb) -> Block {
+    match verb {
+        Verb::Implements => span_around(&f.sig.ident, paths, &f.block),
+        Verb::Validates => capture_around(paths, &f.block),
+    }
+}
+
+/// `#[implements]`'s span: `target = "lid"`, the cited claims, and the outcome
+/// recorded on the way out.
+///
+/// The claims are joined with `lid_rs::validate::SEPARATOR` rather than a
+/// character written here, because the split at the other end is
+/// `lid_rs::validate::cited_claims` and a second spelling is a silent empty
+/// join rather than a compile error.
+///
+/// The join is written *inside* the `span!` invocation and not bound to a local
+/// above it, so that it is evaluated only when the callsite is enabled.
+/// `tracing` skips a disabled callsite's field expressions; a `let` above the
+/// macro is a `String` allocated on every call of every cited fn in the
+/// workspace, subscriber or no subscriber, which is a cost README §6.7's
+/// production story cannot carry.
+///
+/// `lid.outcome` is reserved with `field::Empty` and recorded by a `Returned`
+/// guard on drop, so a body that unwinds leaves it absent — which is what
+/// `lid_rs::validate::no_panics` reads. It records `()` and not the value: a
+/// rendering of the returned value needs a bound on the return type that this
+/// workspace's 549 citation sites do not carry, and that is deferred with the
+/// `Traceable` recording method.
+fn span_around(ident: &Ident, paths: &[Path], body: &Block) -> Block {
+    let name = ident.to_string();
+    parse_quote!({
+        let __lid_span = ::lid_rs::__private::tracing::span!(
+            target: ::lid_rs::validate::TARGET,
+            ::lid_rs::validate::SPAN_LEVEL,
+            #name,
+            lid.claims = [#(<#paths as ::lid_rs::Spec>::NAME),*]
+                .join(&::lid_rs::validate::SEPARATOR.to_string())
+                .as_str(),
+            lid.outcome = ::lid_rs::__private::tracing::field::Empty,
+        );
+        let __lid_entered = __lid_span.enter();
+        let __lid_returned = ::lid_rs::validate::Returned::of(&__lid_span);
+        #body
+    })
+}
+
+/// `#[validates]`'s capture: the test's body run under a fresh subscriber, what
+/// checks 23 and 24 make of it printed, and any unwind resumed so the test
+/// still fails on its own assertion.
+///
+/// The printing is here and not in `report`, which answers a `String` so that a
+/// validator can read it. The findings do not fail the test: the ramp arrives
+/// at `Ramp::Warn` (`lid-rs/src/validate/lld.md`, Deferred 8).
+fn capture_around(paths: &[Path], body: &Block) -> Block {
+    parse_quote!({
+        let (__lid_trace, __lid_done) =
+            ::lid_rs::validate::captured(|| #body);
+        let __lid_report = ::lid_rs::validate::report(
+            &__lid_trace,
+            &[#(<#paths as ::lid_rs::Spec>::NAME),*],
+        );
+        if !__lid_report.is_empty() {
+            ::std::eprintln!("{}", __lid_report);
+        }
+        match __lid_done {
+            ::core::result::Result::Ok(__lid_answer) => __lid_answer,
+            ::core::result::Result::Err(__lid_panic) => {
+                ::std::panic::resume_unwind(__lid_panic)
+            }
+        }
+    })
 }
 
 /// Cites a struct: doc lines on the item, sibling registrations after it,

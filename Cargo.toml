@@ -3,7 +3,7 @@ resolver = "3"
 members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "lid-rs-shape", "lid-rs-pipeline", "xtask"]
 
 [workspace.package]
-version = "0.2.8"
+version = "0.3.0"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
@@ -12,14 +12,18 @@ repository = "https://github.com/bradvoth/lid-rs"
 homepage = "https://bradvoth.github.io/lid-rs/"
 
 [workspace.dependencies]
-lid-rs = { path = "lid-rs", version = "0.2.8" }
-lid-rs-macros = { path = "lid-rs-macros", version = "0.2.8" }
-lid-rs-shape = { path = "lid-rs-shape", version = "0.2.8" }
+lid-rs = { path = "lid-rs", version = "0.3.0" }
+lid-rs-macros = { path = "lid-rs-macros", version = "0.3.0" }
+lid-rs-shape = { path = "lid-rs-shape", version = "0.3.0" }
 linkme = "0.3"
 proc-macro2 = "1"
 quote = "1"
 serde_json = "1"
 syn = { version = "2", features = ["full"] }
+# Slice 20: `default-features = false` drops `tracing-attributes` and with it a
+# second `syn` build. It is needed only by `#[tracing::instrument]`, which is
+# the async path `lid-rs/src/validate/lld.md` defers.
+tracing = { version = "0.1", default-features = false, features = ["std"] }
 trybuild = "1"
 
 [workspace.lints.rust]

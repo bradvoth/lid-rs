@@ -31,7 +31,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cargo-lid-rs"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "glob",
  "lid-rs",
@@ -364,16 +364,17 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "lid-rs"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "lid-rs-macros",
  "linkme",
+ "tracing",
  "trybuild",
 ]
 
 [[package]]
 name = "lid-rs-macros"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -382,7 +383,7 @@ dependencies = [
 
 [[package]]
 name = "lid-rs-pipeline"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "cargo-lid-rs",
  "lid-rs",
@@ -392,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "lid-rs-shape"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "lid-rs",
  "quote",
@@ -470,6 +471,12 @@ name = "percent-encoding"
 version = "2.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
+
+[[package]]
+name = "pin-project-lite"
+version = "0.2.17"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a89322df9ebe1c1578d689c92318e070967d1042b512afbe49518723f4e6d5cd"
 
 [[package]]
 name = "potential_utf"
@@ -774,6 +781,25 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7d56353a2a665ad0f41a421187180aab746c8c325620617ad883a99a1cbe66d2"
 
 [[package]]
+name = "tracing"
+version = "0.1.44"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "63e71662fa4b2a2c3a26f570f037eb95bb1f85397f3cd8076caed2f026a6d100"
+dependencies = [
+ "pin-project-lite",
+ "tracing-core",
+]
+
+[[package]]
+name = "tracing-core"
+version = "0.1.36"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
+dependencies = [
+ "once_cell",
+]
+
+[[package]]
 name = "trybuild"
 version = "1.0.120"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -994,7 +1020,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.2.8"
+version = "0.3.0"
 dependencies = [
  "lid-rs",
 ]
