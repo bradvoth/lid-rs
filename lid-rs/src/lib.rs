@@ -40,6 +40,14 @@ pub use outcome::{CLAIMED_OWNERS, OUTCOMES};
 // Outcome>::NAME` resolves wherever the derive was written.
 pub use outcome::Outcome;
 
+// The vocabulary's two public traits, at the root for the same reason: the
+// expansion of `derive(Traceable)` addresses `::lid_rs::…` in every consumer
+// crate, and `lid-rs` is itself the first of those consumers — without the
+// re-export the derive would be unusable in the crate that defines it. The seal
+// between them is not here: it is `#[doc(hidden)]` and stands in `__private`
+// below, which is the only path an expansion names it by.
+pub use vocab::{Noun, Traceable};
+
 pub use ::lid_rs_macros::{Outcome, Spec, implements, implements_module, spec, validates};
 
 // Hand-authored implementation edges for the citation claims: lid-rs-macros is a
@@ -245,5 +253,6 @@ pub trait Spec {
 
 #[doc(hidden)]
 pub mod __private {
+    pub use crate::vocab::Declared;
     pub use linkme;
 }
