@@ -397,6 +397,14 @@ mod tests {
     use super::*;
     use lid_rs::validates;
 
+    use crate::layout::Form;
+    use crate::lld_review::{Failure, Lld, check_all};
+
+    /// The two inner doc attributes a crate-root slice's library opens with,
+    /// in the order rustdoc concatenates them: the package's design, then the
+    /// slice's.
+    const LIBRARY_INCLUDES: &str = "#![doc = include_str!(\"../docs/intent/hld.md\")]\n#![doc = include_str!(\"lld.md\")]\n";
+
     /// A fresh, empty scratch directory outside any cargo workspace.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join("lid-rs-init-tests").join(name);
@@ -472,6 +480,45 @@ mod tests {
             !dir.join("src/spec.rs").exists(),
         );
         assert_eq!(untouched, (true, true, true), "nothing may be written on conflict");
+    }
+
+    #[test]
+    #[validates(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
+    fn a_spec_directory_conflicts_with_the_crate_root_claims_file() {
+        let parent = scratch("spec-directory");
+        let dir = cargo_new(&parent, "--lib", "ambiguous");
+        let (file, directory) = (dir.join(CRATE_ROOT_CLAIMS_FILE), dir.join("src/spec"));
+        std::fs::create_dir_all(&directory).expect("mkdir");
+        std::fs::write(directory.join("mod.rs"), "//! mine\n").expect("write");
+        std::fs::write(&file, "//! mine\n").expect("write");
+        let error = init_in(&dir, &local_options()).expect_err("both conflicts must fail init");
+        // Each conflict is its own line of the refusal, so both are named
+        // when both exist: neither takes precedence over the other.
+        let (file, directory) = (file.display().to_string(), directory.display().to_string());
+        let named = (
+            error.lines().filter(|line| line.contains(&file)).count(),
+            error.lines().filter(|line| line.contains(&directory) && !line.contains(&file)).count(),
+            dir.join("clippy.toml").exists(),
+        );
+        assert_eq!(named, (1, 1, false), "the file and the directory each named once, nothing written:\n{error}");
+    }
+
+    #[test]
+    #[validates(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
+    fn a_spec_directory_conflicts_with_the_crate_root_claims_file_and_with_no_other_target() {
+        let dir = scratch("spec-directory-alone");
+        let directory = dir.join("src/spec");
+        std::fs::create_dir_all(&directory).expect("mkdir");
+        let create = |relative: &str| Change::CreateFile { path: dir.join(relative), content: String::new() };
+        // The directory alone, with no `src/spec.rs` yet, conflicts with the
+        // claims file — and with nothing else `init` creates under `src/`.
+        let claims_file = create(CRATE_ROOT_CLAIMS_FILE).conflict();
+        let document = create("src/lld.md").conflict();
+        assert_eq!(
+            (claims_file.is_some_and(|conflict| conflict.contains(&directory.display().to_string())), document),
+            (true, None),
+            "the directory is a conflict for the claims file, and for it only"
+        );
     }
 
     #[test]
@@ -555,17 +602,29 @@ mod tests {
         let existing = "//! Mine.\n\n/// Adds.\npub fn add(a: u8, b: u8) -> u8 {\n    a + b\n}\n";
         let wired = wired_library(existing);
         let shape = (
-            wired.starts_with("#![doc = include_str!(\"../docs/intent/hld.md\")]"),
+            wired.starts_with(LIBRARY_INCLUDES),
             wired.contains(existing),
-            wired.contains("pub mod spec;"),
+            wired.contains("\npub mod spec;\n"),
             wired.trim_end().ends_with("lid_rs::intent_graph!();\n}"),
         );
         assert_eq!(shape, (true, true, true, true), "{wired}");
-        let dir = scratch("wire");
-        std::fs::write(dir.join("lib.rs"), &wired).expect("write");
-        assert!(existing_graph(&dir.join("lib.rs")).is_some(), "an already-wired library is a conflict");
-        std::fs::write(dir.join("lib.rs"), existing).expect("write");
-        assert_eq!(existing_graph(&dir.join("lib.rs")), None);
+        // Applied to a real package's `src/lib.rs`, the two includes resolve:
+        // the scaffold puts `src/lld.md` and `src/spec.rs` beside it, and no
+        // `src/spec/` directory for `pub mod spec;` to find instead.
+        let parent = scratch("wire");
+        let dir = cargo_new(&parent, "--lib", "wired");
+        let library = dir.join("src/lib.rs");
+        std::fs::write(&library, existing).expect("write");
+        assert_eq!(existing_graph(&library), None, "an unwired library is no conflict");
+        init_in(&dir, &local_options()).expect("init on a library with items");
+        let applied = std::fs::read_to_string(&library).expect("read");
+        let wiring = (
+            applied.starts_with(LIBRARY_INCLUDES) && applied.contains(existing),
+            dir.join("src/lld.md").is_file() && dir.join(CRATE_ROOT_CLAIMS_FILE).is_file(),
+            dir.join("src/spec").exists(),
+            existing_graph(&library).is_some(),
+        );
+        assert_eq!(wiring, (true, true, false, true), "both includes, the pair beside them, and now a conflict:\n{applied}");
     }
 
     #[test]
@@ -633,13 +692,26 @@ mod tests {
     #[validates(spec::AnInitialisedPackageIsACrateRootSliceThatPassesItsOwnGate, spec::NewCreatesALibraryPackageThenInitialisesIt)]
     fn new_creates_a_library_package_then_initialises_it_and_passes_its_own_gate() {
         let dir = fresh_package("new-gate");
+        let (form, failures) = slice_as_lld_check_reads_it(&dir, "fresh");
         let (tests_ok, tests_out) = cargo_in(&dir, &["test", "--lib"]);
         let (clippy_ok, clippy_out) = cargo_in(&dir, &["clippy", "--all-targets", "--", "-D", "warnings"]);
+        let crate_root = dir.canonicalize().expect("the package directory");
         assert_eq!(
-            (tests_ok && tests_out.contains("registry_is_populated"), clippy_ok),
-            (true, true),
-            "graph checks must run and clippy must pass at the emitted levels:\n{tests_out}\n{clippy_out}"
+            (form, failures, tests_ok && tests_out.contains("registry_is_populated"), clippy_ok),
+            (Form::CrateRoot { crate_root, slice: "fresh".to_string() }, vec![], true, true),
+            "a crate-root slice whose document passes lld-check, whose graph checks run, and whose clippy passes at the emitted levels:\n{tests_out}\n{clippy_out}"
         );
+    }
+
+    /// The initialised package as `cargo lid-rs lld-check --slice <name>`
+    /// reads it, in process: the shape the layout resolves the slice to, and
+    /// every failure of the checks over the document that shape leads to.
+    fn slice_as_lld_check_reads_it(dir: &Path, name: &str) -> (Form, Vec<Failure>) {
+        let manifest = dir.join("Cargo.toml").canonicalize().expect("the package's manifest");
+        let project = Project::load_at(&manifest).expect("cargo metadata");
+        let lld = Lld::read(&project, name).expect("the scaffold's document resolves");
+        let failures = check_all(&project, &lld).expect("lld-check runs");
+        (Form::of_slice(&project, name), failures)
     }
 
     #[test]
