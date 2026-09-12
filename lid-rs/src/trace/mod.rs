@@ -1,4 +1,5 @@
 #![doc = include_str!("lld.md")]
+use crate::canary;
 use crate::claim::Language;
 use crate::graph::CanaryStripped;
 use crate::registry::{Edge, SpecMeta};
@@ -26,10 +27,10 @@ pub const DOCUMENT: &str = "docs/intent/trace.md";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Ledger {
     /// How many of the claims carry
-    /// [`Language::Controlled`](crate::claim::Language::Controlled).
+    /// [`Language::Controlled`].
     pub controlled: usize,
     /// How many of the claims carry
-    /// [`Language::Free`](crate::claim::Language::Free).
+    /// [`Language::Free`].
     pub free: usize,
 }
 
@@ -63,7 +64,7 @@ pub struct Section<'a> {
 /// the invoking crate is compiled, so each member addresses its own root.
 #[implements(spec::TheDocumentPathIsTheIntentDocumentOfTheManifestDirectory)]
 pub fn document_path(manifest_dir: &str) -> PathBuf {
-    todo!("the trace document of the package at {manifest_dir}")
+    Path::new(manifest_dir).join(DOCUMENT)
 }
 
 /// The whole document for one crate, rendered from that crate's registrations.
@@ -132,7 +133,7 @@ fn trusted(
     impls: &[Edge],
     validations: &[Edge],
 ) -> Result<(), CanaryStripped> {
-    todo!("whether {specs:?}, {impls:?} and {validations:?} carry the canary triple")
+    canary::triple_is_present(specs, impls, validations).then_some(()).ok_or(CanaryStripped)
 }
 
 /// The document's opening: what a reader of it is looking at, and the one
@@ -140,7 +141,7 @@ fn trusted(
 ///
 /// A row is built from what the registry holds, and the registry holds a claim's
 /// parts and never its sentence — for a claim marked
-/// [`Language::Free`](crate::claim::Language::Free) it holds nothing of the text
+/// [`Language::Free`] it holds nothing of the text
 /// at all. So a change to a free claim's wording changes no row here, and the
 /// page says so itself rather than leaving a reader of a diff to infer a
 /// guarantee that holds for the claims held to the language only.
@@ -150,7 +151,15 @@ fn trusted(
 /// skeleton onward, so no test of it could be red before the leaf exists.
 #[implements(spec::TheHeaderNamesThatAFreeClaimsRowHoldsNoWording)]
 fn header() -> &'static str {
-    todo!("the document's header")
+    "# Intent trace\n\
+     \n\
+     Generated from this crate's registry by `cargo test --lib -- --ignored regen`, and\n\
+     compared against the registry by check 26. Nothing on this page is hand-written.\n\
+     \n\
+     A row carries what the registry holds, which is a claim's parts and never its\n\
+     sentence. For a claim marked free the registry holds none of its parts, so a change\n\
+     to a free claim's wording changes no row here; for a claim held to the controlled\n\
+     language it changes the row that claim stands in.\n"
 }
 
 /// The whole document below the guard: the header, the ledger of every claim the
@@ -207,7 +216,8 @@ fn section_text(part: &Section<'_>, impls: &[Edge], validations: &[Edge]) -> Str
     spec::TheDocumentNamesTheLedgerOfAllItsClaimsAboveItsSections,
 )]
 fn ledger_line(counts: Ledger) -> String {
-    todo!("the count line of {counts:?}")
+    let total: usize = [counts.controlled, counts.free].iter().sum();
+    format!("Claims: {} controlled, {} free, {total} total.", counts.controlled, counts.free)
 }
 
 /// The invoking crate's claims, grouped into the sections their names spell.
@@ -286,7 +296,8 @@ fn section<'a>(name: &str, mut claims: Vec<&'a SpecMeta>) -> Section<'a> {
     spec::ACrateRootClaimsSliceIsEmpty,
 )]
 pub fn slice_of(name: &str) -> &str {
-    todo!("the slice segments of {name}")
+    let below_crate = name.split_once("::").map_or("", |(_, rest)| rest);
+    below_crate.rsplit_once("::spec::").map_or("", |(slice, _)| slice)
 }
 
 /// One claim's row: its name, the [`Pattern`](crate::claim::Pattern) it carries,
@@ -326,7 +337,10 @@ pub fn row(meta: &SpecMeta, impls: &[Edge], validations: &[Edge]) -> String {
 /// counts the marked rows of a section must arrive at that section's free count.
 #[implements(spec::ARowNamesAFreeClaimAsFree, spec::ARowDoesNotNameAHeldClaimAsFree)]
 fn language_mark(language: Language) -> &'static str {
-    todo!("what a row calls {language:?}")
+    match language {
+        Language::Controlled => "held",
+        Language::Free => "free",
+    }
 }
 
 /// The items in `edges` citing `spec_name`, each written `item (file:line)`,
@@ -345,7 +359,13 @@ fn language_mark(language: Language) -> &'static str {
     spec::OneRegistryRendersOneDocumentWhateverItsOrder,
 )]
 pub fn citations(spec_name: &str, edges: &[Edge]) -> Vec<String> {
-    todo!("the citations of {spec_name} among {edges:?}")
+    let mut cited: Vec<String> = edges
+        .iter()
+        .filter(|edge| edge.spec == spec_name)
+        .map(|edge| format!("{} ({}:{})", edge.item, edge.file, edge.line))
+        .collect();
+    cited.sort();
+    cited
 }
 
 /// The controlled and free counts over a set of claims, read from
@@ -364,7 +384,10 @@ pub fn citations(spec_name: &str, edges: &[Edge]) -> Vec<String> {
     spec::TheFreeCountIsTheClaimsMarkedFree,
 )]
 pub fn ledger(specs: &[&SpecMeta]) -> Ledger {
-    todo!("the controlled and free counts over {specs:?}")
+    Ledger {
+        controlled: specs.iter().filter(|meta| meta.claim.language == Language::Controlled).count(),
+        free: specs.iter().filter(|meta| meta.claim.language == Language::Free).count(),
+    }
 }
 
 /// The document as it stands at `path`, or the empty string where no file
@@ -379,7 +402,7 @@ pub fn ledger(specs: &[&SpecMeta]) -> Ledger {
     spec::AnAbsentDocumentIsTheEmptyDocument,
 )]
 pub fn committed(path: &Path) -> String {
-    todo!("the committed document at {path:?}")
+    std::fs::read_to_string(path).unwrap_or_default()
 }
 
 /// Check 26's verdict: `None` where the generated and committed documents agree,
@@ -417,7 +440,11 @@ pub fn stale(generated: &str, committed: &str) -> Option<String> {
     spec::AStaleDocumentIsNamedByItsFirstDifferingLine,
 )]
 fn first_difference(generated: &str, committed: &str) -> Option<usize> {
-    todo!("the first line at which {generated} differs from {committed}")
+    let generated_lines: Vec<&str> = generated.lines().collect();
+    let committed_lines: Vec<&str> = committed.lines().collect();
+    (0..generated_lines.len().max(committed_lines.len()))
+        .find(|index| generated_lines.get(*index) != committed_lines.get(*index))
+        .map(|index| index + 1)
 }
 
 /// What a stale document's verdict says: the line the two first differ at, and
@@ -432,7 +459,10 @@ fn first_difference(generated: &str, committed: &str) -> Option<usize> {
     spec::AStaleDocumentsMessageNamesTheRegenCommand,
 )]
 fn repair_message(line: usize) -> String {
-    todo!("the verdict on a document differing at line {line}")
+    format!(
+        "the committed {DOCUMENT} differs from this crate's registry at line {line}; \
+         write it again with `cargo test --lib -- --ignored regen`"
+    )
 }
 
 #[cfg(test)]
