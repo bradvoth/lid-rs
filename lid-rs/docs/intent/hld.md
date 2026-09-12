@@ -38,7 +38,8 @@ Three mechanisms carry it:
 - **Link-time enumeration.** `linkme` distributed slices collect every spec,
   citation, and validation into the test binary with no source parsing
   (README [§5](https://bradvoth.github.io/lid-rs/spec/registry.html)), guarded by a canary against silently-empty registries.
-- **Gated structure.** Twenty-six checks (README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)) — twelve built, the
+- **Gated structure.** Twenty-six checks (README [§4](https://bradvoth.github.io/lid-rs/spec/gates.html)) — fourteen built
+  and gating, six more built and awaiting their caller or their document, the
   rest specified and numbered by seam — every one failing the build
   when its property breaks; anything that can't gate gets deleted.
 - **Claims as structure, then as spans.** The controlled language (README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html))
@@ -193,14 +194,14 @@ so the gate always exercises the working tree's tool.
 | 15 | "A claim is written in the controlled language" | `derive(Spec)` enforces README [§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html) and extracts `SpecMeta`; the base lexicon and `docs/intent/lexicon.toml` with templates; checks 13 and 14; every existing claim marked `#[lid(free)]`, counted and enumerable, burned down per slice; preceded by a `phase` change admitting a proc-macro crate's slice into its companion crate; `lid-rs-macros/src/claim/lld.md` |
 | 16 | "A slice's artifacts live in one directory" | The colocated layout (README [§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html)): `lld.md`, `spec.rs`, `mod.rs` under `src/<slice>/`; the phase policy, `init`/`new`, `lld-check`, the coach's index, the book, and every citation path moved in one mechanical cascade; the uncitable-claim assertion, whose path the layout defines |
 | 22 | "A check is a command with a finding" | **Delivered.** The `cargo lid-rs` catalog (pipeline §5): the command table over `Invocation`, the finding schema, `Status`, the two provenances, and five built commands — `check`, `lint`, `doc`, `package`, `sync`. **Not delivered, and deferred by that slice to `lld/phase--gate-from-metadata`:** the composites in workspace metadata, `fast`, and the `phase-check N` → `gate --phase N` rename. `--expect` and `validate --claims`/`--red` wait on slices 19 and 20 |
-| 17 | "A slice's nouns are types the LLD links to" | `derive(Traceable)` with its policy attributes; `vocab` modules; LLDs rewritten with vocabulary links (check 2 enforces them) |
-| 18 | "A function is flow or leaf by its shape" | `lid-rs-shape`: F1–F6, rules A/B/P/V, checks 15–18, `#[flow]`/`#[leaf]`, `cargo lid-rs shape`, `shape.level`; the complexity threshold re-measured with the classification in hand |
-| 19 | "A signature keeps the promise its claim makes" | `derive(Outcome)`, `OUTCOMES`, `signatures()`, checks 19–22, `conformance.level` and `aliases` |
-| 20 | "A claim's satisfaction is observable at runtime" | `tracing` spans in `#[implements]`, the capturing layer in `#[validates]`, `Traceable` recording, checks 23–25, `lid_rs::spawn`, `runtime.level`; the test output that reads as the claims exercised |
-| 21 | "The intent graph is readable as a page" | `regen` and `docs/intent/trace.md` with check 26; `lid-rs-site`: claim cards, the observed flow graph, the trace matrix, the glossary |
+| 17 | "A slice's nouns are types the LLD links to" | **Delivered** (Phase 7 gated): the `Traceable` trait with its primitive impls, the `Declared` seal and `Noun`, `vocab` modules, LLDs rewritten with vocabulary links (check 2 enforces them). **Deferred to the `noun_assertion` slice**, which waits on its `compile-time-accepted` file: `derive(Traceable)` and its policy attributes. Rule V is slice 18's |
+| 18 | "A function is flow or leaf by its shape" | **Delivered** (Phase 7 gated): `lid-rs-shape` as a library — F1–F6, rules A, B and V (V as a primitive deny-list), `signatures()`. **Not delivered:** rule P and the `#[flow]`/`#[leaf]` pins (a `lid-rs-macros` slice), the `cargo lid-rs shape` command and the emitted test that would make checks 15, 16 and 18 gate, `shape.level` (no metadata reader), and the complexity threshold re-measured with the classification in hand |
+| 19 | "A signature keeps the promise its claim makes" | **Delivered** (Phase 7 gated): `derive(Outcome)`, `OUTCOMES`, `CLAIMED_OWNERS`, E1 (check 21) as a compile-time bound, E2 (check 22) as a library function. **Not delivered:** E2's emission into `intent_graph!`, S1/S2 (checks 19–20) over `signatures()`, `conformance.level` and `aliases` |
+| 20 | "A claim's satisfaction is observable at runtime" | **Delivered** through Phase 8, gated by hand (the record is on `lld/validate` at 8464f36): the `tracing` span opened by `#[implements]`, the capturing subscriber in `#[validates]`, checks 23–24 printed at warn. **Not delivered:** `Traceable` recording on spans (so check 24 cannot yet pass honestly), check 25, `lid_rs::spawn`, `runtime.level`, trace persistence |
+| 21 | "The intent graph is readable as a page" | **Delivered as `trace` only**: the generator and check 26 as library code, the emission withheld and no `trace.md` committed until a phase can regenerate it. `lid-rs-site` — claim cards, the observed flow graph, the trace matrix, the glossary — is a later slice |
 | 23 | "A slice builds itself from a draft PR" | `lid-rs-pipeline`: sessions from the canopy client, `fast`/`gate` dispatch, state and resumption, the phase reviewers' rubrics, adjudication and the registered question, publication, `CODEOWNERS` and the rulesets, the squash message |
 
-Slices 1–15 are delivered. Slices 16–23 are the convergence of this
+Slices 1–22 are delivered, each with the deferrals its row names; 23 is delivered as `status` alone. Slices 16–23 are the convergence of this
 workspace with the design it was forked from and then outgrew — the README's
 unbuilt ledger (README [§12](https://bradvoth.github.io/lid-rs/spec/limits.html))
 names the same work from the specification's side. **The rows are in delivery

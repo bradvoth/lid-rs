@@ -36,6 +36,16 @@
 - [LLD: the canopy agent](impl/lld-headless-canopy-agent.md)
 - [LLD: reviewing an LLD](impl/lld-lld-review.md)
 - [LLD: the LLD coach](impl/lld-coach.md)
+- [LLD: claims in the controlled language](impl/lld-claim.md)
+- [LLD: the noun assertion](impl/lld-noun-assertion.md)
+- [LLD: the colocated layout](impl/lld-layout.md)
+- [LLD: vocabulary as types](impl/lld-vocab.md)
+- [LLD: the shape pass](impl/lld-shape.md)
+- [LLD: outcome conformance](impl/lld-outcome.md)
+- [LLD: the returned guard](impl/lld-validate.md)
+- [LLD: the trace generator](impl/lld-trace.md)
+- [LLD: the check catalog](impl/lld-catalog.md)
+- [LLD: the pipeline crate](impl/lld-pipeline-crate.md)
 
 # Operating It
 

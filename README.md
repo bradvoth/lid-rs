@@ -578,7 +578,7 @@ state.
 
 Twenty-six checks in two tiers; run in order they form *the gate* ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html)).
 Both tiers gate; both run on stable; neither resolves a name from source.
-Checks 1–12 run today; 13–26 are specified here, numbered by seam so that no
+Checks 1–14 run today; 15–26 are specified here, numbered by seam so that no
 existing citation of a check moves, and land in the slices the workspace HLD
 names. [§12](https://bradvoth.github.io/lid-rs/spec/limits.html) keeps the
 ledger of which are built.
@@ -787,7 +787,7 @@ added a gate. Constraint 3 cuts both ways.
 cargo check --all-targets                        # 1, 4, 13, 14, Traceable
 cargo clippy --all-targets -- -D warnings        # 3, 6, 7, 8, 9
 RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" \
-  cargo doc --no-deps                            # 2
+  cargo doc --no-deps --document-private-items   # 2
 cargo test --doc                                 # 5
 cargo test --lib                                 # 10, 11, 15–26 + behaviour
 cargo package -p <a> -p <b> … --allow-dirty      # published crates: the tarballs
@@ -1360,8 +1360,10 @@ behaviours fit one body. Check 8 catches the `bool` version; nothing catches the
 check passing.** A slice's work lives on an `lld/<slice>` branch with one
 commit per phase, tagged `phase N:`. Phases 2–7 are each run by a Claude
 Code agent that `cargo lid-rs sync` ships (`.claude/agents/lid-rs-phase-N.md`)
-whose tools are reading and editing — no shell, no git. Its hooks do the
-rest: before every edit a per-phase path policy (Phase 2 writes the
+whose tools are reading and editing — no shell, no git. Phase 6 has no agent
+of its own: the Phase 7 agent implements the leaves and then runs the gate,
+and until the gate fits the harness's watchdog the gate is run by hand with
+its record in the commit body. The agent's hooks do the rest: before every edit a per-phase path policy (Phase 2 writes the
 slice's claims, 3 and 4 the slice's module and `lib.rs`, 5 and 7 the module
 only; never the LLD, the configuration, or another slice); after every
 edit, clippy; and when it ends with a ```` ```commit ```` block, phase N's
@@ -1930,23 +1932,24 @@ having independently of this system.
   own later; until it does, this document does not imply it.
 
 **What is built, and what is not.** This document is a living design (the
-workspace HLD's first tenet), and it describes the target. Of it, the
-following is specified here and not yet shipped, each the subject of a slice
-in the HLD's map: the uncitable-claim assertion, whose path the colocated
-layout defines; vocabulary as `Traceable` types and rule V
-([§3.6](https://bradvoth.github.io/lid-rs/spec/mapping.html)); the shape pass
-([§3.7](https://bradvoth.github.io/lid-rs/spec/mapping.html), checks 15–18);
-`#[derive(Outcome)]`, `OUTCOMES`, and conformance
-([§4.7](https://bradvoth.github.io/lid-rs/spec/gates.html), checks 19–22); the
-runtime ([§6.4](https://bradvoth.github.io/lid-rs/spec/traced.html)–6.8, checks
-23–25); `trace.md` and the site ([§11.2](https://bradvoth.github.io/lid-rs/spec/layout.html),
-check 26); the colocated layout ([§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html));
-and the pipeline as a crate. Checks 1–14, the phase agents, the skill, the
-workflow, and the book are built and gate this repository today — the
-controlled language and its lexicon
-([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) among them, with
-every claim either written in the language or carrying a counted `#[lid(free)]`
-mark that the ramp burns down slice by slice.
+workspace HLD's first tenet), and it describes the target. Built and gating
+today: checks 1–14, the phase agents, the skill, the workflow, the book, the
+controlled language with its lexicon
+([§3.5](https://bradvoth.github.io/lid-rs/spec/mapping.html)) — with every
+claim either written in the language or carrying a counted `#[lid(free)]`
+mark that the ramp burns down slice by slice — the colocated layout
+([§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html)),
+`#[derive(Outcome)]` with E1 as a compile-time bound (check 21), `Traceable`
+as a trait with primitive impls (no derive yet), the shape pass as a library
+(`lid-rs-shape`: F1–F6, rules A/B/V, `signatures()`), the `tracing` span
+opened by `#[implements]` and the capturing subscriber in `#[validates]`, and
+the `trace.md` generator as a library. Exists but does not yet gate, each
+waiting on the step named: rules A/B/V (checks 15, 16, 18: no caller yet), E2
+(check 22: not emitted), checks 23–24 (printed at warn; parameter recording
+not built), check 26 (emission withheld; no `trace.md` committed). Not built:
+rule P (17), S1/S2 (19–20), check 25, `derive(Traceable)`, `#[flow]`/`#[leaf]`,
+the metadata tables in [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html),
+the site, and the pipeline beyond `status`.
 <!-- ANCHOR_END: limits -->
 
 ---
