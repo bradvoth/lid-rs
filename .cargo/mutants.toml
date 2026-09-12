@@ -13,7 +13,7 @@ exclude_re = [
     # what makes it the pure I/O sequencing the exemption is for.
     # See `cargo-lid-rs/src/coach/lld.md` § Decisions & Alternatives,
     # "Measuring the terminal read".
-    'coach\.rs.*\bread_line\b',
+    'coach/mod\.rs.*\bread_line\b',
     # `coach::announce` and `coach::narrate`: a print has nothing in-process to
     # observe, and neither function holds a branch of the slice's own — every
     # decision is in `announced`, `announcing` and `argument_named`, and
@@ -22,8 +22,8 @@ exclude_re = [
     # so no seam is reachable without widening that slice's type for this one.
     # See `cargo-lid-rs/src/coach/lld.md` § Decisions & Alternatives,
     # "Measuring the two prints".
-    'coach\.rs.*\bannounce\b',
-    'coach\.rs.*\bnarrate\b',
+    'coach/mod\.rs.*\bannounce\b',
+    'coach/mod\.rs.*\bnarrate\b',
     # `catalog::cargo_output`: one cargo invocation run to completion, both
     # streams captured. A validation of it is a build, and it holds no branch
     # of the slice's own — the dispatch over what an invocation is belongs to
