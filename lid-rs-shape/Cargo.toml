@@ -15,6 +15,13 @@ categories = ["development-tools", "development-tools::testing"]
 # The pass itself. Constraint 2 permits it because it resolves nothing: F1-F6
 # are token shapes and rule V's allowed types are names, not resolved paths.
 syn.workspace = true
+# `ToTokens`, the only route from a `syn::Type` back to the tokens the source
+# wrote. `syn` implements the trait but does not re-export it — spiked: a crate
+# depending on `syn` alone cannot name `quote::ToTokens` at all — so rendering a
+# signature's types needs the edge. Note it prints `Option < String >`, spaced,
+# which is why rule V's name test is spacing-insensitive rather than comparing
+# the rendered string.
+quote.workspace = true
 # `#[derive(Spec)]` and `#[implements]` emit `::lid_rs::…`, which needs
 # `lid_rs` in this crate's extern prelude. This slice carries citations — a
 # slice that carried none would fail checks 10 and 11 and be outside the

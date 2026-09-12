@@ -48,5 +48,66 @@ pub(crate) struct Function {
     spec::ACfgGatedModuleIsClassifiedAsWritten,
 )]
 pub(crate) fn functions_in(file: &Path, parsed: &syn::File) -> Vec<Function> {
-    todo!("the functions among the {} items of {}", parsed.items.len(), file.display())
+    functions_among(file, &parsed.items)
+}
+
+/// Every function the items hold, in the order they were written.
+fn functions_among(file: &Path, items: &[syn::Item]) -> Vec<Function> {
+    items.iter().flat_map(|item| functions_of(file, item)).collect()
+}
+
+/// Every function one item holds: the function the item is, the methods an
+/// `impl` block holds, the methods a trait declaration gives a body to, and
+/// everything an inline module holds.
+///
+/// An item of any other kind holds none. A trait's method declared without a
+/// body is a signature and not a function, so nothing is answered for it; a
+/// trait's method has no visibility of its own — it is as public as its trait
+/// — so the declaration is read as writing none.
+fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
+    if let syn::Item::Fn(declared) = item {
+        return vec![function(file, &declared.vis, &declared.attrs, &declared.sig, &declared.block)];
+    }
+    if let syn::Item::Impl(block) = item {
+        return block
+            .items
+            .iter()
+            .filter_map(|member| {
+                let syn::ImplItem::Fn(method) = member else { return None };
+                Some(function(file, &method.vis, &method.attrs, &method.sig, &method.block))
+            })
+            .collect();
+    }
+    if let syn::Item::Trait(declared) = item {
+        return declared
+            .items
+            .iter()
+            .filter_map(|member| {
+                let syn::TraitItem::Fn(method) = member else { return None };
+                let body = method.default.as_ref()?;
+                Some(function(file, &syn::Visibility::Inherited, &method.attrs, &method.sig, body))
+            })
+            .collect();
+    }
+    if let syn::Item::Mod(module) = item {
+        return module.content.iter().flat_map(|(_, items)| functions_among(file, items)).collect();
+    }
+    Vec::new()
+}
+
+/// One function as the pass carries one, from the pieces a declaration wrote.
+fn function(
+    file: &Path,
+    vis: &syn::Visibility,
+    attrs: &[syn::Attribute],
+    sig: &syn::Signature,
+    block: &syn::Block,
+) -> Function {
+    Function {
+        file: file.to_path_buf(),
+        vis: vis.clone(),
+        attrs: attrs.to_vec(),
+        sig: sig.clone(),
+        block: block.clone(),
+    }
 }

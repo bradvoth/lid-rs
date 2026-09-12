@@ -138,12 +138,17 @@ pub enum Finding {
         /// in, and the wrappers unwrapped to reach it.
         saw: String,
     },
-    /// A source file `syn` could not parse: no verdict for any function it
-    /// holds, reported rather than skipped, and never a panic.
+    /// A source file the pass could not read as Rust: no verdict for any
+    /// function it holds, reported rather than skipped, and never a panic.
+    ///
+    /// A file that could not be read at all is the same gap as one that could
+    /// not be parsed — no function of it reaches any rule — so it is the same
+    /// finding, and what was seen says which of the two happened.
     Unparsable {
-        /// The file that could not be parsed.
+        /// The file that could not be read as Rust.
         file: PathBuf,
-        /// What the pass saw — the parse error, at the place it was raised.
+        /// What the pass saw — what `syn` said of the tokens, or what the
+        /// filesystem said of the file.
         saw: String,
     },
     /// A module declaration whose `#[path]` attribute names no string literal,
@@ -436,7 +441,8 @@ mod tests {
     }
 
     /// A leaf routing among as many kinds as the arm count given is reported
-    /// under rule A, and one routing among fewer is not.
+    /// under rule A, as is one routing among more, and one routing among fewer
+    /// is not.
     #[test]
     #[validates(spec::ALeafRoutingAmongTheGivenArmCountIsAFindingUnderRuleA)]
     fn a_leaf_routing_among_the_given_arm_count_is_a_finding_under_rule_a() {
@@ -444,12 +450,29 @@ mod tests {
             shapes: vec![
                 Shape { dispatch_arity: 3, ..leaf("dispatches", WORK) },
                 Shape { dispatch_arity: 1, ..leaf("chooses", WORK) },
+                Shape { dispatch_arity: 4, ..leaf("dispatches_wider", WORK) },
             ],
         };
         assert_eq!(
             reported(&check(&classification, &[], &[], 3, &wrappers())),
-            vec![("A", "dispatches".to_string())],
-            "the leaf routing among the arm count given reaches the caller, and the one routing among fewer is no finding",
+            vec![("A", "dispatches".to_string()), ("A", "dispatches_wider".to_string())],
+            "the arm count given is the count the rule is reached at, not the count it is met at exactly",
+        );
+        let source = "pub fn routes(kind: Kind) -> Outcome {\n\
+                          match kind {\n\
+                              Kind::A => first(kind),\n\
+                              Kind::B => { let read = source(kind)?; answer(read) }\n\
+                              Kind::C => third(kind),\n\
+                          }\n\
+                      }\n\
+                      pub fn chained(kind: Kind) -> Outcome {\n\
+                          if first(kind) { one(kind) } else if second(kind) { two(kind) } else { three(kind) }\n\
+                      }\n";
+        let root = crate_with("rule-a-arity", &[("src/lib.rs", source)]);
+        assert_eq!(
+            reported(&check(&classify(&root, &[]).0, &[], &[], 3, &wrappers())),
+            vec![("A", "routes".to_string()), ("A", "chained".to_string())],
+            "the arity the rule is given is the one the pass read from the body, an `if` chain's counted as a `match`'s is",
         );
     }
 
@@ -470,6 +493,14 @@ mod tests {
             reported(&check(&classification, &[], &mods, 3, &wrappers())),
             vec![("B", "counted".to_string())],
             "the rule is stated over the slice `mod.rs` files the caller gave, and its finding reaches the caller",
+        );
+        let held = "pub fn counted() { let total = left + right; answer(total) }\n\
+                    fn hidden() { let total = left + right; answer(total) }\n";
+        let root = crate_with("rule-b-public", &[("src/lib.rs", "pub mod hello;\n"), (SLICE_MOD, held)]);
+        assert_eq!(
+            reported(&check(&classify(&root, &[]).0, &[], &[root.join(SLICE_MOD)], 3, &wrappers())),
+            vec![("B", "counted".to_string())],
+            "the visibility the rule is given is the one the pass read from the declaration, so the private leaf beside it is no finding",
         );
     }
 
@@ -557,11 +588,13 @@ mod tests {
     #[test]
     #[validates(spec::ACrateWithNoSrcDirectoryIsTheEmptyClassification)]
     fn a_crate_with_no_src_directory_is_the_empty_classification() {
-        let root = crate_with("no-src", &[("Cargo.toml", "[package]\nname = \"member\"\n")]);
+        let manifest = ("Cargo.toml", "[package]\nname = \"member\"\n");
+        let bare = crate_with("no-src", &[manifest]);
+        let holding = crate_with("with-src", &[manifest, ("src/lib.rs", "pub fn works() { let total = left + right; answer(total) }\n")]);
         assert_eq!(
-            classify(&root, &[]),
-            (Classification::default(), Vec::new()),
-            "nothing to classify is answered with nothing, and with no refusal",
+            (classify(&bare, &[]), classify(&holding, &[]).0.shapes.len()),
+            ((Classification::default(), Vec::new()), 1),
+            "nothing to classify is answered with nothing and with no refusal, which is not how a crate holding a function is answered",
         );
     }
 

@@ -386,6 +386,17 @@ version = "0.2.8"
 dependencies = [
  "cargo-lid-rs",
  "lid-rs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lid-rs-shape"
+version = "0.2.8"
+dependencies = [
+ "lid-rs",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]

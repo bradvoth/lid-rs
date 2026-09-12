@@ -35,7 +35,15 @@ pub(crate) fn findings_for(
 /// from the shape: this rule counts nothing and classifies nothing.
 #[implements(spec::ALeafRoutingAmongTheGivenArmCountIsAFindingUnderRuleA)]
 fn rule_a(shape: &Shape, dispatch_arms: usize) -> Option<Finding> {
-    todo!("whether `{}` routes among {dispatch_arms} kinds as a leaf", shape.function)
+    (!shape.flow && shape.dispatch_arity >= dispatch_arms).then(|| Finding::RuleA {
+        file: shape.file.clone(),
+        function: shape.function.clone(),
+        saw: format!(
+            "routing among {} kinds as a leaf under F{}",
+            shape.dispatch_arity,
+            shape.first_failed.unwrap_or_default()
+        ),
+    })
 }
 
 /// **B** — a public leaf in one of `slice_mods` is a finding unless it carries
@@ -51,7 +59,12 @@ fn rule_a(shape: &Shape, dispatch_arms: usize) -> Option<Finding> {
     spec::APublicLeafMarkedLeafIsNoFindingUnderRuleB,
 )]
 fn rule_b(shape: &Shape, slice_mods: &[PathBuf]) -> Option<Finding> {
-    todo!("whether `{}` is an unmarked public leaf in one of {} slice mods", shape.function, slice_mods.len())
+    let violating = shape.public && !shape.flow && !shape.marked_leaf && slice_mods.contains(&shape.file);
+    violating.then(|| Finding::RuleB {
+        file: shape.file.clone(),
+        function: shape.function.clone(),
+        saw: format!("a leaf under F{}", shape.first_failed.unwrap_or_default()),
+    })
 }
 
 /// **V** — a flow function whose parameter, or whose `Ok` type, is written as a
@@ -75,7 +88,7 @@ fn rule_v(shape: &Shape, signatures: &[Signature], wrappers: &[String]) -> Vec<F
 /// The signature read from the same declaration as this shape, joined on the
 /// file and the name, and none where the two answers hold no such pair.
 fn signature_for<'a>(shape: &Shape, signatures: &'a [Signature]) -> Option<&'a Signature> {
-    todo!("the signature of `{}` among {} of them", shape.function, signatures.len())
+    signatures.iter().find(|signature| signature.file == shape.file && signature.function == shape.function)
 }
 
 /// What the rule saw at each parameter written as a name it denies.
@@ -105,7 +118,23 @@ fn denied_ok_type(signature: &Signature, wrappers: &[String]) -> Option<String> 
 /// `Result` as the source wrote it.
 #[implements(spec::AFlowOkTypeWrittenAsADeniedNameIsAFindingUnderRuleV)]
 fn ok_type(returns: &str) -> Option<&str> {
-    todo!("the `Ok` type written inside `{returns}`")
+    let (outer, arguments) = returns.trim().strip_suffix('>')?.split_once('<')?;
+    (outer.trim() == "Result").then(|| first_argument(arguments))
+}
+
+/// The first of the type arguments written between a pair of angle brackets:
+/// what precedes the first comma no inner pair encloses, and the whole of them
+/// where no comma does.
+///
+/// The comma is found by balance rather than by counting depth as the tokens
+/// are walked: `Result<Vec<T>, E>` holds `Vec<T>` first, and the comma inside
+/// that `Vec` is the one that leaves its brackets unbalanced.
+fn first_argument(arguments: &str) -> &str {
+    arguments
+        .match_indices(',')
+        .map(|(at, _)| &arguments[..at])
+        .find(|held| held.matches('<').count() == held.matches('>').count())
+        .unwrap_or(arguments)
 }
 
 /// The name rule V tests a written type by: the name inside every wrapper the
@@ -119,7 +148,25 @@ fn ok_type(returns: &str) -> Option<&str> {
     spec::RuleVTestsTheNameTheSourceWroteAndResolvesNothing,
 )]
 fn tested_name(written: &str, wrappers: &[String]) -> String {
-    todo!("the name `{written}` is tested by, unwrapping {wrappers:?}")
+    let mut name: String = written.chars().filter(|character| !character.is_whitespace()).collect();
+    for _ in 0..name.len() {
+        match unwrapped_once(&name, wrappers).map(str::to_string) {
+            Some(held) => name = held,
+            None => break,
+        }
+    }
+    name
+}
+
+/// The type one wrapper the caller named holds, and none where the name is
+/// written as no wrapper of theirs.
+///
+/// One layer, so that the loop above is the whole of the unwrapping: a name
+/// written as a wrapper of a wrapper is answered a layer at a time, and the
+/// tokens are spacing-free by the time they reach here.
+fn unwrapped_once<'a>(name: &'a str, wrappers: &[String]) -> Option<&'a str> {
+    let (outer, arguments) = name.strip_suffix('>')?.split_once('<')?;
+    wrappers.iter().any(|wrapper| wrapper == outer).then(|| first_argument(arguments))
 }
 
 /// Whether a name is one rule V denies: `String`, `&str`, `bool`, the integer
@@ -132,8 +179,19 @@ fn tested_name(written: &str, wrappers: &[String]) -> String {
 /// no reader takes the set for the rule.
 #[implements(spec::RuleVDeniesReadmesDenyClauseAndNoOtherName)]
 fn is_denied_name(name: &str) -> bool {
-    todo!("whether `{name}` is one of the names rule V denies")
+    DENIED.contains(&name)
 }
+
+/// The names rule V denies, as the design's deny clause writes them: `String`,
+/// `&str`, `bool`, `char`, and every integer and float type.
+///
+/// The clause and nothing beyond it. A name the clause does not hold is not
+/// denied however unlike a vocabulary type it is, because the rule this crate
+/// implements is the deny clause and not the allow-list it was narrowed from.
+const DENIED: [&str; 18] = [
+    "String", "&str", "bool", "char", "f32", "f64", "i8", "i16", "i32", "i64", "i128", "isize", "u8", "u16", "u32",
+    "u64", "u128", "usize",
+];
 
 #[cfg(test)]
 mod tests {
@@ -210,6 +268,11 @@ mod tests {
     /// A type written as one of the wrappers the caller gave is tested by the
     /// name that wrapper holds, however the tokens are spaced, and a type
     /// written as no wrapper is tested by the name as written.
+    ///
+    /// The last case is the one that says which way the comparison runs: a
+    /// generic type the caller did not name is held whole, so a rule that
+    /// unwrapped everything with angle brackets would answer `Kind` where the
+    /// source wrote `Registry<Kind>`.
     #[test]
     #[validates(spec::AGivenWrapperIsUnwrappedBeforeRuleVTestsTheName)]
     fn a_given_wrapper_is_unwrapped_before_rule_v_tests_the_name() {
@@ -219,9 +282,10 @@ mod tests {
                 tested_name("Option<String>", &wrappers),
                 tested_name("Vec < Box < Report > >", &wrappers),
                 tested_name("Report", &wrappers),
+                tested_name("Registry < Kind >", &wrappers),
             ),
-            ("String".to_string(), "Report".to_string(), "Report".to_string()),
-            "the name inside every wrapper the caller named, and the written name where there is none",
+            ("String".to_string(), "Report".to_string(), "Report".to_string(), "Registry<Kind>".to_string()),
+            "the name inside every wrapper the caller named, and the written name where the wrapper is not one of theirs",
         );
     }
 }

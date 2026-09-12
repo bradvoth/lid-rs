@@ -1,6 +1,7 @@
 //! One function's written signature tokens, in both positions.
 
 use lid_rs::implements;
+use quote::ToTokens;
 
 use crate::{Signature, function::Function, spec};
 
@@ -23,7 +24,20 @@ pub(crate) fn signature_of(function: &Function) -> Signature {
 /// like any other where the declaration wrote a type for it.
 #[implements(spec::EveryFunctionOfTheCrateHasItsSignatureTokens)]
 fn parameter_tokens(sig: &syn::Signature) -> Vec<String> {
-    todo!("the type tokens of the {} parameters of `{}`", sig.inputs.len(), sig.ident)
+    sig.inputs.iter().map(written_type).collect()
+}
+
+/// The type tokens one parameter was written with: the type beside a typed
+/// parameter's pattern, and the type a receiver stands for.
+///
+/// The pattern is not part of the answer. `input: &Report` is written with the
+/// type `&Report`, and the name the declaration binds it to is no part of what
+/// a rule over a signature reads.
+fn written_type(input: &syn::FnArg) -> String {
+    match input {
+        syn::FnArg::Receiver(receiver) => receiver.ty.to_token_stream().to_string(),
+        syn::FnArg::Typed(typed) => typed.ty.to_token_stream().to_string(),
+    }
 }
 
 /// The return type tokens the source wrote, whole, and none for a function
@@ -34,7 +48,10 @@ fn parameter_tokens(sig: &syn::Signature) -> Vec<String> {
 /// the whole type cannot recover it from a part.
 #[implements(spec::TheReturnTokensAreTheWholeWrittenTypeAndNotTheOkTypeAlone)]
 fn return_tokens(sig: &syn::Signature) -> Option<String> {
-    todo!("the whole written return type of `{}`", sig.ident)
+    match &sig.output {
+        syn::ReturnType::Default => None,
+        syn::ReturnType::Type(_, written) => Some(written.to_token_stream().to_string()),
+    }
 }
 
 #[cfg(test)]

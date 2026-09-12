@@ -49,10 +49,14 @@ fn first_failed(body: &syn::Block, allow_macros: &[String]) -> Option<u8> {
 /// Whether the declaration says `pub`, which is half of what rule B is stated
 /// over.
 ///
-/// A reading of the declaration and not a rule over it: no claim of this slice
-/// states it, and rule B is given the answer rather than making it.
+/// A reading of the declaration and not a rule over it — rule B is given this
+/// answer rather than making it — but a wrong answer here is rule B's wrong
+/// answer: a reading that called every declaration public would report the
+/// private leaves of a slice's `mod.rs`, and one that called none public would
+/// report nothing at all. That is why it cites the rule it feeds.
+#[implements(spec::AnUnmarkedPublicLeafInASliceModIsAFindingUnderRuleB)]
 fn is_public(vis: &syn::Visibility) -> bool {
-    todo!("whether the {:?} visibility is public", std::mem::discriminant(vis))
+    matches!(vis, syn::Visibility::Public(_))
 }
 
 /// Whether the declaration carries `#[leaf]`.
@@ -63,7 +67,7 @@ fn is_public(vis: &syn::Visibility) -> bool {
 /// counted from the classification and nowhere else.
 #[implements(spec::TheShapeOfAMarkedFunctionCarriesTheMarkSoItIsCounted)]
 fn marked_leaf(attrs: &[syn::Attribute]) -> bool {
-    todo!("whether `#[leaf]` is among the {} attributes of the declaration", attrs.len())
+    attrs.iter().any(|attribute| attribute.path().is_ident("leaf"))
 }
 
 #[cfg(test)]

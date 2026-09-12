@@ -12,6 +12,7 @@
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
+use quote::ToTokens;
 
 use crate::{Finding, spec};
 
@@ -32,7 +33,7 @@ pub(crate) fn sources(crate_root: &Path) -> Sources {
 /// gets: no file is read, so no shape is answered and no finding is raised.
 #[implements(spec::ACrateWithNoSrcDirectoryIsTheEmptyClassification)]
 fn crate_roots(crate_root: &Path) -> Vec<PathBuf> {
-    todo!("the root source files of the crate at {}", crate_root.display())
+    ["lib.rs", "main.rs"].iter().map(|root| crate_root.join("src").join(root)).filter(|file| file.is_file()).collect()
 }
 
 /// Every file of `files`, and everything the module declarations those files
@@ -69,7 +70,9 @@ fn merged(first: Sources, second: Sources) -> Sources {
 /// the rest of the crate.
 #[implements(spec::AFileSynCannotParseIsAFindingAndNotAPanic)]
 fn parse_source(file: &Path) -> Result<syn::File, Finding> {
-    todo!("parse the source file at {}", file.display())
+    let unread = |saw: String| Finding::Unparsable { file: file.to_path_buf(), saw };
+    let text = std::fs::read_to_string(file).map_err(|refusal| unread(refusal.to_string()))?;
+    syn::parse_file(&text).map_err(|error| unread(error.to_string()))
 }
 
 /// The files the module declarations of one parsed file stand for, and the
@@ -87,8 +90,14 @@ fn submodule_files(file: &Path, parsed: &syn::File) -> (Vec<PathBuf>, Vec<Findin
 /// directory for a crate root and a `mod.rs`, and the directory named for the
 /// file otherwise.
 fn module_dir(file: &Path) -> PathBuf {
-    todo!("the directory the modules declared in {} are looked for in", file.display())
+    let directory = file.parent().map(Path::to_path_buf).unwrap_or_default();
+    let stem = file.file_stem().unwrap_or_default().to_string_lossy().into_owned();
+    if ROOT_STEMS.contains(&stem.as_str()) { directory } else { directory.join(stem) }
 }
+
+/// The file names whose modules are looked for beside them rather than under a
+/// directory of their own: a crate's two roots, and a directory's own file.
+const ROOT_STEMS: [&str; 3] = ["lib", "main", "mod"];
 
 /// Every module declaration one file's tokens make that stands for another
 /// file, each with the directory its file is looked for in relative to the
@@ -100,7 +109,17 @@ fn module_dir(file: &Path) -> PathBuf {
 /// like any other and the functions it holds are classified as written.
 #[implements(spec::ACfgGatedModuleIsClassifiedAsWritten)]
 fn declared_modules(parsed: &syn::File) -> Vec<(PathBuf, &syn::ItemMod)> {
-    todo!("the file-standing module declarations among {} items", parsed.items.len())
+    let mut standing = Vec::new();
+    let mut pending: Vec<(PathBuf, &syn::Item)> =
+        parsed.items.iter().rev().map(|item| (PathBuf::new(), item)).collect();
+    while let Some((under, item)) = pending.pop() {
+        let syn::Item::Mod(module) = item else { continue };
+        match &module.content {
+            Some((_, held)) => pending.extend(held.iter().rev().map(|item| (under.join(module.ident.to_string()), item))),
+            None => standing.push((under, module)),
+        }
+    }
+    standing
 }
 
 /// The file one module declaration stands for, under `dir`: the `#[path]` the
@@ -118,5 +137,29 @@ fn declared_modules(parsed: &syn::File) -> Vec<(PathBuf, &syn::ItemMod)> {
 /// item a bound would be written in; it holds none.
 #[implements(spec::APathAttributeThatIsNoLiteralIsReportedUnreachable)]
 fn declared_file(dir: &Path, from: &Path, module: &syn::ItemMod) -> Result<PathBuf, Finding> {
-    todo!("the file `mod {}` in {} stands for, under {}", module.ident, from.display(), dir.display())
+    let Some(attribute) = module.attrs.iter().find(|attribute| attribute.path().is_ident("path")) else {
+        return Ok(beside(dir, &module.ident.to_string()));
+    };
+    if let syn::Meta::NameValue(named) = &attribute.meta
+        && let syn::Expr::Lit(literal) = &named.value
+        && let syn::Lit::Str(named_file) = &literal.lit
+    {
+        return Ok(dir.join(named_file.value()));
+    }
+    Err(Finding::Unreachable {
+        file: from.to_path_buf(),
+        module: module.ident.to_string(),
+        saw: attribute.to_token_stream().to_string(),
+    })
+}
+
+/// The file a module declaration carrying no `#[path]` stands for: the
+/// `<module>/mod.rs` under `dir` where that is a file, and the `<module>.rs`
+/// beside it otherwise.
+///
+/// The `.rs` is also the answer where neither is a file, so a declaration
+/// standing for nothing is reported against the name a reader would look for.
+fn beside(dir: &Path, module: &str) -> PathBuf {
+    let nested = dir.join(module).join("mod.rs");
+    if nested.is_file() { nested } else { dir.join(format!("{module}.rs")) }
 }
