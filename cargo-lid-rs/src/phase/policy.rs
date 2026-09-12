@@ -340,7 +340,13 @@ impl SliceCode {
     spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
 )]
 fn crate_relative(crate_root: &Path, path: &Path) -> Result<PathBuf, String> {
-    todo!()
+    path.strip_prefix(crate_root).map(Path::to_path_buf).map_err(|_| {
+        format!(
+            "`{}` is not under the crate `{}` it was resolved for, so no row and no verdict can be written in that crate's terms",
+            path.display(),
+            crate_root.display()
+        )
+    })
 }
 
 /// The directories under a slice's own that are other slices' of the same
@@ -362,7 +368,15 @@ fn crate_relative(crate_root: &Path, path: &Path) -> Result<PathBuf, String> {
     spec::PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices,
 )]
 fn other_slice_dirs(project: &Project, crate_root: &Path, dir: &Path) -> Vec<PathBuf> {
-    todo!()
+    let under = crate_root.join(dir);
+    std::fs::read_dir(&under)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| layout::slice_dir(project, name) == Ok(under.join(name)))
+        .map(|name| dir.join(name))
+        .collect()
 }
 
 /// One phase's allowed set for one seat, as paths relative to that seat's
@@ -1329,10 +1343,17 @@ mod tests {
     fn the_stop_stages_both_crates_allowed_paths() {
         let (dir, project) = fixture::two_member_workspace("stage-both", "", "");
         let crates = SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) };
+        // The module is written before the row is asked for, because the own
+        // seat's row is now the layout's answer for where the slice's code is:
+        // a crate holding no module named for the slice is a crate-root slice,
+        // whose directory is its `src`. The fixture held the slice's document
+        // and none of its code, and the row it was given was the slice's name
+        // spelled into a path, which said nothing about the tree. It is the
+        // same file the staging assertion below needs changed, written once.
+        std::fs::write(dir.join("owner/src/m.rs"), "//! m\n").expect("the module that makes `m` a module of `owner`");
         let both = workspace_paths(&project, Phase::Five, &crates).expect("both under the root");
         assert_eq!(both, paths(&["owner/src/m.rs", "owner/src/m", "app/src/m.rs", "app/src/m", "app/tests/ui"]));
         // What the commit stages is the changes within that set, and nothing else.
-        std::fs::write(dir.join("owner/src/m.rs"), "//! m\n").expect("write");
         std::fs::create_dir_all(dir.join("app/tests/ui")).expect("dir");
         std::fs::write(dir.join("app/tests/ui/fail.rs"), "").expect("write");
         std::fs::write(dir.join("app/src/lib.rs"), "// changed\n").expect("write");
