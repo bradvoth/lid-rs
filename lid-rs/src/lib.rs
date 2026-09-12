@@ -24,6 +24,14 @@ mod intent_graph {
 
 pub use registry::{Edge, IMPLEMENTATIONS, SPECS, SpecMeta, VALIDATIONS};
 
+// The fourth and fifth distributed slices are declared in the slice that owns
+// them and re-exported here beside the triple, because the expansions that fill
+// them address them as `$crate::OUTCOMES` and `$crate::CLAIMED_OWNERS` in every
+// downstream crate — one registration per variant from `derive(Outcome)`, and
+// one per unwanted claim naming a variant from `derive(Spec)`, beside the bound
+// it emits there. It is the same reason `SPECS` is re-exported from `registry`.
+pub use outcome::{CLAIMED_OWNERS, OUTCOMES};
+
 pub use ::lid_rs_macros::{Spec, implements, implements_module, spec, validates};
 
 // Hand-authored implementation edges for the citation claims: lid-rs-macros is a
