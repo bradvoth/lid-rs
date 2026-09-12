@@ -120,7 +120,7 @@ impl Traceable for &str {
     spec::APrimitiveRecordsTheSpellingOfItsOwnType,
 )]
 pub fn noun_of<T: Traceable + ?Sized>() -> &'static str {
-    todo!()
+    T::NOUN
 }
 
 #[cfg(test)]

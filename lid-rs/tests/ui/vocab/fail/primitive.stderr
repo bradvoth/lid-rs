@@ -1,0 +1,11 @@
+error[E0277]: `String` is not a vocabulary noun: a claim may name only a type carrying `derive(Traceable)`
+  --> tests/ui/vocab/fail/primitive.rs:16:19
+   |
+16 |     assert_noun::<String>();
+   |                   ^^^^^^ the trait `Noun` is not implemented for `String`
+   |
+note: required by a bound in `assert_noun`
+  --> tests/ui/vocab/fail/primitive.rs:13:19
+   |
+13 | fn assert_noun<T: lid_rs::Noun>() {}
+   |                   ^^^^^^^^^^^^ required by this bound in `assert_noun`

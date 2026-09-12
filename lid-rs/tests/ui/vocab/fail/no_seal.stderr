@@ -1,0 +1,16 @@
+error[E0277]: the trait bound `Forged: lid_rs::vocab::Declared` is not satisfied
+  --> tests/ui/vocab/fail/no_seal.rs:17:23
+   |
+17 | impl lid_rs::Noun for Forged {}
+   |                       ^^^^^^ unsatisfied trait bound
+   |
+help: the trait `lid_rs::vocab::Declared` is not implemented for `Forged`
+  --> tests/ui/vocab/fail/no_seal.rs:11:1
+   |
+11 | struct Forged;
+   | ^^^^^^^^^^^^^
+note: required by a bound in `Noun`
+  --> src/vocab/mod.rs
+   |
+   | pub trait Noun: Traceable + Declared {}
+   |                             ^^^^^^^^ required by this bound in `Noun`
