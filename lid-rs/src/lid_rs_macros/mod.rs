@@ -103,8 +103,20 @@ mod tests {
         ));
     }
 
+    /// One `TestCases` over the two fixture directories is the whole proof
+    /// for every compile-time claim of this slice: the five malformations,
+    /// the async refusal (`fail/async_implements.rs`), the pins' argument
+    /// refusal (`fail/pin_with_args.rs`), and the pins' unchanged expansion
+    /// (`pass/pins.rs`, run as well as compiled). A second harness would
+    /// compile every fixture twice and prove nothing this one does not
+    /// (`lid-rs-macros/src/lld.md`, "What lands by hand").
     #[test]
-    #[validates(crate::lid_rs_macros::spec::MalformedCitationsFailToCompile)]
+    #[validates(
+        crate::lid_rs_macros::spec::MalformedCitationsFailToCompile,
+        crate::lid_rs_macros::spec::AsyncCitationsFailToCompile,
+        crate::lid_rs_macros::spec::PinsExpandToTheirItemUnchanged,
+        crate::lid_rs_macros::spec::PinsRefuseArguments
+    )]
     fn malformed_citations_fail_to_compile() {
         let t = trybuild::TestCases::new();
         t.compile_fail("tests/ui/fail/*.rs");

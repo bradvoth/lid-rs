@@ -94,9 +94,9 @@ const _: () = {
     macro_edge!(crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
     macro_edge!(crate::lid_rs_macros::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
     // The async refusal and the shape pins: kept by `refuse_async` and
-    // `passthrough_pin`, both private to `lid_rs_macros::expand`, which is the
-    // item these edges name (`lid-rs-macros/src/lld.md`, "What Phase 3 writes
-    // in the companion").
+    // `passthrough_pin` in `lid_rs_macros::expand`, the module these edges
+    // name — the granularity the LLD settles for this crate's hand edges
+    // (`lid-rs-macros/src/lld.md`, "What Phase 3 writes in the companion").
     macro_edge!(crate::lid_rs_macros::spec::AsyncCitationsFailToCompile, "lid_rs_macros::expand");
     macro_edge!(crate::lid_rs_macros::spec::PinsExpandToTheirItemUnchanged, "lid_rs_macros::expand");
     macro_edge!(crate::lid_rs_macros::spec::PinsRefuseArguments, "lid_rs_macros::expand");
