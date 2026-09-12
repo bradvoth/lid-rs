@@ -386,8 +386,6 @@ version = "0.2.8"
 dependencies = [
  "cargo-lid-rs",
  "lid-rs",
- "serde",
- "serde_json",
 ]
 
 [[package]]

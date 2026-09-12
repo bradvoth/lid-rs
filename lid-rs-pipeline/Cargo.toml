@@ -20,13 +20,6 @@ lid-rs = { path = "../lid-rs", version = "0.2.8" }
 # crates, which is the defect this workspace has found three instances of in
 # path handling alone.
 cargo-lid-rs = { path = "../cargo-lid-rs", version = "0.2.8" }
-# `write_report` puts the report under `target/lid/status.json`, so the report
-# and every type it holds derive `Serialize`. Not `Deserialize`: nothing in
-# this workspace reads the file back, and a test asserting on what was written
-# reads it as `serde_json::Value`, which checks the JSON that exists rather
-# than a round trip through the types that produced it.
-serde = { version = "1.0.229", features = ["derive"] }
-serde_json.workspace = true
 
 [lints]
 workspace = true
