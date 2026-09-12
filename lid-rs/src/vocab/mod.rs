@@ -123,4 +123,180 @@ pub fn noun_of<T: Traceable + ?Sized>() -> &'static str {
     todo!()
 }
 
+#[cfg(test)]
+mod tests {
+    //! What [`noun_of`](super::noun_of) answers, what [`Noun`](super::Noun)
+    //! admits, and the two refusals only a compile failure can state.
+    //!
+    //! **Every case that can be read at runtime is read through
+    //! [`noun_of`](super::noun_of).** This slice is traits, impls and one
+    //! associated const per primitive, and a claim whose only implementer is
+    //! data is true from the Phase 3 skeleton onward: a case reading `<u8 as
+    //! Traceable>::NOUN` directly would be green before any leaf existed, which
+    //! is a validator that can never have been red. The function reads the
+    //! const, so the same fact is asserted through the one item of the slice
+    //! that is work.
+    //!
+    //! **The type-level facts are asserted by bounds, not by values.** A type is
+    //! a [`Noun`](super::Noun) or it is not, and nothing about that is
+    //! observable from a value; [`noun_name`] states the bound in its signature
+    //! and the compiler discharges it, while the name it carries back is what
+    //! gives the case something to be wrong about.
+    //!
+    //! **The negatives are trybuild fixtures, because a program that compiles
+    //! cannot state them.** There is no way to ask whether `u32: Noun` is false
+    //! from a passing test — only a refusal says so. The fixtures under
+    //! `lid-rs/tests/ui/vocab/fail/` are a hand commit that precedes this phase,
+    //! since a harness whose glob matches nothing records zero failures and is a
+    //! vacuous green. There is no `pass` directory to glob: a positive fixture
+    //! would want `derive(Traceable)`, which is the other half of HLD row 17,
+    //! and the positive case is [`a_hand_declared_type_is_a_noun`] instead.
+    //!
+    //! **Every assertion names an exact string.** The mutation gate substitutes
+    //! `""` for the body of anything returning `&'static str`, so a case
+    //! asserting only that a name was non-empty hands it a survivor; the
+    //! primitives are asserted one by one and the list of them is the
+    //! specification.
+
+    use super::{Declared, Noun, Traceable, noun_of, spec};
+    use lid_rs::validates;
+
+    /// The name [`Recorded`] records, deliberately unlike that type's own
+    /// spelling.
+    ///
+    /// What [`noun_of`](super::noun_of) carries is the const the impl declared
+    /// and not the type's identifier, and the two are only distinguishable on a
+    /// type whose const disagrees with its name.
+    const RECORDED: &str = "a name of its own";
+
+    /// A type that records under [`RECORDED`], and carries no seal.
+    struct Recorded;
+
+    impl Traceable for Recorded {
+        const NOUN: &'static str = RECORDED;
+    }
+
+    /// A type declared a noun by hand: it records, it carries the seal, and it
+    /// is a [`Noun`](super::Noun).
+    ///
+    /// The three impls a consumer writes where no derive is available, and the
+    /// demonstration that the seal makes a noun a deliberate declaration rather
+    /// than an unforgeable one. Its sibling — a type carrying the recording
+    /// impl and no seal — is `tests/ui/vocab/fail/no_seal.rs`, which does not
+    /// compile.
+    struct HandDeclared;
+
+    impl Traceable for HandDeclared {
+        const NOUN: &'static str = "HandDeclared";
+    }
+
+    impl Declared for HandDeclared {}
+
+    impl Noun for HandDeclared {}
+
+    /// The recorded name of a type the compiler accepted as a
+    /// [`Noun`](super::Noun).
+    ///
+    /// The bound is the assertion: a type satisfying only one of the two
+    /// supertraits cannot be passed here at all, so a case that calls this has
+    /// already stated that its argument is a noun by compiling. Reading the name
+    /// back through [`noun_of`](super::noun_of) is what gives that statement a
+    /// reachable red — a bound alone is discharged from the skeleton onward.
+    fn noun_name<T: Noun>() -> &'static str {
+        noun_of::<T>()
+    }
+
+    /// What a type records is the const its impl declared, carried back by
+    /// [`noun_of`](super::noun_of) with no value of the type in hand.
+    ///
+    /// [`Recorded`]'s const is not its identifier, so an answer taken from the
+    /// type's spelling rather than from its impl fails here while every
+    /// primitive still agreed.
+    #[test]
+    #[validates(spec::NounOfCarriesTheNameItsTypeRecords)]
+    fn noun_of_carries_the_name_its_type_records() {
+        assert_eq!(
+            noun_of::<Recorded>(),
+            RECORDED,
+            "the name carried is the one the type's impl declared"
+        );
+    }
+
+    /// Each of rule V's primitives records the spelling of its own type.
+    ///
+    /// All eighteen, one exact string each: the list is the decision, and a
+    /// pairwise assertion is what makes a single wrong impl name itself.
+    /// `&str` is the one entry whose spelling is not a single identifier, and
+    /// the one the macro over the list cannot produce.
+    #[test]
+    #[validates(spec::APrimitiveRecordsTheSpellingOfItsOwnType)]
+    fn a_primitive_records_the_spelling_of_its_own_type() {
+        let recorded = [
+            (noun_of::<String>(), "String"),
+            (noun_of::<&str>(), "&str"),
+            (noun_of::<bool>(), "bool"),
+            (noun_of::<char>(), "char"),
+            (noun_of::<u8>(), "u8"),
+            (noun_of::<u16>(), "u16"),
+            (noun_of::<u32>(), "u32"),
+            (noun_of::<u64>(), "u64"),
+            (noun_of::<u128>(), "u128"),
+            (noun_of::<usize>(), "usize"),
+            (noun_of::<i8>(), "i8"),
+            (noun_of::<i16>(), "i16"),
+            (noun_of::<i32>(), "i32"),
+            (noun_of::<i64>(), "i64"),
+            (noun_of::<i128>(), "i128"),
+            (noun_of::<isize>(), "isize"),
+            (noun_of::<f32>(), "f32"),
+            (noun_of::<f64>(), "f64"),
+        ];
+        for (name, spelling) in recorded {
+            assert_eq!(name, spelling, "`{spelling}` records the spelling of its own type");
+        }
+    }
+
+    /// A type carrying the recording impl and a hand-written seal is a
+    /// [`Noun`](super::Noun), which is what makes the seal a second thing to
+    /// write rather than an impossible one.
+    ///
+    /// The bound on [`noun_name`] is the whole of the type-level statement; the
+    /// name it carries back is what a wrong [`noun_of`](super::noun_of) gets
+    /// wrong.
+    #[test]
+    #[validates(spec::AHandDeclaredTypeIsANoun)]
+    fn a_hand_declared_type_is_a_noun() {
+        assert_eq!(
+            noun_name::<HandDeclared>(),
+            "HandDeclared",
+            "a type that records and was declared is a noun, and records its own spelling"
+        );
+    }
+
+    /// The two facts no passing program can state: `String` is refused where a
+    /// [`Noun`](super::Noun) is required, and the refusal names the type as not
+    /// a vocabulary noun.
+    ///
+    /// `tests/ui/vocab/fail/primitive.rs` requires the bound of a primitive and
+    /// pins the shaped `#[diagnostic::on_unimplemented]` message; `no_seal.rs`
+    /// writes `impl Noun` for a type carrying no seal and pins the error that
+    /// names the seal. Both fixtures write the bound by hand, because the
+    /// emission that would write it for them is the other half of HLD row 17
+    /// and this harness is about the trait.
+    ///
+    /// Named for [`NoPrimitiveIsANoun`](super::spec::NoPrimitiveIsANoun) and
+    /// not for what it does: check 14 admits a validator named for the
+    /// `snake_case` of any one claim it cites, optionally suffixed, and a
+    /// descriptive name is the `snake_case` of no claim of this slice.
+    #[test]
+    #[validates(
+        spec::NoPrimitiveIsANoun,
+        spec::TheNounRefusalNamesTheTypeAsNotAVocabularyNoun
+    )]
+    fn no_primitive_is_a_noun() {
+        let t = trybuild::TestCases::new();
+        t.compile_fail("tests/ui/vocab/fail/*.rs");
+    }
+}
+
 pub mod spec;
