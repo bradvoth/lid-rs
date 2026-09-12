@@ -1,5 +1,6 @@
-//! Claims for the `phase` slice (`docs/intent/phase/lld.md`): a phase is
-//! run by an agent that can only edit, and its commit is the check passing.
+//! Claims for the `phase` slice (`src/phase/lld.md`, beside this file): a
+//! phase is run by an agent that can only edit, and its commit is the check
+//! passing.
 
 use lid_rs::Spec;
 
@@ -44,15 +45,6 @@ pub struct PhasesThreeAndFourCheckTheSkeletonTypeChecks;
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce;
-
-/// The name [`PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce`]
-/// carried while the gate's package step was one invocation per package. The
-/// alias registers no claim, so the graph sees only the claim it points at;
-/// every citation of this name warns with its replacement, and those citations
-/// are the later phases' work list.
-#[deprecated = "replaced by PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce"]
-pub type PhaseSevenRunsTheGateInOrder =
-    PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce;
 
 /// When a step of a phase's sequence fails, the check shall stop there and
 /// fail naming that step, running no later step.
@@ -173,22 +165,58 @@ pub struct PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 // beside the code only the claims file is another phase's, so that is the rule
 // the directory entry was standing in for — and it refuses an intent file
 // invented later without the policy learning its name.
+//
+// The two immediately below carry a second narrowing their companion-seat
+// twins further down do not. All four say "under the slice's directory" and
+// mean whatever directory the layout answers for the slice, which is the
+// question to ask: a directory spelled from the slice's name is one a
+// crate-root slice keeps no code in, and Phases 5 and 7, whose row carries no
+// `src/lib.rs`, may then write nothing at all. But for a crate-root slice the
+// layout's answer is its crate's `src`, and `cargo-lid-rs` holds eight module
+// slices under its own — so asking the layout and stopping there would trade a
+// lockout for the wider breach. What these two names add is therefore the
+// subtraction and not the question: the slice's directory, and no other
+// slice's directory in that crate. The companion twins keep their wording,
+// a companion being a slice's presence in another crate — always a module
+// directory, never a crate root, and so never over another slice's code.
 
 /// When a Phase 3 or 4 agent edits or writes under the slice's own crate, the
 /// target shall be the slice's module file, `src/lib.rs`, or a Rust source
-/// file under the slice's directory other than its claims file — wherever the
-/// layout puts that file — and nothing else in that crate.
+/// file under the slice's directory and under no other slice's directory in
+/// that crate — wherever the layout puts each of them — other than the slice's
+/// claims file, and nothing else in that crate.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent;
+pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices;
+
+/// The name
+/// [`PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices`]
+/// carried while a phase's directory was one directory, whatever the slice's
+/// shape. The alias registers no claim, so the graph sees only the claim it
+/// points at; every citation of this name warns with its replacement, and
+/// those citations are the later phases' work list.
+#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices"]
+pub type PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent =
+    PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices;
 
 /// When a Phase 5 or 7 agent edits or writes under the slice's own crate, the
 /// target shall be the slice's module file or a Rust source file under the
-/// slice's directory other than its claims file — wherever the layout puts
-/// that file — and nothing else in that crate.
+/// slice's directory and under no other slice's directory in that crate —
+/// wherever the layout puts each of them — other than the slice's claims file,
+/// and nothing else in that crate.
 #[derive(Spec)]
 #[lid(free)]
-pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent;
+pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices;
+
+/// The name
+/// [`PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices`]
+/// carried while a phase's directory was one directory, whatever the slice's
+/// shape. The alias registers no claim, so the graph sees only the claim it
+/// points at; every citation of this name warns with its replacement, and
+/// those citations are the later phases' work list.
+#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices"]
+pub type PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent =
+    PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices;
 
 /// When a target path contains a parent component or resolves outside both
 /// the slice's crate and its companion, the policy shall refuse it before
