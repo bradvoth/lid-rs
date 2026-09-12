@@ -11,7 +11,7 @@ pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
 use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
-use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
+use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
 use tally::Event;
 
 use crate::layout;
@@ -69,7 +69,10 @@ impl TryFrom<u8> for Phase {
 /// One step of a phase's check — the closed set of things a check runs,
 /// which is README §4.5's list and the red run.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::PhaseTwoChecksTheClaimsBuild)]
+#[implements(
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::PhaseTwoChecksTheClaimsBuild,
+)]
 pub enum Step {
     /// `cargo check --all-targets`.
     Check,
@@ -81,8 +84,9 @@ pub enum Step {
     DocTests,
     /// `cargo test --lib`.
     LibTests,
-    /// `cargo package -p <name> --allow-dirty` for one publishing package.
-    Package(String),
+    /// One `cargo package -p <a> -p <b> … --allow-dirty` naming every
+    /// publishing package, so the members resolve against each other.
+    Package(Vec<String>),
     /// `sync --check`, through the library.
     SyncCheck,
     /// `mutants`, through the library.
@@ -380,9 +384,18 @@ fn unaccepted(slice: &str, what: &str, acceptance: &Path) -> String {
 /// that is is a layout fact: it is asked of `layout::spec_file` here, where
 /// the project is, and answered relative to no crate, so that the one answer
 /// judges the slice's own crate and its companion alike.
+///
+/// Where the slice's code is in that crate is the other layout fact the
+/// policy is told rather than spells, and it is asked here for the same
+/// reason: a directory spelled from the slice's name is one a crate-root
+/// slice keeps no code in, and the crate's `src` that slice's code *is* holds
+/// every module slice the crate has, so the answer is a directory and the
+/// other slices' directories under it together
+/// ([`policy::SliceCode::of_own_crate`]).
 fn path_verdict(project: &Project, phase: Phase, crates: &SliceCrates, target: &Path, agent: &str) -> Result<HookVerdict, String> {
     let claims = layout::spec_file(project, &crates.slice)?;
-    match allowed(phase, crates, &claims, target) {
+    let code = SliceCode::of_own_crate(project, crates)?;
+    match allowed(phase, crates, &claims, &code, target) {
         Verdict::Allowed => Ok(HookVerdict::Allow),
         Verdict::Refused(why) => refuse_edit(project, phase, &workspace_paths(project, phase, crates)?, target, &why, agent),
     }
@@ -560,7 +573,7 @@ pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(),
     spec::PhaseTwoChecksTheClaimsBuild,
     spec::WarningsDoNotFailPhaseTwosCheck,
     spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks,
-    spec::PhaseSevenRunsTheGateInOrder,
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
 )]
 pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     match phase {
@@ -572,15 +585,20 @@ pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
     }
 }
 
-/// README §4.5 in order: the five cargo steps, a package per publishing
-/// member, then the two library steps.
-#[implements(spec::PhaseSevenRunsTheGateInOrder)]
+/// README §4.5 in order: the five cargo steps, one `cargo package` naming
+/// every publishing member, then the two library steps.
+#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
 fn gate(publishing: &[String]) -> Vec<Step> {
-    [Step::Check, Step::Clippy, Step::Doc, Step::DocTests, Step::LibTests]
-        .into_iter()
-        .chain(publishing.iter().cloned().map(Step::Package))
-        .chain([Step::SyncCheck, Step::Mutants])
-        .collect()
+    vec![
+        Step::Check,
+        Step::Clippy,
+        Step::Doc,
+        Step::DocTests,
+        Step::LibTests,
+        Step::Package(publishing.to_vec()),
+        Step::SyncCheck,
+        Step::Mutants,
+    ]
 }
 
 /// Runs steps in order against the project; the first failure is the
@@ -599,7 +617,11 @@ fn execute_with(steps: &[Step], mut run: impl FnMut(&Step) -> Result<(), String>
 /// Runs one step: one dispatch over the closed set. The red run needs a
 /// slice; without one it fails naming the branch convention. `Check` denies
 /// no lint, so a workspace that builds with warnings passes it.
-#[implements(spec::PhaseSevenRunsTheGateInOrder, spec::WarningsDoNotFailPhaseTwosCheck, spec::TheSliceComesFromTheBranchName)]
+#[implements(
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::WarningsDoNotFailPhaseTwosCheck,
+    spec::TheSliceComesFromTheBranchName,
+)]
 fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), String> {
     match step {
         Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
@@ -607,7 +629,7 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
         Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
         Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
-        Step::Package(name) => cargo_step(project, &["package", "-p", name, "--allow-dirty"], &[]),
+        Step::Package(names) => cargo_step(project, &package_args(names), &[]),
         Step::SyncCheck => sync::check(project),
         Step::Mutants => mutants::run(&[]),
         Step::Red => check_red(project, slice.ok_or(NO_SLICE)?),
@@ -693,6 +715,14 @@ pub fn tag_of(subject: &str) -> Tag {
 /// The `N` of a `phase N:` prefix.
 fn phase_number(subject: &str) -> Option<u8> {
     subject.strip_prefix("phase ")?.split_once(':')?.0.trim().parse().ok()
+}
+
+/// One `cargo package` naming every member: a `-p <name>` pair per name in
+/// a single argument vector, so the members resolve against each other
+/// rather than each against a registry that holds no unreleased sibling.
+#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
+fn package_args(names: &[String]) -> Vec<&str> {
+    ["package"].into_iter().chain(names.iter().flat_map(|name| ["-p", name.as_str()])).chain(["--allow-dirty"]).collect()
 }
 
 /// Runs one cargo command, its output captured into the failure so the
@@ -1151,36 +1181,93 @@ mod tests {
         assert_eq!(plan(Phase::Four, &[]), [Step::Check]);
     }
 
+    /// The scratch workspace the packaging step is observed against: three
+    /// members, named so that no registry answers for them.
+    const PACKAGE_WORKSPACE: &str = "[workspace]\nresolver = \"2\"\nmembers = [\"lid-rs-red-sibling\", \"lid-rs-red-dependent\", \"lid-rs-red-solo\"]\n";
+
+    /// What makes two of those members need each other: a path dependency
+    /// carrying a version. Packaging strips the path and keeps the version, so
+    /// the tarball's dependency is one only a registry — or a sibling packaged
+    /// in the same invocation — can answer.
+    const SIBLING_DEPENDENCY: &str = "[dependencies]\nlid-rs-red-sibling = { path = \"../lid-rs-red-sibling\", version = \"0.1.0\" }\n";
+
+    /// A packageable member: an empty library whose manifest carries what
+    /// `cargo package` asks of a publishable crate, plus `extra`.
+    fn package_member(root: &Path, name: &str, extra: &str) {
+        let dir = root.join(name);
+        std::fs::create_dir_all(dir.join("src")).expect("member dir");
+        let head = format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\nedition = \"2021\"\ndescription = \"a scratch member\"\nlicense = \"MIT\"\n\n");
+        std::fs::write(dir.join("Cargo.toml"), head + extra).expect("manifest");
+        std::fs::write(dir.join("src/lib.rs"), "").expect("lib");
+    }
+
+    /// A scratch workspace whose members depend on each other at a version no
+    /// registry holds — the shape every workspace has between releases, this
+    /// one included — beside a member that depends on nothing.
+    fn package_workspace(name: &str) -> Project {
+        let dir = fixture::scratch(name);
+        std::fs::write(dir.join("Cargo.toml"), PACKAGE_WORKSPACE).expect("workspace manifest");
+        package_member(&dir, "lid-rs-red-sibling", "");
+        package_member(&dir, "lid-rs-red-dependent", SIBLING_DEPENDENCY);
+        package_member(&dir, "lid-rs-red-solo", "");
+        Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata")
+    }
+
+    /// Whether the packaging step wrote a member's tarball. This is what
+    /// tells a `cargo package` that packaged from an invocation that named
+    /// nothing: bare `cargo` prints its help and exits 0, so an exit status
+    /// alone cannot say the step did any work.
+    fn packaged(project: &Project, name: &str) -> bool {
+        let target = project.target_directory().expect("the scratch workspace's target directory");
+        target.join("package").join(format!("{name}-0.1.0.crate")).is_file()
+    }
+
+    /// A project's publishing members, sorted.
+    fn publishers(project: &Project) -> Vec<String> {
+        let mut members = project.publishing_members();
+        members.sort();
+        members
+    }
+
     #[test]
-    #[validates(spec::PhaseSevenRunsTheGateInOrder)]
-    fn phase_seven_runs_the_gate_in_order() {
-        let expected = [
+    #[validates(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
+    fn phase_seven_runs_the_gate_in_order_packaging_every_publisher_at_once() {
+        let gate = vec![
             Step::Check,
             Step::Clippy,
             Step::Doc,
             Step::DocTests,
             Step::LibTests,
-            Step::Package("a".to_string()),
-            Step::Package("b".to_string()),
+            Step::Package(strings(&["a", "b"])),
             Step::SyncCheck,
             Step::Mutants,
         ];
-        assert_eq!(plan(Phase::Seven, &strings(&["a", "b"])), expected);
-        assert_eq!(plan(Phase::Five, &[]), [Step::Red]);
-    }
-
-    #[test]
-    #[validates(spec::PhaseSevenRunsTheGateInOrder)]
-    fn the_gate_packages_the_workspace_members_that_publish() {
-        let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml");
-        let mut members = Project::load_at(&workspace).expect("cargo metadata").publishing_members();
-        members.sort();
-        // xtask is `publish = false`; the three published crates remain.
-        assert_eq!(members, strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros"]));
-        // Under full metadata, dependencies are listed too and are not members.
-        let mut with_deps = fixture::workspace().publishing_members();
-        with_deps.sort();
-        assert_eq!(with_deps, members);
+        assert_eq!([plan(Phase::Seven, &strings(&["a", "b"])), plan(Phase::Five, &[])], [gate, vec![Step::Red]]);
+        // Who every publisher is: `xtask` and `lid-rs-pipeline` say `publish =
+        // false`, so the published crates remain, and full metadata — which
+        // lists the dependencies too, and they are not members — names the
+        // same set. The list grows with the workspace: `lid-rs-shape` joined
+        // it when slice 18's crate became a member, and `publishers` read it
+        // from the metadata without being told.
+        let published = strings(&["cargo-lid-rs", "lid-rs", "lid-rs-macros", "lid-rs-shape"]);
+        let workspace = Project::load_at(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../Cargo.toml")).expect("cargo metadata");
+        assert_eq!([publishers(&workspace), publishers(&fixture::workspace())], [published.clone(), published]);
+        // And at once: the two forms differ only against a real workspace, so
+        // the step is run against one. The control packages under either form,
+        // which is what makes the failure below the invocation's shape rather
+        // than a malformed fixture.
+        let project = package_workspace("package-every-publisher-at-once");
+        let alone = run_step(&project, None, &Step::Package(strings(&["lid-rs-red-solo"])));
+        // The dependent is named first, so the per-package form fails on the
+        // first invocation rather than after packaging its sibling.
+        let every = strings(&["lid-rs-red-dependent", "lid-rs-red-sibling", "lid-rs-red-solo"]);
+        let at_once = run_step(&project, None, &Step::Package(every.clone()));
+        // Packaged, not merely exited zero: the tarballs are the work the step
+        // exists to do, and an invocation that named no package would leave
+        // none of them behind while still succeeding.
+        let tarballs: Vec<bool> = every.iter().map(|name| packaged(&project, name)).collect();
+        let observed = (alone, at_once, tarballs);
+        assert_eq!(observed, (Ok(()), Ok(()), vec![true, true, true]), "the control packages under either form; every publisher packages, and leaves its tarball, only at once");
     }
 
     #[test]
@@ -1771,16 +1858,16 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     #[test]
     #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
     fn a_compile_time_slice_needs_the_humans_acceptance() {
-        // The workspace's own macros slice lives in a proc-macro crate and
-        // carries no acceptance file. Its document has not migrated, so the
-        // file the refusal asks the human for is the one under `docs/intent`
-        // in that crate — named whole, so the human is asked for a path and
+        // The workspace's own `lid-rs-macros` slice lives in a proc-macro
+        // crate and carries no acceptance file. Its document is colocated at
+        // the crate root, so the file the refusal asks the human for is the
+        // one beside it — named whole, so the human is asked for a path and
         // not for a convention.
         let workspace = fixture::workspace();
-        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/macros.rs");
+        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/expand.rs");
         let input = fixture::tool_input("m", "Edit", &target);
-        let verdict = edit_verdict_for(&workspace, Phase::Seven, "macros", &input).expect("hook");
-        assert!(refuses(&verdict, "lid-rs-macros/docs/intent/macros/compile-time-accepted"), "{verdict:?}");
+        let verdict = edit_verdict_for(&workspace, Phase::Seven, "lid-rs-macros", &input).expect("hook");
+        assert!(refuses(&verdict, "lid-rs-macros/src/compile-time-accepted"), "{verdict:?}");
     }
 
     #[test]

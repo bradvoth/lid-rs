@@ -1,0 +1,26 @@
+[package]
+name = "lid-rs-shape"
+version.workspace = true
+description = "The LID-rs shape pass: classifies each function of one crate's source as flow or leaf, resolving nothing."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords = ["lid", "intent", "static-analysis", "complexity", "traceability"]
+categories = ["development-tools", "development-tools::testing"]
+
+[dependencies]
+# The pass itself. Constraint 2 permits it because it resolves nothing: F1-F6
+# are token shapes and rule V's allowed types are names, not resolved paths.
+syn.workspace = true
+# `#[derive(Spec)]` and `#[implements]` emit `::lid_rs::…`, which needs
+# `lid_rs` in this crate's extern prelude. This slice carries citations — a
+# slice that carried none would fail checks 10 and 11 and be outside the
+# methodology, which is why the LLD rejected that escape from the package
+# cycle and dropped an entry point instead.
+lid-rs.workspace = true
+
+[lints]
+workspace = true
