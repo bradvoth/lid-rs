@@ -31,7 +31,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "cargo-lid-rs"
-version = "0.2.5"
+version = "0.2.9"
 dependencies = [
  "glob",
  "lid-rs",
@@ -364,7 +364,7 @@ checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "lid-rs"
-version = "0.2.5"
+version = "0.2.9"
 dependencies = [
  "lid-rs-macros",
  "linkme",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "lid-rs-macros"
-version = "0.2.5"
+version = "0.2.9"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -382,7 +382,22 @@ dependencies = [
 
 [[package]]
 name = "lid-rs-pipeline"
-version = "0.2.7"
+version = "0.2.9"
+dependencies = [
+ "cargo-lid-rs",
+ "lid-rs",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "lid-rs-shape"
+version = "0.2.9"
+dependencies = [
+ "lid-rs",
+ "quote",
+ "syn 2.0.119",
+]
 
 [[package]]
 name = "linkme"
@@ -979,7 +994,7 @@ checksum = "3ad82d2a33cdc9674dc7465672f271e096168fcdbe0f799d9e6db8c5892679dc"
 
 [[package]]
 name = "xtask"
-version = "0.2.5"
+version = "0.2.9"
 dependencies = [
  "lid-rs",
 ]

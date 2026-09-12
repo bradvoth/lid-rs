@@ -1,9 +1,9 @@
 [workspace]
 resolver = "3"
-members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "lid-rs-pipeline", "xtask"]
+members = ["lid-rs", "lid-rs-macros", "cargo-lid-rs", "lid-rs-shape", "lid-rs-pipeline", "xtask"]
 
 [workspace.package]
-version = "0.2.7"
+version = "0.2.9"
 edition = "2024"
 rust-version = "1.97"
 license = "Apache-2.0"
@@ -12,7 +12,9 @@ repository = "https://github.com/bradvoth/lid-rs"
 homepage = "https://bradvoth.github.io/lid-rs/"
 
 [workspace.dependencies]
-lid-rs-macros = { path = "lid-rs-macros", version = "0.2.1" }
+lid-rs = { path = "lid-rs", version = "0.2.9" }
+lid-rs-macros = { path = "lid-rs-macros", version = "0.2.9" }
+lid-rs-shape = { path = "lid-rs-shape", version = "0.2.9" }
 linkme = "0.3"
 proc-macro2 = "1"
 quote = "1"
