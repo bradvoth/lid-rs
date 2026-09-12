@@ -88,7 +88,7 @@ Every row was read from the tree on this branch (`lld/trace`, stacked on
 | Phases 5 and 7 may write the slice's module directory and nothing else in the crate; Phases 3 and 4 add `src/lib.rs` | `cargo-lid-rs/src/phase/policy.rs:417-424` |
 | `seat_of` refuses every path outside the slice's crates before any table is consulted | `cargo-lid-rs/src/phase/policy.rs:108-118` |
 | Phase 2's row is the claims file and `src/spec/mod.rs` | `cargo-lid-rs/src/phase/policy.rs:444-462` |
-| The `cargo lid-rs init` claims template holds **no** claims | `cargo-lid-rs/templates/spec_mod.rs` |
+| The `cargo lid-rs init` claims template holds **no** claims | `cargo-lid-rs/templates/spec.rs` |
 | `init` wires `intent_graph!()` into every scaffolded package | `cargo-lid-rs/templates/lib_footer.rs:4-8` |
 | `cargo-lid-rs`, `lid-rs-shape` and `xtask` hold **no** `docs/intent/` directory today | `find . -type d -name intent` |
 | `cargo-lid-rs` already reaches every crate's registry out-of-process, by parsing `LID-DUMP` lines | `cargo-lid-rs/src/mutants.rs:147,160,174-180` |
