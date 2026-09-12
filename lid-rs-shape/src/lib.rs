@@ -2,6 +2,13 @@
 
 pub mod spec;
 
+mod function;
+mod rule;
+mod signature;
+mod source;
+mod verdict;
+mod violations;
+
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
@@ -197,24 +204,27 @@ pub enum Finding {
 /// artifact a caller writes for the consumers that want the verdicts; the
 /// findings belong with [`check`]'s, in the findings report the same caller
 /// writes.
+///
+/// The answer is composed of three: which files the crate holds, which
+/// functions those files hold, and the verdict for one function's body. This
+/// pairing is what the claims below are about — that a reading which cannot be
+/// made reaches the caller as a finding rather than as a panic or as silence,
+/// and that a crate with nothing to classify is answered with the empty
+/// classification. Which rule a body failed is answered a layer down, one item
+/// per rule.
 #[implements(
-    spec::ABodyWithAStatementThatIsNoCallFormIsALeafUnderF1,
-    spec::ABodyWithMoreThanOneDecisionStructureIsALeafUnderF2,
-    spec::ADecisionArmThatIsNoSingleCallMakesTheBodyALeafUnderF2,
-    spec::AnArgumentOutsideTheAdmittedFormsMakesTheBodyALeafUnderF3,
-    spec::AClosureOrANonArmBlockMakesTheBodyALeafUnderF4,
-    spec::ALiteralOtherThanUnitMakesTheBodyALeafUnderF5,
-    spec::AMacroOutsideTheAllowedSetMakesTheBodyALeafUnderF6,
-    spec::TheVerdictNamesTheLowestNumberedRuleTheBodyFailed,
-    spec::ABodyFailingNoneOfTheSixRulesIsFlow,
-    spec::TheShapeOfAMarkedFunctionCarriesTheMarkSoItIsCounted,
     spec::AFileSynCannotParseIsAFindingAndNotAPanic,
     spec::ACrateWithNoSrcDirectoryIsTheEmptyClassification,
-    spec::ACfgGatedModuleIsClassifiedAsWritten,
     spec::APathAttributeThatIsNoLiteralIsReportedUnreachable,
 )]
 pub fn classify(crate_root: &Path, allow_macros: &[String]) -> (Classification, Vec<Finding>) {
-    todo!("classify every function under {}, with allow_macros={allow_macros:?}", crate_root.display())
+    let (sources, findings) = source::sources(crate_root);
+    let shapes = sources
+        .iter()
+        .flat_map(|(file, parsed)| function::functions_in(file, parsed))
+        .map(|function| verdict::shape_of(&function, allow_macros))
+        .collect();
+    (Classification { shapes }, findings)
 }
 
 /// Every function of one crate with the type tokens its signature wrote —
@@ -230,12 +240,20 @@ pub fn classify(crate_root: &Path, allow_macros: &[String]) -> (Classification, 
 /// alone, but a conformance check reads them for every implementer of a claim,
 /// and a return narrowed to the `Ok` type of a `Result` would leave a consumer
 /// no way back to what the source actually wrote.
-#[implements(
-    spec::EveryFunctionOfTheCrateHasItsSignatureTokens,
-    spec::TheReturnTokensAreTheWholeWrittenTypeAndNotTheOkTypeAlone,
-)]
+///
+/// The crate is read the way [`classify`] reads it and the functions are found
+/// the way it finds them, which is what makes the two answers joinable at all.
+/// A file the reading raises a finding against is a file neither answer has an
+/// entry from; the findings themselves are [`classify`]'s to answer, because a
+/// caller asking for tokens is not asking a second time about the reading.
+#[implements(spec::EveryFunctionOfTheCrateHasItsSignatureTokens)]
 pub fn signatures(crate_root: &Path) -> Vec<Signature> {
-    todo!("read the written signature tokens of every function under {}", crate_root.display())
+    let (sources, _) = source::sources(crate_root);
+    sources
+        .iter()
+        .flat_map(|(file, parsed)| function::functions_in(file, parsed))
+        .map(|function| signature::signature_of(&function))
+        .collect()
 }
 
 /// Rules A, B and V over one crate's classification: every violation as a
@@ -275,15 +293,18 @@ pub fn signatures(crate_root: &Path) -> Vec<Signature> {
 ///
 /// `classification` and `signatures` are two answers about one crate, joined on
 /// a file and a function name.
+///
+/// Every shape is put to every rule, and the findings of all three rules over
+/// all of them are the answer: no rule is tried only where another was silent,
+/// and one function can be a finding under more than one rule. The claims here
+/// are the four that say a violation *shall be reported* — dropping one is this
+/// composition's wrong answer — while what makes a violation, and what name a
+/// rule tests, is answered a layer down, one item per decision.
 #[implements(
     spec::ALeafRoutingAmongTheGivenArmCountIsAFindingUnderRuleA,
     spec::AnUnmarkedPublicLeafInASliceModIsAFindingUnderRuleB,
-    spec::APublicLeafMarkedLeafIsNoFindingUnderRuleB,
-    spec::RuleVDeniesReadmesDenyClauseAndNoOtherName,
     spec::AFlowParameterWrittenAsADeniedNameIsAFindingUnderRuleV,
     spec::AFlowOkTypeWrittenAsADeniedNameIsAFindingUnderRuleV,
-    spec::AGivenWrapperIsUnwrappedBeforeRuleVTestsTheName,
-    spec::RuleVTestsTheNameTheSourceWroteAndResolvesNothing,
 )]
 pub fn check(
     classification: &Classification,
@@ -292,12 +313,11 @@ pub fn check(
     dispatch_arms: usize,
     wrappers: &[String],
 ) -> Vec<Finding> {
-    todo!(
-        "check rules A, B and V over {} shapes and {} signatures, in {} slice mod.rs files, with dispatch_arms={dispatch_arms} and wrappers={wrappers:?}",
-        classification.shapes.len(),
-        signatures.len(),
-        slice_mods.len(),
-    )
+    classification
+        .shapes
+        .iter()
+        .flat_map(|shape| violations::findings_for(shape, signatures, slice_mods, dispatch_arms, wrappers))
+        .collect()
 }
 
 #[cfg(test)]
