@@ -536,23 +536,61 @@ fn release_writes(project: &Project, message: &str) -> Result<Vec<(PathBuf, Vec<
 /// the working tree's, so a refused stop's second bump writes the same
 /// version — raised one patch level by `bump_patch_version`, written to the
 /// working tree, and `Cargo.lock` brought into agreement with `cargo update
-/// --workspace --offline`; the new version.
+/// --workspace --offline`; the new version, read back from the text that was
+/// written, so the join repeats no leaf's arithmetic.
 #[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::TheBumpUpdatesTheLockForTheMembersAloneOffline)]
 pub fn bump_workspace_version(project: &Project) -> Result<String, String> {
-    todo!("bump the workspace version of {project:?} from the manifest at HEAD")
+    let bumped = bump_patch_version(&manifest_at_head(project)?)?;
+    write_root_manifest(project, &bumped)?;
+    update_lock_offline(project)?;
+    version_line(&bumped).map(|(_, version)| version)
+}
+
+/// The workspace root's `Cargo.toml` as committed at `HEAD` — `git show
+/// HEAD:Cargo.toml` — and never the working tree's, which a refused stop's
+/// earlier bump has already raised.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
+fn manifest_at_head(project: &Project) -> Result<String, String> {
+    todo!("the root manifest of {project:?} as committed at HEAD")
+}
+
+/// Writes `manifest` over the workspace root's `Cargo.toml` in the working
+/// tree — the one file the bump edits.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
+fn write_root_manifest(project: &Project, manifest: &str) -> Result<(), String> {
+    todo!("write {manifest} over the root manifest of {project:?}")
+}
+
+/// `cargo update --workspace --offline`: `Cargo.lock` brought to the members'
+/// new version and nothing wider — no third-party entry moves, and no index is
+/// consulted.
+#[implements(spec::TheBumpUpdatesTheLockForTheMembersAloneOffline)]
+fn update_lock_offline(project: &Project) -> Result<(), String> {
+    todo!("cargo update --workspace --offline in {project:?}")
 }
 
 /// The manifest text with its `[workspace.package]` version line raised one
 /// patch level and no other line touched: `version_line` locates, `next_patch`
-/// raises, and that line alone is spliced back; the failure of either is this
-/// one's, naming what was looked for.
+/// raises, and `with_value_on_line` splices that line alone back; the failure
+/// of either is this one's, naming what was looked for.
 #[implements(
     spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead,
     spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable,
     spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor,
 )]
 pub fn bump_patch_version(manifest: &str) -> Result<String, String> {
-    todo!("raise the workspace package version of {manifest} one patch level")
+    let (index, version) = version_line(manifest)?;
+    Ok(with_value_on_line(manifest, index, &version, &next_patch(&version)?))
+}
+
+/// `manifest` with, on line `index` alone, the first `from` replaced by `to`,
+/// and every other byte — every other line, and each line's ending — as it
+/// was: the splice that keeps the bump to one line. A splice that ignored
+/// `index` would patch a later table's `version` that `version_line` had
+/// correctly passed over, so the version-line rule is this leaf's too.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable)]
+fn with_value_on_line(manifest: &str, index: usize, from: &str, to: &str) -> String {
+    todo!("line {index} of {manifest} with {from} replaced by {to}")
 }
 
 /// The version line of a root manifest: the index of the first line beginning
@@ -562,7 +600,23 @@ pub fn bump_patch_version(manifest: &str) -> Result<String, String> {
 /// the line.
 #[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
 pub fn version_line(manifest: &str) -> Result<(usize, String), String> {
-    todo!("find the workspace package version line in {manifest}")
+    first_version_line(manifest, workspace_package_table(manifest)?)
+}
+
+/// The index of the line that is the `[workspace.package]` header; a manifest
+/// holding no such line fails naming the header it looked for.
+#[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
+fn workspace_package_table(manifest: &str) -> Result<usize, String> {
+    todo!("the line of the workspace package header in {manifest}")
+}
+
+/// The first line after line `after` that begins `version = "`, stopping at
+/// the next line beginning `[` — the header that ends the table — with its
+/// index and its quoted value; a table that ends without one fails naming the
+/// line it looked for, so a later table's `version` is never the answer.
+#[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
+fn first_version_line(manifest: &str, after: usize) -> Result<(usize, String), String> {
+    todo!("the first version line of {manifest} after line {after} and before the next table")
 }
 
 /// Three dot-separated numbers with the last raised by one; anything else is
@@ -940,7 +994,10 @@ pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
 /// last whole; neither is the trunk.
 #[implements(spec::TheGatesMutationStepDiffsAgainstTheGateCommit, spec::WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain)]
 pub fn mutation_base(project: &Project) -> Result<String, String> {
-    todo!("the gate's mutation base for {project:?}")
+    match gate_base(project)? {
+        Some(base) => Ok(base),
+        None => merge_base_with_main(project),
+    }
 }
 
 /// `git merge-base main HEAD`: the point the branch was cut from. No `main`,

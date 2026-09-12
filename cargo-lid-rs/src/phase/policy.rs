@@ -405,7 +405,10 @@ pub fn allowed_paths(phase: Phase, seat: Seat, claims: &Path, code: &SliceCode) 
 /// cannot part.
 #[implements(spec::TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec)]
 pub fn seat_claims(seat: Seat, claims: &Path, code: &SliceCode) -> PathBuf {
-    todo!("the claims file of {seat:?} given {claims:?} and {code:?}")
+    match seat {
+        Seat::Own => claims.to_path_buf(),
+        Seat::Companion => code.dir.join("spec.rs"),
+    }
 }
 
 /// One seat's answer to where the slice's code is: for the slice's own crate
@@ -602,7 +605,7 @@ fn crate_prefix(root: &Path, crate_root: &Path) -> Result<PathBuf, String> {
     spec::IntegrityFiltersAgainstBothCratesStagedPaths,
 )]
 pub fn staged_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<Vec<PathBuf>, String> {
-    todo!("the staged set of {crates:?} at {phase:?} in {project:?}")
+    Ok(workspace_paths(project, phase, crates)?.into_iter().chain(hook_written_paths(phase)).collect())
 }
 
 /// What the hook itself writes, workspace-relative: the root `Cargo.toml` and

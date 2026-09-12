@@ -95,7 +95,16 @@ pub fn subject_matches(phase: Phase, message: &str) -> Result<(), String> {
 /// the tag's, and asked after the bump and before the check.
 #[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
 pub fn subject_carries_version(message: &str, version: &str) -> Result<(), String> {
-    todo!("hold the subject of {message} to the bumped version {version}")
+    let subject = subject_of(message);
+    match super::subject_version(subject) {
+        Some(carried) if carried == version => Ok(()),
+        Some(other) => Err(format!(
+            "the commit subject names version {other}, but the bump produced {version}: a Phase 7 subject is `phase 7: {version}: <what and why>`; it began `{subject}`"
+        )),
+        None => Err(format!(
+            "the commit subject names no version, and the bump produced {version}: a Phase 7 subject is `phase 7: {version}: <what and why>`; it began `{subject}`"
+        )),
+    }
 }
 
 /// The message's subject: its first non-empty line.
