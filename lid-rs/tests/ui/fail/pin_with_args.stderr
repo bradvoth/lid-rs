@@ -1,0 +1,5 @@
+error: lid-rs: `#[flow]` and `#[leaf]` take no arguments
+ --> tests/ui/fail/pin_with_args.rs:5:16
+  |
+5 | #[lid_rs::flow(anything)]
+  |                ^^^^^^^^

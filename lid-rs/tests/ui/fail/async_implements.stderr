@@ -1,0 +1,5 @@
+error: lid-rs: spans across `.await` are not supported yet (README §6.8) — cite a synchronous fn
+  --> tests/ui/fail/async_implements.rs:16:1
+   |
+16 | async fn traced() {}
+   | ^^^^^

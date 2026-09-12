@@ -1,0 +1,1 @@
+The lid-rs-macros crate-root slice's code is the citation, pin and derive expansions, which run inside every cargo check; its phases execute the agent's code at every edit with the session's privileges (README §12). Accepted by the product owner, 2026-09-12.
