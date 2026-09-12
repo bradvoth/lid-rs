@@ -10,6 +10,7 @@ pub mod graph;
 pub mod outcome;
 pub mod registry;
 pub mod trace;
+pub mod vocab;
 
 // `canary` is a leaf of the `registry` slice and lives beside it, but its path
 // is public API: `$crate::canary` is what `intent_graph!` expands to in every
