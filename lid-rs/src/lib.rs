@@ -32,7 +32,13 @@ pub use registry::{Edge, IMPLEMENTATIONS, SPECS, SpecMeta, VALIDATIONS};
 // it emits there. It is the same reason `SPECS` is re-exported from `registry`.
 pub use outcome::{CLAIMED_OWNERS, OUTCOMES};
 
-pub use ::lid_rs_macros::{Spec, implements, implements_module, spec, validates};
+// The trait beside its derive, the way `Spec` stands beside its own: the derive
+// re-exported below occupies the macro namespace and this occupies the type
+// namespace, so one `use lid_rs::Outcome` reaches both and `<E as
+// Outcome>::NAME` resolves wherever the derive was written.
+pub use outcome::Outcome;
+
+pub use ::lid_rs_macros::{Outcome, Spec, implements, implements_module, spec, validates};
 
 // Hand-authored implementation edges for the citation claims: lid-rs-macros is a
 // proc-macro crate, which links into no target binary and so can neither
@@ -165,6 +171,48 @@ const _: () = {
     claim_edge!(crate::claim::spec::AVerbNamedTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
     claim_edge!(crate::claim::spec::ExtraGivenTwiceFailsEveryDerive, "lid_rs_macros::claim::lexicon::parse");
     claim_edge!(crate::claim::spec::AMalformedTemplateFailsEveryDerive, "lid_rs_macros::claim::lexicon::Template::parse");
+};
+
+// The same exception again, for the outcome slice's two emissions: what
+// `derive(Outcome)` writes for an enum, and the bound `derive(Spec)` writes
+// beside an unwanted claim naming a variant. Both are expansions of
+// `lid-rs-macros`, which links into no binary, so their edges stand here beside
+// the derives they are reached through. Neither can be observed at runtime —
+// the fixtures under `tests/ui/outcome/` are what validates them — but an
+// implementation edge is not a test, and check 10 asks for one all the same.
+const _: () = {
+    /// One hand edge per (claim, item) pair, as above.
+    macro_rules! outcome_edge {
+        ($spec:path, $item:literal) => {
+            const _: () = {
+                #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+                #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::IMPLEMENTATIONS)]
+                #[linkme(crate = ::lid_rs::__private::linkme)]
+                static EDGE: ::lid_rs::Edge = ::lid_rs::Edge {
+                    spec: <$spec as ::lid_rs::Spec>::NAME,
+                    item: $item,
+                    file: file!(),
+                    line: line!(),
+                };
+            };
+        };
+    }
+
+    // `derive(Outcome)`: the key its implementation carries, and one
+    // registration per declared variant.
+    outcome_edge!(crate::outcome::spec::TheOutcomeNameIsTheEnumsDefinitionSitePath, "lid_rs_macros::expand::derive_outcome");
+    outcome_edge!(crate::outcome::spec::EachVariantOfAnOutcomeEnumRegistersIntoOutcomes, "lid_rs_macros::expand::derive_outcome");
+    outcome_edge!(crate::outcome::spec::AnOutcomeRegistrationIsKeyedByTheEnumsOutcomeName, "lid_rs_macros::expand::outcome_registration");
+    outcome_edge!(crate::outcome::spec::AnOutcomeRegistrationNamesTheVariantItStandsFor, "lid_rs_macros::expand::outcome_registration");
+    outcome_edge!(crate::outcome::spec::AnOutcomeRegistrationCarriesTheSiteItStandsAt, "lid_rs_macros::expand::outcome_registration");
+
+    // E1: the bound is emitted by one function, and which claims reach it at
+    // all is decided by another — so the two negative claims are kept by the
+    // reading of the claim's parts, not by the emission.
+    outcome_edge!(crate::outcome::spec::AnUnwantedClaimNamingAVariantBoundsItsOwnerOnOutcome, "lid_rs_macros::expand::outcome_bound");
+    outcome_edge!(crate::outcome::spec::TheOutcomeBoundNamesTheObjectsLastSegmentAsAVariant, "lid_rs_macros::expand::outcome_bound");
+    outcome_edge!(crate::outcome::spec::AClaimOutsideTheUnwantedPatternCarriesNoOutcomeBound, "lid_rs_macros::claim::unwanted");
+    outcome_edge!(crate::outcome::spec::AnUnwantedClaimWithAnEmptyOwnerCarriesNoOutcomeBound, "lid_rs_macros::claim::unwanted");
 };
 
 /// Trait implemented by every claim item, via `derive(Spec)`.

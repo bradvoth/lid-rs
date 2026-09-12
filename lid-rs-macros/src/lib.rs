@@ -18,6 +18,20 @@ pub fn derive_spec(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Derives `lid_rs::outcome::Outcome` for an enum: `NAME` from the
+/// definition-site module path plus the enum's identifier, and one `OUTCOMES`
+/// registration per declared variant, each keyed by the name read back through
+/// that implementation.
+///
+/// It applies to non-generic enums and to nothing else — an outcome is a fixed
+/// set of variants, and any other target is a compile error at the item.
+#[proc_macro_derive(Outcome)]
+pub fn derive_outcome(input: TokenStream) -> TokenStream {
+    expand::derive_outcome(input.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 /// Cites the specs an item implements: appends `Implements [...]` doc lines
 /// and registers one `IMPLEMENTATIONS` edge per cited spec.
 #[proc_macro_attribute]

@@ -7,9 +7,11 @@ use quote::{ToTokens, quote};
 use syn::parse::Parser;
 use syn::punctuated::Punctuated;
 use syn::{
-    Attribute, Data, DeriveInput, Fields, ItemEnum, ItemFn, ItemStruct, LitStr, Path, Token,
-    parse_quote,
+    Attribute, Data, DataEnum, DeriveInput, Fields, Ident, ItemEnum, ItemFn, ItemStruct, LitStr,
+    Path, Token, parse_quote,
 };
+
+use crate::claim::Unwanted;
 
 /// Which citation attribute is expanding, selecting the doc verb and the
 /// registry slice.
@@ -46,6 +48,7 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
     let expanded = crate::claim::expansion(&item)?;
     let claim = expanded.claim;
     let free = expanded.free;
+    let outcome = outcome_emission(ident, expanded.unwanted.as_ref());
     Ok(quote! {
         // The derive's own emissions reference the struct they sit on; when a
         // spec is retired with #[deprecated], only *citation* sites should
@@ -67,7 +70,118 @@ pub fn derive_spec(input: TokenStream) -> syn::Result<TokenStream> {
                 claim: #claim,
             };
         };
+        #outcome
     })
+}
+
+/// E1's emission for one claim: the const block an unwanted claim naming a
+/// variant carries, and no tokens at all for every other claim.
+///
+/// The one decision is whether the claim named a variant of something that
+/// resolves as a path. An owner that is not a path names no type, so there is
+/// nothing to bound and nothing to register — and the empty owner an object
+/// without a variant carries is never a path, which is what makes the two
+/// negative cases one case here.
+fn outcome_emission(ident: &Ident, unwanted: Option<&Unwanted>) -> TokenStream {
+    match unwanted.and_then(named_variant) {
+        Some((owner, variant)) => outcome_bound(ident, &owner, &variant),
+        None => TokenStream::new(),
+    }
+}
+
+/// The owner as a path, and the identifier its object's last segment names.
+///
+/// `None` where either is not a path: an owner or an object the author wrote as
+/// something other than one — a rustdoc disambiguator, a generic argument, the
+/// empty string — names no type this emission could reach, and a claim carrying
+/// one is left to the checks that read the text rather than the type.
+fn named_variant(unwanted: &Unwanted) -> Option<(Path, Ident)> {
+    let owner: Path = syn::parse_str(&unwanted.owner).ok()?;
+    let object: Path = syn::parse_str(&unwanted.object).ok()?;
+    Some((owner, object.segments.last()?.ident.clone()))
+}
+
+/// The const block an unwanted claim naming a variant carries: E1's bound in
+/// its two halves, and the `CLAIMED_OWNERS` entry that stands where the bound
+/// has already held.
+///
+/// Reading the owner's `NAME` through the trait is the first half — an enum
+/// that derives nothing is `E0277`, reported at the claim — and it is the same
+/// read the registration needs, so the bound is not written twice. The pattern
+/// is the second half: a segment the owner does not declare as a variant is
+/// `E0599`, also at the claim. That pattern is a struct pattern, which holds
+/// alike for a fieldless, a tuple, and a struct variant, and it is matched
+/// through an `Option` so that the arm beside it stays reachable however few
+/// variants the enum declares.
+fn outcome_bound(ident: &Ident, owner: &Path, variant: &Ident) -> TokenStream {
+    let name = variant.to_string();
+    quote! {
+        const _: () = {
+            const _: fn(::core::option::Option<&#owner>) -> bool = |value| {
+                ::core::matches!(value, ::core::option::Option::Some(#owner::#variant { .. }))
+            };
+            #[allow(deprecated, missing_docs, clippy::missing_docs_in_private_items)]
+            #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::CLAIMED_OWNERS)]
+            #[linkme(crate = ::lid_rs::__private::linkme)]
+            static OWNER: ::lid_rs::outcome::ClaimedOwner = ::lid_rs::outcome::ClaimedOwner {
+                spec: <#ident as ::lid_rs::Spec>::NAME,
+                owner: <#owner as ::lid_rs::outcome::Outcome>::NAME,
+                variant: #name,
+            };
+        };
+    }
+}
+
+/// Expands `derive(Outcome)`.
+pub fn derive_outcome(input: TokenStream) -> syn::Result<TokenStream> {
+    let item: DeriveInput = syn::parse2(input)?;
+    let data = plain_enum(&item)?;
+    let ident = &item.ident;
+    let registrations = data.variants.iter().map(|v| outcome_registration(ident, &v.ident));
+    Ok(quote! {
+        #[automatically_derived]
+        impl ::lid_rs::outcome::Outcome for #ident {
+            const NAME: &'static str = concat!(module_path!(), "::", stringify!(#ident));
+        }
+        #(#registrations)*
+    })
+}
+
+/// The body of a derive target that is a plain enum, or the derive's refusal.
+///
+/// An outcome is a fixed set of variants: a struct or a union declares none,
+/// and a generic enum declares one set per instantiation while the name and the
+/// registrations are one set per definition.
+fn plain_enum(item: &DeriveInput) -> syn::Result<&DataEnum> {
+    match &item.data {
+        Data::Enum(data) if item.generics.params.is_empty() => Ok(data),
+        Data::Enum(_) | Data::Struct(_) | Data::Union(_) => Err(syn::Error::new_spanned(
+            &item.ident,
+            "lid-rs: derive(Outcome) applies to non-generic enums only — an outcome is a fixed set of variants",
+        )),
+    }
+}
+
+/// One `OUTCOMES` registration, in the form the hand-written canary pins.
+///
+/// The key is read through the enum's own implementation rather than spelled a
+/// second time, so the registration and every claim that meets it produce it
+/// from one const.
+fn outcome_registration(ident: &Ident, variant: &Ident) -> TokenStream {
+    let name = variant.to_string();
+    quote! {
+        const _: () = {
+            #[allow(missing_docs, clippy::missing_docs_in_private_items)]
+            #[::lid_rs::__private::linkme::distributed_slice(::lid_rs::OUTCOMES)]
+            #[linkme(crate = ::lid_rs::__private::linkme)]
+            static ENTRY: ::lid_rs::outcome::OutcomeMeta = ::lid_rs::outcome::OutcomeMeta {
+                owner: <#ident as ::lid_rs::outcome::Outcome>::NAME,
+                variant: #name,
+                file: file!(),
+                line: line!(),
+            };
+        };
+    }
 }
 
 /// Rejects derive targets that are not plain unit structs.

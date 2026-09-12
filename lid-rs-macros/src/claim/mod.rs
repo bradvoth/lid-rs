@@ -124,14 +124,15 @@ const VAGUE: [&str; 21] = [
 /// and the offending text.
 pub fn expansion(item: &DeriveInput) -> syn::Result<Expansion> {
     if free_mark(&item.attrs).map_err(|m| error(item, &m))? {
-        return Ok(Expansion { claim: free_claim(), free: true });
+        return Ok(Expansion { claim: free_claim(), free: true, unwanted: None });
     }
     let claim = sentence(&item.attrs).map_err(|m| error(item, &m))?;
     let lexicon = lexicon::read(&manifest_dir()).map_err(|m| error(item, &m))?;
     let parts = parse(&claim, &lexicon).map_err(|m| error(item, &m))?;
     let include = lexicon_include(lexicon.project());
     let meta = claim_meta(&parts);
-    Ok(Expansion { claim: quote!({ #include #meta }), free: false })
+    let unwanted = unwanted(&parts);
+    Ok(Expansion { claim: quote!({ #include #meta }), free: false, unwanted })
 }
 
 /// What the derive emits for one claim: what the registration carries, and the
@@ -149,6 +150,36 @@ pub struct Expansion {
     pub claim: TokenStream,
     /// Whether the struct carried `#[lid(free)]`.
     pub free: bool,
+    /// The parts E1's emission is made of, for an unwanted claim whose object
+    /// names a variant; `None` for every other claim.
+    pub unwanted: Option<Unwanted>,
+}
+
+/// What E1's emission needs of a claim: the owner and the object, each as the
+/// claim's author wrote them.
+///
+/// Returned rather than recovered, for the reason [`Expansion`] gives: the
+/// pattern and the owner are read here, where the sentence is, and a caller
+/// that read them a second time out of the emitted `ClaimMeta` would be a
+/// second reading of one text — two readings that can disagree.
+pub struct Unwanted {
+    /// The object's owner: the path the claim's author wrote for the enum,
+    /// which [`owner`] took from the object by removing its last segment.
+    pub owner: String,
+    /// The object as its author wrote it, whose last segment names the variant.
+    pub object: String,
+}
+
+/// The parts E1's emission is made of, or `None` where the claim carries none.
+///
+/// The two shapes that carry none are the two the emission's negative claims
+/// name: a pattern that is not unwanted — nobody asked for this way to fail, so
+/// nothing is bounded — and an unwanted claim whose object names no variant,
+/// which is exactly the object [`owner`] leaves the owner empty for.
+fn unwanted(parts: &Parts) -> Option<Unwanted> {
+    let names_variant = matches!(parts.pattern, Pattern::Unwanted) && !parts.owner.is_empty();
+    names_variant
+        .then(|| Unwanted { owner: parts.owner.clone(), object: parts.object.clone() })
 }
 
 /// Whether the struct carries `#[lid(free)]`: the ramp's mark, read before any
