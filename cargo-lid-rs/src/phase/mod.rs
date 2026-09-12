@@ -9,9 +9,12 @@ pub mod integrity;
 pub mod policy;
 pub mod tally;
 
-use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_matches};
-use integrity::{changed_within, outside_policy_clean, synced_artifacts_match};
-use policy::{ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason, workspace_paths};
+use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_carries_version, subject_matches};
+use integrity::{bumped_files_untouched, changed_within, contents_of, outside_policy_clean, synced_artifacts_match};
+use policy::{
+    ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, hook_written_paths, kind_of,
+    refusal_reason, staged_paths, workspace_paths,
+};
 use tally::Event;
 
 use crate::layout;
@@ -435,13 +438,17 @@ fn refuse_stop(project: &Project, input: &HookInput, reason: String) -> Result<H
     Ok(HookVerdict::Refuse(reason))
 }
 
-/// What a phase commit stages: the phase's allowed paths of the slice's
-/// crates, relative to the workspace root git runs at.
+/// What a phase commit is judged and staged for: the slice's crates, and the
+/// phase's editing set — its allowed paths of both, relative to the workspace
+/// root git runs at. The staged set is asked for where the commit is staged
+/// (`policy::staged_paths`), since it differs from this one only by what the
+/// hook itself writes.
 struct CommitPlan {
     /// The slice, from the branch, and its crates.
     crates: SliceCrates,
-    /// The allowed set of both crates, workspace-relative.
-    allowed: Vec<PathBuf>,
+    /// The editing set of both crates, workspace-relative: what the agent
+    /// could have written.
+    editing: Vec<PathBuf>,
 }
 
 impl CommitPlan {
@@ -450,16 +457,18 @@ impl CommitPlan {
     fn new(project: &Project, phase: Phase) -> Result<Self, String> {
         let slice = resolve_slice(project, None)?.ok_or(NO_SLICE)?;
         let crates = SliceCrates::resolve(project, &slice)?.map_err(|refusal| refusal.reason)?;
-        let allowed = workspace_paths(project, phase, &crates)?;
-        Ok(Self { crates, allowed })
+        let editing = workspace_paths(project, phase, &crates)?;
+        Ok(Self { crates, editing })
     }
 }
 
 /// The commit path of the stop hook: integrity, the check, integrity again,
-/// then staging and committing; each failure is the refusal it names.
+/// then staging and committing; each failure is the refusal it names, and
+/// nothing is committed after one.
 #[implements(
     spec::SyncedArtifactsMustMatchAtTheStop,
-    spec::ChangesOutsideThePolicyRefuseTheStop,
+    spec::ChangesOutsideTheStagedSetRefuseTheStop,
+    spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote,
     spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves,
 )]
 fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &str) -> Result<HookVerdict, String> {
@@ -472,14 +481,103 @@ fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &st
 
 /// Everything that must hold before a phase commits, in order; the first
 /// failure is the refusal. Yields what the commit stages.
+///
+/// The order is the LLD's: the subject's tag, integrity, the hook's own
+/// writes (the Phase 7 bump, and the subject held to its version before a
+/// gate is spent on it), the check, integrity again — everything outside the
+/// staged set unchanged, and the hook's own files still as it wrote them —
+/// then the two sets part: nothing changed within the *editing* set is the
+/// refusal, so a bare bump is never a commit, and what is staged is the
+/// changes within the *staged* set, which at Phase 7 carries the bump.
+#[implements(
+    spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead,
+    spec::APhaseSevenSubjectMustCarryTheBumpedVersion,
+    spec::NothingChangedInTheEditingSetIsARefusal,
+    spec::TheStopStagesExactlyTheStagedSet,
+)]
 fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
     subject_matches(phase, message)?;
     synced_artifacts_match(project)?;
+    let written = hook_writes(project, phase, message)?;
     checked(project, phase, &plan.crates, &input.agent_id)?;
     synced_artifacts_match(project)?;
     outside_policy_clean(project, phase, &plan.crates)?;
-    let changed = changed_within(project, &plan.allowed)?;
-    (!changed.is_empty()).then_some(changed).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())
+    bumped_files_untouched(project, &written)?;
+    let edited = changed_within(project, &plan.editing)?;
+    (!edited.is_empty()).then_some(()).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())?;
+    changed_within(project, &staged_paths(project, phase, &plan.crates)?)
+}
+
+/// What the hook itself writes before the check, each file as it left it:
+/// at Phase 7 the release bump's two root files; at every other phase
+/// nothing, since Phases 2 to 5 commit no release. One decision over the
+/// phase.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
+fn hook_writes(project: &Project, phase: Phase, message: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    match phase {
+        Phase::Seven => release_writes(project, message),
+        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => Ok(Vec::new()),
+    }
+}
+
+/// Phase 7's writes: the bump, the subject held to the version it produced —
+/// before the check, so a wrong subject costs a second and not a gate — and
+/// the files the bump wrote, read back as it left them for the integrity
+/// pass after the check to hold them to. The phase is `hook_writes`'
+/// decision, already made: this is what it writes at Phase 7.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+fn release_writes(project: &Project, message: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let version = bump_workspace_version(project)?;
+    subject_carries_version(message, &version)?;
+    contents_of(project, &hook_written_paths(Phase::Seven))
+}
+
+/// The Phase 7 stop's bump: the root manifest as committed at `HEAD` — never
+/// the working tree's, so a refused stop's second bump writes the same
+/// version — raised one patch level by `bump_patch_version`, written to the
+/// working tree, and `Cargo.lock` brought into agreement with `cargo update
+/// --workspace --offline`; the new version.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::TheBumpUpdatesTheLockForTheMembersAloneOffline)]
+pub fn bump_workspace_version(project: &Project) -> Result<String, String> {
+    todo!("bump the workspace version of {project:?} from the manifest at HEAD")
+}
+
+/// The manifest text with its `[workspace.package]` version line raised one
+/// patch level and no other line touched: `version_line` locates, `next_patch`
+/// raises, and that line alone is spliced back; the failure of either is this
+/// one's, naming what was looked for.
+#[implements(
+    spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead,
+    spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable,
+    spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor,
+)]
+pub fn bump_patch_version(manifest: &str) -> Result<String, String> {
+    todo!("raise the workspace package version of {manifest} one patch level")
+}
+
+/// The version line of a root manifest: the index of the first line beginning
+/// `version = "` after the `[workspace.package]` header and before the next
+/// line beginning `[`, and its quoted value — so a later table's `version` is
+/// never the one patched; a failure names what was looked for, the header or
+/// the line.
+#[implements(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
+pub fn version_line(manifest: &str) -> Result<(usize, String), String> {
+    todo!("find the workspace package version line in {manifest}")
+}
+
+/// Three dot-separated numbers with the last raised by one; anything else is
+/// a failure naming the value.
+#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
+pub fn next_patch(version: &str) -> Result<String, String> {
+    todo!("raise the patch level of {version}")
+}
+
+/// The `<version>` field of a `phase 7: <version>: <what and why>` subject,
+/// or none when the subject has no such field; the hook compares it against
+/// the bump's answer after the bump and before the check.
+#[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+pub fn subject_version(subject: &str) -> Option<String> {
+    todo!("read the version field of the subject {subject}")
 }
 
 /// The phase's check, tallied, in a fresh process of this binary so its
@@ -616,24 +714,52 @@ fn execute_with(steps: &[Step], mut run: impl FnMut(&Step) -> Result<(), String>
 
 /// Runs one step: one dispatch over the closed set. The red run needs a
 /// slice; without one it fails naming the branch convention. `Check` denies
-/// no lint, so a workspace that builds with warnings passes it.
+/// no lint, so a workspace that builds with warnings passes it. The mutation
+/// step is the one whose argument is not data: its base is resolved when the
+/// step runs, and it is the gate's — the last gate commit, or the merge base
+/// with `main` — never the trunk.
 #[implements(
     spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
     spec::WarningsDoNotFailPhaseTwosCheck,
     spec::TheSliceComesFromTheBranchName,
+    spec::TheGatesMutationStepDiffsAgainstTheGateCommit,
 )]
 fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), String> {
     match step {
-        Step::Check => cargo_step(project, &["check", "--all-targets"], &[]),
-        Step::Clippy => cargo_step(project, &["clippy", "--all-targets", "--", "-D", "warnings"], &[]),
-        Step::Doc => cargo_step(project, &["doc", "--no-deps"], &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
-        Step::DocTests => cargo_step(project, &["test", "--doc"], &[]),
-        Step::LibTests => cargo_step(project, &["test", "--lib"], &[]),
-        Step::Package(names) => cargo_step(project, &package_args(names), &[]),
+        Step::Check | Step::Clippy | Step::DocTests | Step::LibTests | Step::Package(_) => cargo_step(project, &args_of(step), &[]),
+        Step::Doc => cargo_step(project, &args_of(step), &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::SyncCheck => sync::check(project),
-        Step::Mutants => mutants::run(&[]),
+        Step::Mutants => mutants::run(&["--diff-base".to_string(), mutation_base(project)?]),
         Step::Red => check_red(project, slice.ok_or(NO_SLICE)?),
         Step::LldChecks => lld_checks(project, slice.ok_or(NO_SLICE)?),
+    }
+}
+
+/// One step's cargo arguments as data, so what a step invokes is assertable
+/// without invoking it: the six cargo steps' lists, the one `cargo package`
+/// naming every member as a `-p <name>` pair in a single argument vector —
+/// so the members resolve against each other rather than each against a
+/// registry that holds no unreleased sibling — with `--allow-dirty`. A step
+/// that invokes no cargo — the library steps, the red run, the LLD checks —
+/// answers with nothing.
+#[implements(
+    spec::EveryCargoStepIsLocked,
+    spec::TheDocStepDocumentsPrivateItems,
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+)]
+pub fn args_of(step: &Step) -> Vec<String> {
+    match step {
+        Step::Check => ["check", "--all-targets"].map(String::from).to_vec(),
+        Step::Clippy => ["clippy", "--all-targets", "--", "-D", "warnings"].map(String::from).to_vec(),
+        Step::Doc => ["doc", "--no-deps"].map(String::from).to_vec(),
+        Step::DocTests => ["test", "--doc"].map(String::from).to_vec(),
+        Step::LibTests => ["test", "--lib"].map(String::from).to_vec(),
+        Step::Package(names) => ["package".to_string()]
+            .into_iter()
+            .chain(names.iter().flat_map(|name| ["-p".to_string(), name.clone()]))
+            .chain(["--allow-dirty".to_string()])
+            .collect(),
+        Step::SyncCheck | Step::Mutants | Step::Red | Step::LldChecks => Vec::new(),
     }
 }
 
@@ -717,17 +843,10 @@ fn phase_number(subject: &str) -> Option<u8> {
     subject.strip_prefix("phase ")?.split_once(':')?.0.trim().parse().ok()
 }
 
-/// One `cargo package` naming every member: a `-p <name>` pair per name in
-/// a single argument vector, so the members resolve against each other
-/// rather than each against a registry that holds no unreleased sibling.
-#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
-fn package_args(names: &[String]) -> Vec<&str> {
-    ["package"].into_iter().chain(names.iter().flat_map(|name| ["-p", name.as_str()])).chain(["--allow-dirty"]).collect()
-}
-
-/// Runs one cargo command, its output captured into the failure so the
-/// caller — a person, or a hook whose stdout is spoken for — can show it.
-fn cargo_step(project: &Project, args: &[&str], env: &[(&str, &str)]) -> Result<(), String> {
+/// Runs one cargo command — `args_of`'s list for the step — its output
+/// captured into the failure so the caller — a person, or a hook whose
+/// stdout is spoken for — can show it.
+fn cargo_step(project: &Project, args: &[String], env: &[(&str, &str)]) -> Result<(), String> {
     let output = project
         .cargo()?
         .args(args)
@@ -812,6 +931,24 @@ pub fn gate_base(project: &Project) -> Result<Option<String>, String> {
         .filter_map(|line| line.split_once(' '))
         .find(|(_, subject)| subject.starts_with("phase 7:"))
         .map(|(hash, _)| hash.to_string()))
+}
+
+/// The gate's diff base for check 12: one decision between the newest gate
+/// commit reachable from `HEAD` — `gate_base`'s answer, the same commit the
+/// red set takes — and, when the history holds none, the merge base with
+/// `main`. Both name what this branch's phases changed since the slice was
+/// last whole; neither is the trunk.
+#[implements(spec::TheGatesMutationStepDiffsAgainstTheGateCommit, spec::WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain)]
+pub fn mutation_base(project: &Project) -> Result<String, String> {
+    todo!("the gate's mutation base for {project:?}")
+}
+
+/// `git merge-base main HEAD`: the point the branch was cut from. No `main`,
+/// or no common ancestor, is a failure naming the ref rather than a base that
+/// would mean something else.
+#[implements(spec::WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain, spec::NoMergeBaseWithMainFailsTheMutationStepNamingTheRef)]
+pub fn merge_base_with_main(project: &Project) -> Result<String, String> {
+    todo!("the merge base of main and HEAD in {project:?}")
 }
 
 /// Those of the claims whose `struct <Name>` line is an added line of
@@ -1815,8 +1952,8 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     }
 
     #[test]
-    #[validates(spec::OnlyThePoliciesPathsAreStaged)]
-    fn a_passing_check_commits_exactly_the_policys_paths() {
+    #[validates(spec::TheStopStagesExactlyTheStagedSet)]
+    fn the_stop_stages_exactly_the_staged_set() {
         let (dir, project) = fixture::copy("commit-ok");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n").expect("write");
         let before = fixture::head(&dir);
@@ -1830,16 +1967,16 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     }
 
     #[test]
-    #[validates(spec::NothingToCommitIsARefusal)]
-    fn nothing_to_commit_is_a_refusal() {
+    #[validates(spec::NothingChangedInTheEditingSetIsARefusal)]
+    fn nothing_changed_in_the_editing_set_is_a_refusal() {
         let (_dir, project) = fixture::copy("commit-nothing");
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("n", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
         assert!(refuses(&verdict, "nothing to commit"), "{verdict:?}");
     }
 
     #[test]
-    #[validates(spec::ChangesOutsideThePolicyRefuseTheStop)]
-    fn changes_outside_the_policy_refuse_the_stop() {
+    #[validates(spec::ChangesOutsideTheStagedSetRefuseTheStop)]
+    fn changes_outside_the_staged_set_refuse_the_stop() {
         let (dir, project) = fixture::copy("commit-outside");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
         std::fs::write(dir.join("clippy.toml"), "cognitive-complexity-threshold = 99\n").expect("write");

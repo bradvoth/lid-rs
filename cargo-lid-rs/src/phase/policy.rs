@@ -94,7 +94,7 @@ impl SliceCrates {
     /// The seats a phase writes in, each with its crate: the slice's own,
     /// then the companion when there is one — the order the stop stages and
     /// the integrity check filters in.
-    #[implements(spec::TheStopStagesBothCratesAllowedPaths, spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
+    #[implements(spec::TheStopStagesBothCratesStagedPaths, spec::IntegrityFiltersAgainstBothCratesStagedPaths)]
     pub fn seats(&self) -> Vec<(Seat, &Path)> {
         std::iter::once((Seat::Own, self.own.as_path()))
             .chain(self.companion.as_deref().map(|companion| (Seat::Companion, companion)))
@@ -395,6 +395,19 @@ pub fn allowed_paths(phase: Phase, seat: Seat, claims: &Path, code: &SliceCode) 
     }
 }
 
+/// The claims file one seat is judged against and stages: for the slice's own
+/// crate the layout's answer, `claims`, which the caller resolved; for the
+/// companion the `spec.rs` in its module directory named for the slice —
+/// `code.dir.join("spec.rs")`, `code` being the companion's — whatever form the
+/// slice's own crate takes, and never the own-crate answer placed under the
+/// companion, which for a crate-root slice names a file no claim lives in.
+/// The one place the two readings meet, so a row and the verdict judging it
+/// cannot part.
+#[implements(spec::TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec)]
+pub fn seat_claims(seat: Seat, claims: &Path, code: &SliceCode) -> PathBuf {
+    todo!("the claims file of {seat:?} given {claims:?} and {code:?}")
+}
+
 /// One seat's answer to where the slice's code is: for the slice's own crate
 /// the layout's, which the caller resolved and threaded in; for the companion
 /// the module directory spelled from the slice's name, a companion's directory
@@ -539,7 +552,7 @@ fn seat_verdict(phase: Phase, seat: Seat, code: &SliceCode, claims: &Path, relat
 /// The phase's allowed paths of both crates — each seat's table relative to
 /// its crate, made relative to the workspace root git runs at — which the
 /// stop hook filters integrity against and stages.
-#[implements(spec::TheStopStagesBothCratesAllowedPaths)]
+#[implements(spec::TheStopStagesBothCratesStagedPaths)]
 pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<Vec<PathBuf>, String> {
     let root = project.root()?;
     let claims = crate::layout::spec_file(project, &crates.slice)?;
@@ -554,7 +567,7 @@ pub fn workspace_paths(project: &Project, phase: Phase, crates: &SliceCrates) ->
 
 /// One seat's table, workspace-relative: each entry under the crate's own
 /// prefix.
-#[implements(spec::TheStopStagesBothCratesAllowedPaths)]
+#[implements(spec::TheStopStagesBothCratesStagedPaths)]
 fn seat_workspace_paths(
     root: &Path,
     phase: Phase,
@@ -569,12 +582,34 @@ fn seat_workspace_paths(
 
 /// A crate's manifest directory relative to the workspace root, or the
 /// failure naming both when it is not under the root.
-#[implements(spec::TheStopStagesBothCratesAllowedPaths)]
+#[implements(spec::TheStopStagesBothCratesStagedPaths)]
 fn crate_prefix(root: &Path, crate_root: &Path) -> Result<PathBuf, String> {
     crate_root
         .strip_prefix(root)
         .map(Path::to_path_buf)
         .map_err(|_| format!("`{}` is not under the workspace root `{}`, so nothing in it can be staged", crate_root.display(), root.display()))
+}
+
+/// The staged set: `workspace_paths` — the phase's allowed paths of both
+/// seats, workspace-relative — plus `hook_written_paths`, and nothing else.
+/// What the stop stages and the integrity check filters against; never what
+/// the editing verdict, the permitted moves a refusal quotes, or the
+/// nothing-to-commit test consults, all of which stay `workspace_paths`.
+#[implements(
+    spec::TheStopStagesBothCratesStagedPaths,
+    spec::TheBumpsRootFilesJoinTheStagedSetAtPhaseSevenOnly,
+    spec::TheStopStagesExactlyTheStagedSet,
+    spec::IntegrityFiltersAgainstBothCratesStagedPaths,
+)]
+pub fn staged_paths(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<Vec<PathBuf>, String> {
+    todo!("the staged set of {crates:?} at {phase:?} in {project:?}")
+}
+
+/// What the hook itself writes, workspace-relative: the root `Cargo.toml` and
+/// `Cargo.lock` the bump wrote at Phase 7, and nothing at every other phase.
+#[implements(spec::TheBumpsRootFilesJoinTheStagedSetAtPhaseSevenOnly)]
+pub fn hook_written_paths(phase: Phase) -> Vec<PathBuf> {
+    todo!("what the hook writes at {phase:?}")
 }
 
 /// Whether a crate-relative path is in the phase's set: an entry admits it,
@@ -1339,8 +1374,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::TheStopStagesBothCratesAllowedPaths)]
-    fn the_stop_stages_both_crates_allowed_paths() {
+    #[validates(spec::TheStopStagesBothCratesStagedPaths)]
+    fn the_stop_stages_both_crates_staged_paths() {
         let (dir, project) = fixture::two_member_workspace("stage-both", "", "");
         let crates = SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) };
         // The module is written before the row is asked for, because the own
@@ -1363,8 +1398,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::TheStopStagesBothCratesAllowedPaths)]
-    fn a_crate_outside_the_root_cannot_be_staged() {
+    #[validates(spec::TheStopStagesBothCratesStagedPaths)]
+    fn the_stop_stages_both_crates_staged_paths_only_under_the_root() {
         assert_eq!(crate_prefix(Path::new("/w"), Path::new("/w/app")).expect("under the root"), PathBuf::from("app"));
         let err = crate_prefix(Path::new("/w"), Path::new("/elsewhere/app")).expect_err("not under the root");
         assert!(err.contains("/elsewhere/app") && err.contains("/w"), "names both: {err}");

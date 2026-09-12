@@ -1,12 +1,13 @@
 //! Integrity at the stop (`docs/intent/phase/lld.md` § Security posture):
-//! the synced artifacts unchanged, and nothing changed outside the policy.
+//! the synced artifacts unchanged, nothing changed outside the staged set,
+//! and the files the hook itself wrote still as it wrote them.
 
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
 
 use super::Phase;
-use super::policy::{SliceCrates, workspace_paths};
+use super::policy::SliceCrates;
 use crate::project::Project;
 use super::spec;
 use crate::sync;
@@ -17,28 +18,38 @@ pub fn synced_artifacts_match(project: &Project) -> Result<(), String> {
     sync::check(project).map_err(|e| format!("the synced artifacts changed since the phase started — code the check ran may have written them: {e}"))
 }
 
-/// Nothing outside the phase's allowed paths of both crates is modified,
-/// untracked, or deleted; otherwise the offenders, named.
-#[implements(spec::ChangesOutsideThePolicyRefuseTheStop, spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
+/// Nothing outside the phase's staged set — `policy::staged_paths`: both
+/// crates' allowed paths, and at Phase 7 the two root files the bump wrote —
+/// is modified, untracked, or deleted; otherwise the offenders, named. The
+/// two root files are not this check's to judge: `bumped_files_untouched`
+/// holds them to what the bump wrote.
+#[implements(spec::ChangesOutsideTheStagedSetRefuseTheStop, spec::IntegrityFiltersAgainstBothCratesStagedPaths)]
 pub fn outside_policy_clean(project: &Project, phase: Phase, crates: &SliceCrates) -> Result<(), String> {
-    let allowed = workspace_paths(project, phase, crates)?;
-    let outside: Vec<String> = changed_paths(project)?
-        .into_iter()
-        .filter(|path| !under_any(path, &allowed))
-        .map(|path| path.display().to_string())
-        .collect();
-    outside.is_empty().then_some(()).ok_or_else(|| {
-        format!(
-            "changed outside this phase's allowed paths — the agent could not have written these, so the code the check ran did: {}",
-            outside.join(", ")
-        )
-    })
+    todo!("nothing outside the staged set of {crates:?} at {phase:?} changed in {project:?}")
 }
 
-/// The changed paths within the allowed set — what a commit would stage.
-#[implements(spec::NothingToCommitIsARefusal)]
-pub fn changed_within(project: &Project, allowed: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
-    Ok(changed_paths(project)?.into_iter().filter(|path| under_any(path, allowed)).collect())
+/// Each of the files the hook itself wrote — `version_files`, the root
+/// `Cargo.toml` and `Cargo.lock` as the Phase 7 bump left them — still equals
+/// that content byte for byte; otherwise the refusal naming the file that
+/// differs. Nothing to hold at any other phase, which passes.
+#[implements(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
+pub fn bumped_files_untouched(project: &Project, version_files: &[(PathBuf, Vec<u8>)]) -> Result<(), String> {
+    todo!("hold {version_files:?} to what the bump wrote in {project:?}")
+}
+
+/// The workspace-relative `paths` with each one's bytes as it is now — what
+/// the bump wrote, read back right after it for `bumped_files_untouched` to
+/// hold the tree to after the check.
+#[implements(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
+pub fn contents_of(project: &Project, paths: &[PathBuf]) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    todo!("read {paths:?} under the root of {project:?}")
+}
+
+/// The changed paths within `set` — the editing set for the nothing-to-commit
+/// test, the staged set for what a commit stages.
+#[implements(spec::NothingChangedInTheEditingSetIsARefusal)]
+pub fn changed_within(project: &Project, set: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
+    Ok(changed_paths(project)?.into_iter().filter(|path| under_any(path, set)).collect())
 }
 
 /// `git status --porcelain` as workspace-relative paths, without the
@@ -86,8 +97,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::ChangesOutsideThePolicyRefuseTheStop)]
-    fn changes_outside_the_policy_are_named() {
+    #[validates(spec::ChangesOutsideTheStagedSetRefuseTheStop)]
+    fn changes_outside_the_staged_set_refuse_the_stop_naming_them() {
         let (dir, project) = fixture::copy("integrity-outside");
         // Phase 7 of `hello` in the fixture's one crate: `src/hello.rs`, `src/hello`.
         let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
@@ -101,8 +112,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::IntegrityFiltersAgainstBothCratesAllowedPaths)]
-    fn integrity_filters_against_both_crates_allowed_paths() {
+    #[validates(spec::IntegrityFiltersAgainstBothCratesStagedPaths)]
+    fn integrity_filters_against_both_crates_staged_paths() {
         let (dir, project) = fixture::two_member_workspace("integrity-companion", "", "");
         // Phase 5 of `m`: `src/m.rs` and `src/m` in `owner`; those and `tests/ui` in `app`.
         let crates = SliceCrates { slice: "m".to_string(), own: dir.join("owner"), companion: Some(dir.join("app")) };
@@ -120,8 +131,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::NothingToCommitIsARefusal)]
-    fn what_a_commit_would_stage_is_the_changes_within_the_policy() {
+    #[validates(spec::NothingChangedInTheEditingSetIsARefusal)]
+    fn nothing_changed_in_the_editing_set_is_a_refusal_read_from_the_changes_within_it() {
         let (dir, project) = fixture::copy("integrity-within");
         let allowed = paths(&["src/hello.rs", "src/hello"]);
         assert!(changed_within(&project, &allowed).expect("status").is_empty());

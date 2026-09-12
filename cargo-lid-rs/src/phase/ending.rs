@@ -88,6 +88,16 @@ pub fn subject_matches(phase: Phase, message: &str) -> Result<(), String> {
     }
 }
 
+/// A Phase 7 commit message's subject must carry the version the bump
+/// produced (`phase 7: <version>: <what and why>`, read by
+/// [`subject_version`](super::subject_version)); a subject naming another
+/// version, or none, is refused naming both versions — a separate rule from
+/// the tag's, and asked after the bump and before the check.
+#[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+pub fn subject_carries_version(message: &str, version: &str) -> Result<(), String> {
+    todo!("hold the subject of {message} to the bumped version {version}")
+}
+
 /// The message's subject: its first non-empty line.
 fn subject_of(message: &str) -> &str {
     message.lines().map(str::trim).find(|line| !line.is_empty()).unwrap_or("")
@@ -187,9 +197,10 @@ fn permitted_moves(project: &Project, phase: Phase, crates: &SliceCrates) -> Res
     ))
 }
 
-/// Stages exactly `paths` and commits `message` with `trailers`; the new
+/// Stages exactly `paths` — the changes within the staged set, as the stop
+/// hook computes them — and commits `message` with `trailers`; the new
 /// commit's hash.
-#[implements(spec::OnlyThePoliciesPathsAreStaged)]
+#[implements(spec::TheStopStagesExactlyTheStagedSet)]
 pub fn stage_and_commit(project: &Project, paths: &[&Path], message: &str, trailers: &str) -> Result<String, String> {
     let root = project.root()?;
     let stageable: Vec<&Path> = paths.iter().copied().filter(|p| root.join(p).exists() || tracked(project, p)).collect();
@@ -304,8 +315,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::OnlyThePoliciesPathsAreStaged)]
-    fn stage_and_commit_stages_exactly_the_given_paths() {
+    #[validates(spec::TheStopStagesExactlyTheStagedSet)]
+    fn the_stop_stages_exactly_the_staged_set_it_is_given() {
         let (dir, project) = fixture::copy("stage");
         std::fs::write(dir.join("src/hello.rs"), "//! staged\n").expect("write");
         std::fs::write(dir.join("README.md"), "not staged").expect("write");
