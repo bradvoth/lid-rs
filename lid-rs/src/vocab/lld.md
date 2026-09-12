@@ -459,18 +459,24 @@ Six things a red test of this slice gets wrong by default.
 | `lid_rs::vocab::Noun` | `Traceable + Declared`, empty, carrying `#[diagnostic::on_unimplemented]`. What a claim may name, and the one item whose failure message is this slice's to shape. |
 | `lid_rs::implements_module!` in `lid-rs/src/vocab/mod.rs` | The citation site for the three claims about the traits. `#[implements]` dispatches over a fn, a struct or an enum and nothing else (`lid-rs-macros/src/expand.rs:205-222`), so a trait declaration and a supertrait list cannot carry one; the module is cited by containment, as the registry slice's presence claim is (`lid-rs/src/registry/mod.rs:54`). The hand commit writes a bare `mod.rs`; **Phase 3 adds this invocation to it**, `mod.rs` being inside the module directory that Phase 3's row grants. |
 | `lid_rs::vocab::noun_of` | Work leaf: `noun_of::<T>() -> &'static str` for `T: Traceable + ?Sized`, answering `T::NOUN` with no value in hand. The item every data-shaped claim of this slice is cited on, and the surface slice 20 reads a noun's name through. |
-| `impl Traceable for String`, `for &str`, `for bool`, `for char` | Rule V's non-numeric primitives (`README.md:515`), each recording its own type's spelling and none of them `Declared`. |
-| `impl Traceable for u8 … u128`, `usize`, `i8 … i128`, `isize` | Rule V's integers, same rule. Written as a `macro_rules!` over the list so the twelve impls are one statement of one decision rather than twelve chances to disagree. |
-| `impl Traceable for f32`, `f64` | Rule V's floats, same rule. |
+| `records_its_own_spelling!` | The `macro_rules!` over rule V's list, expanding one `impl Traceable` per type with `const NOUN = stringify!($ty)`. Seventeen impls as one statement of one decision, rather than seventeen chances to disagree: `String`, `bool`, `char`, `u8 … u128`, `usize`, `i8 … i128`, `isize`, `f32`, `f64` (`README.md:513-516`). None of them is `Declared`, which is rule V's whole point. |
+| `impl Traceable for &str` | Rule V's one primitive whose spelling is not a single identifier, written out by hand with `const NOUN = "&str"`. Outside the macro because `stringify!` over a reference type reproduces a token sequence and not the source spelling, and the recorded name is what a test compares exactly. |
 | `lid_rs::Traceable`, `lid_rs::Noun` | The crate-root re-exports, as `lid_rs::Outcome` is (`lid-rs/src/lib.rs:40-42`): without them `derive(Traceable)` is unusable from inside `lid-rs`. Land in `src/lib.rs` at Phase 3 or 4, which is in that row. |
 | `lid_rs::__private::Declared` | The seal's public address, beside the existing `linkme` re-export (`lid-rs/src/lib.rs:245-248`). A consumer's expansion writes `impl ::lid_rs::__private::Declared for TheirType`; nothing else names this path. |
+| `lid_rs::vocab::tests::noun_of_carries_the_name_its_type_records` | Phase 5's case for what a type records: asks `noun_of` for the name of a test-local type whose const disagrees with its identifier, so an answer taken from the spelling fails while every primitive still agreed. |
+| `lid_rs::vocab::tests::a_primitive_records_the_spelling_of_its_own_type` | All eighteen of rule V's primitives, one exact string each. Pairwise rather than "non-empty", because check 12 substitutes `""` for the body of anything returning `&'static str` and a weaker assertion hands it a survivor. |
+| `lid_rs::vocab::tests::Recorded`, `RECORDED` | The test-local type whose recorded name is deliberately unlike its own spelling, and the const it records under. What separates the claim about what a type records from the claim about what a primitive records: without it, one `noun_of` answering the type's spelling satisfies both. |
+| `lid_rs::vocab::tests::HandDeclared` | The test-local type carrying all three impls by hand — the positive half of the seal, whose negative half is `tests/ui/vocab/fail/no_seal.rs`. |
+| `lid_rs::vocab::tests::noun_name` | `noun_name::<T: Noun>() -> &'static str`, a test-local wrapper over `noun_of`. The bound is the type-level assertion and the compiler discharges it; the name carried back is what gives that assertion something to be wrong about, since a bound alone is green from the skeleton onward. |
 | `lid_rs::vocab::tests::a_hand_declared_type_is_a_noun` | Phase 5's positive case: a test-local type implementing all three traits by hand. Also the demonstration that the seal is deliberate and not unforgeable, which is the one claim about the seal this slice makes. |
 | `lid_rs::vocab::tests::no_primitive_is_a_noun` | The trybuild harness over `lid-rs/tests/ui/vocab/fail/`, a `#[cfg(test)]` unit test in the lib as check 14 and README §5.2 require. It validates both negative claims, and check 14 is a **naming** rule: a validator is admitted when named for the `snake_case` of any one claim it cites, optionally `_suffix`ed (`lid-rs/src/claim/spec.rs:219-229`). `not_a_noun`, which this row said in its first draft, is the `snake_case` of no claim of this slice and would be refused. Its fixtures are a hand commit; see "What lands by hand". |
 
-Every item above is either a type, an impl, or one function. There is no
-dispatch anywhere in the slice, so the dispatch/work rule has nothing to
-separate — which is worth saying explicitly, because a Phase 4 descent that
-finds no layer beneath `noun_of` has found the truth and not a gap.
+Every item above is a type, an impl, a const, one `macro_rules!` over a list,
+or one function. There is no dispatch anywhere in the slice, so the
+dispatch/work rule has nothing to separate — which is worth saying explicitly,
+because a Phase 4 descent that finds no layer beneath `noun_of` has found the
+truth and not a gap. It did: the branch has no `phase 4:` commit, and it is
+right not to.
 
 **A note on doc links in this document.** It contains no intra-doc link, and
 that is deliberate rather than an omission. Nothing includes this file until
