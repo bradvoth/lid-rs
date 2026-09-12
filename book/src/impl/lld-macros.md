@@ -1,1 +1,1 @@
-{{#include ../../../lid-rs-macros/docs/intent/macros/lld.md}}
+{{#include ../../../lid-rs-macros/src/lld.md}}
