@@ -1134,9 +1134,19 @@ mod tests {
         assert_eq!(plan(Phase::Two, &[]), [Step::Check]);
     }
 
-    /// A reworded claim as Phase 2 leaves it in `src/spec/mod.rs`: the slice's
-    /// file re-exported, and the retired name a deprecated alias for the new
-    /// one.
+    /// Writes the fixture's claims module the way a Phase 2 leaves it: the
+    /// crate-root `src/spec.rs` that `init` emits, holding `mod hello;`, and
+    /// the `hello` slice's own file under `src/spec/`, which `init` no longer
+    /// creates.
+    fn write_claims_module(dir: &Path, root: &str, hello: &str) {
+        std::fs::write(dir.join("src/spec.rs"), root).expect("spec");
+        std::fs::create_dir_all(dir.join("src/spec")).expect("spec dir");
+        std::fs::write(dir.join("src/spec/hello.rs"), hello).expect("hello spec");
+    }
+
+    /// A reworded claim as Phase 2 leaves it in the crate-root `src/spec.rs`
+    /// `init` emits: the slice's file under `src/spec/` re-exported, and the
+    /// retired name a deprecated alias for the new one.
     const REWORDED_SPEC_MOD: &str = "//! Atomic claims for app.\n\n/// The hello slice's claims.\nmod hello;\n\npub use hello::*;\n\n\
                                      /// The name [`GreetsWarmly`] carried before it was reworded.\n#[deprecated = \"replaced by GreetsWarmly\"]\n\
                                      pub type Greets = hello::GreetsWarmly;\n";
@@ -1158,8 +1168,7 @@ mod tests {
     #[validates(spec::WarningsDoNotFailPhaseTwosCheck)]
     fn warnings_do_not_fail_phase_twos_check() {
         let (dir, project) = fixture::copy("phase-two-warnings");
-        std::fs::write(dir.join("src/spec/mod.rs"), REWORDED_SPEC_MOD).expect("spec mod");
-        std::fs::write(dir.join("src/spec/hello.rs"), REWORDED_SPEC).expect("spec");
+        write_claims_module(&dir, REWORDED_SPEC_MOD, REWORDED_SPEC);
         std::fs::write(dir.join("src/hello.rs"), WARNING_MODULE).expect("module");
         // The tree really does warn, in both the ways the claim names: the
         // gate's own clippy step, which denies warnings, refuses it for the
@@ -1681,8 +1690,7 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     /// gated; then a Phase 8 edit adding `GreetsWarmly`, its leaf `todo!()`.
     fn gated_then_edited(name: &str) -> (PathBuf, Project) {
         let (dir, project) = fixture::copy(name);
-        std::fs::write(dir.join("src/spec/mod.rs"), "//! Claims for app.\n\nmod hello;\n\npub use hello::*;\n").expect("spec mod");
-        std::fs::write(dir.join("src/spec/hello.rs"), GATED_SPEC).expect("spec");
+        write_claims_module(&dir, "//! Claims for app.\n\nmod hello;\n\npub use hello::*;\n", GATED_SPEC);
         std::fs::write(dir.join("src/hello.rs"), hello_module("", "")).expect("module");
         commit_all(&dir, "phase 7: 0.1.0: hello greets");
         std::fs::write(dir.join("src/spec/hello.rs"), EDITED_SPEC).expect("spec");

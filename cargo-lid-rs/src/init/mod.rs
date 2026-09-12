@@ -58,7 +58,8 @@ pub struct Package {
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change {
     /// A new file; the path existing is a conflict, and for the crate-root
-    /// claims file so is a `spec/` directory beside it.
+    /// claims file so is a `spec/` directory beside it, since that file would
+    /// become the directory's parent module.
     CreateFile {
         /// Where to write.
         path: PathBuf,
@@ -238,7 +239,7 @@ fn render(template: &str, package_name: &str) -> Result<String, String> {
 /// Fails naming every conflicting change, so nothing is written.
 #[implements(spec::InitWritesNothingWhenAnyTargetConflicts)]
 fn refuse_conflicts(plan: &[Change]) -> Result<(), String> {
-    let conflicts: Vec<String> = plan.iter().filter_map(Change::conflict).collect();
+    let conflicts: Vec<String> = plan.iter().flat_map(Change::conflict).collect();
     if conflicts.is_empty() {
         Ok(())
     } else {
@@ -247,15 +248,16 @@ fn refuse_conflicts(plan: &[Change]) -> Result<(), String> {
 }
 
 impl Change {
-    /// What already exists that this change would clobber, if anything.
+    /// What already exists that this change would clobber: one entry per
+    /// thing found, each its own line of the refusal.
     #[implements(spec::InitWritesNothingWhenAnyTargetConflicts, spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
-    fn conflict(&self) -> Option<String> {
+    fn conflict(&self) -> Vec<String> {
         match self {
             Change::CreateFile { path, .. } if is_crate_root_claims_file(path) => crate_root_claims_file_conflicts(path),
-            Change::CreateFile { path, .. } | Change::SyncSkill { path, .. } => existing_file(path),
-            Change::AppendManifestTables { path } => existing_table(path),
-            Change::WireLibrary { path } => existing_graph(path),
-            Change::EnsureLine { .. } | Change::AddDependency { .. } => None,
+            Change::CreateFile { path, .. } | Change::SyncSkill { path, .. } => existing_file(path).into_iter().collect(),
+            Change::AppendManifestTables { path } => existing_table(path).into_iter().collect(),
+            Change::WireLibrary { path } => existing_graph(path).into_iter().collect(),
+            Change::EnsureLine { .. } | Change::AddDependency { .. } => Vec::new(),
         }
     }
 }
@@ -269,25 +271,30 @@ fn existing_file(path: &Path) -> Option<String> {
 /// rule also looks at a `src/spec/` directory beside it.
 #[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
 fn is_crate_root_claims_file(path: &Path) -> bool {
-    todo!("whether {} ends with {CRATE_ROOT_CLAIMS_FILE}", path.display())
+    path.ends_with(CRATE_ROOT_CLAIMS_FILE)
 }
 
-/// A conflict if a `spec/` directory sits beside the claims file at `path`,
-/// naming the directory: `pub mod spec;` would resolve to both.
+/// A conflict if the directory the claims file's own name derives — `spec/`
+/// beside `spec.rs`, so the two cannot drift — already exists, naming the
+/// directory: the claims file would become its parent module, so whatever it
+/// holds is the user's to resolve first.
 #[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
 fn existing_spec_directory(path: &Path) -> Option<String> {
-    todo!("the `spec/` directory beside {}", path.display())
+    let directory = path.with_extension("");
+    directory.is_dir().then(|| {
+        format!(
+            "{} already exists as a directory, and the claims file init would write beside it becomes that directory's parent module; resolve what it holds first (a `mod.rs` makes `pub mod spec;` ambiguous, and files no module declares are unreachable)",
+            directory.display()
+        )
+    })
 }
 
 /// Every conflict at the claims file `path`: what [`existing_file`] and
-/// [`existing_spec_directory`] each return, joined into one message — no
+/// [`existing_spec_directory`] each return, as separate entries — no
 /// precedence, so both are named when both exist.
 #[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
-fn crate_root_claims_file_conflicts(path: &Path) -> Option<String> {
-    [existing_file(path), existing_spec_directory(path)]
-        .into_iter()
-        .flatten()
-        .reduce(|first, second| format!("{first}\n  {second}"))
+fn crate_root_claims_file_conflicts(path: &Path) -> Vec<String> {
+    [existing_file(path), existing_spec_directory(path)].into_iter().flatten().collect()
 }
 
 /// A conflict naming the first appended table already in the manifest.
@@ -509,15 +516,20 @@ mod tests {
         let dir = scratch("spec-directory-alone");
         let directory = dir.join("src/spec");
         std::fs::create_dir_all(&directory).expect("mkdir");
+        // A `src/lld/` directory beside the second target: the beside-the-file
+        // rule applied to `src/lld.md` would name it, so the document's empty
+        // answer proves the rule is the claims file's alone.
+        std::fs::create_dir_all(dir.join("src/lld")).expect("mkdir");
         let create = |relative: &str| Change::CreateFile { path: dir.join(relative), content: String::new() };
         // The directory alone, with no `src/spec.rs` yet, conflicts with the
         // claims file — and with nothing else `init` creates under `src/`.
         let claims_file = create(CRATE_ROOT_CLAIMS_FILE).conflict();
         let document = create("src/lld.md").conflict();
+        let naming_the_directory = claims_file.iter().filter(|conflict| conflict.contains(&directory.display().to_string())).count();
         assert_eq!(
-            (claims_file.is_some_and(|conflict| conflict.contains(&directory.display().to_string())), document),
-            (true, None),
-            "the directory is a conflict for the claims file, and for it only"
+            (naming_the_directory, claims_file.len(), document),
+            (1, 1, Vec::new()),
+            "the directory is the claims file's one conflict, and no other target's"
         );
     }
 
@@ -610,7 +622,7 @@ mod tests {
         assert_eq!(shape, (true, true, true, true), "{wired}");
         // Applied to a real package's `src/lib.rs`, the two includes resolve:
         // the scaffold puts `src/lld.md` and `src/spec.rs` beside it, and no
-        // `src/spec/` directory for `pub mod spec;` to find instead.
+        // `src/spec/` directory that `src/spec.rs` would be the parent module of.
         let parent = scratch("wire");
         let dir = cargo_new(&parent, "--lib", "wired");
         let library = dir.join("src/lib.rs");
