@@ -270,10 +270,38 @@ The allowed sets, relative to that crate:
 | Phase | May write |
 |---|---|
 | 2 | the slice's claims file (`layout::spec_file`), `src/spec/mod.rs` |
-| 3, 4 | `src/<slice>.rs`, `src/<slice>/**`, `src/lib.rs` |
-| 5 | `src/<slice>.rs`, `src/<slice>/**` |
-| 7 (with 6) | `src/<slice>.rs`, `src/<slice>/**` |
+| 3, 4 | the slice's directory and module file (`layout::slice_dir`), `src/lib.rs` |
+| 5 | the slice's directory and module file (`layout::slice_dir`) |
+| 7 (with 6) | the slice's directory and module file (`layout::slice_dir`) |
 | reviewer | nothing |
+
+**The directory is the layout's answer, not the slice's name — and asking for
+it is not yet enough.** `policy::module_dir` spells `src/<slice_snake>` from
+the slice's name. That is right for a module slice and wrong for a
+**crate-root** one, whose document is `<crate>/src/lld.md` and whose name is
+its package's: `layout::Form::CrateRoot.dir()` is `src` itself, so the
+policy names a directory holding none of that slice's code. Phases 3 and 4
+survive by accident, their row also carrying `src/lib.rs`; **Phases 5 and 7
+carry no such escape and may write nothing at all** for such a slice. The
+three that exist — `cargo-lid-rs`, `xtask`, and `macros` — all ran their
+phases before colocation, so nothing has reached the hole. Slice 18
+(`lid-rs-shape`) is the first that would, and no test covers the form:
+`CrateRoot`, `slice_dir` and `rooted` appear nowhere in this slice.
+
+Row 2 already asks the layout for the claims file, and the same threading is
+what rows 3 to 7 want — `layout::slice_dir` passed in beside `claims`, never
+spelled from the name here. **But for a crate-root slice that answer is `src`,
+and `matches_any` admits anything under an allowed directory.** `cargo-lid-rs`
+is a crate-root slice *and* holds eight module slices (`phase`, `catalog`,
+`coach`, `init`, `layout`, `lld_review`, `sync`, `headless_canopy_agent`), so
+handing its phases `src/` hands them all eight — the same confused-deputy
+widening colocation already caused once, in the other direction. Trading a
+lockout for a breach is not a repair, and this is the Open Question below.
+
+The companion table is unchanged and stays `src/<slice>`: a companion is a
+slice's *presence* in another crate, always a module directory and never a
+crate root — `Form::Companion`'s directory is `module_dir(crate_root, module)`
+whatever form the own crate takes.
 
 **A proc-macro crate's slice.** A proc-macro crate links into no binary,
 so a claim defined in it registers nowhere, a `#[validates]` test in it can
@@ -612,7 +640,7 @@ document does not imply it.
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
 | The workflow's structured answer | `StructuredOutput` is an observation | A fourth tool kind; a command, with the workflow parsing the worker's final message instead of a `schema` | The call reads and writes nothing, and it arrives after the stop hook has already judged the commit block: refusing it there ends the run with the phase committed and the workflow reporting a failure. A tool kind of its own would count something the tally has no question about. |
 | The red run on a Phase 8 edit | Scoped to the claims added since the newest `phase 7:` commit, by name in the spec file's diff | Every claim of the slice (the first design); an explicit `--claims` list; the claims the Phase 2 commit's diff touched at all; a registry dump of the base commit | Every claim of the slice can only be red by un-implementing the slice, so an implemented slice's Phase 5 could never pass the hook. A `--claims` list is an argument that reaches the hook through a model's prompt. Any changed line of the Phase 2 diff would sweep in a claim whose doc comment merely mentions another. A base registry dump means building the base commit for every red run. The gate commit is the one moment the slice is known whole, and a renamed struct is exactly one added `struct <Name>` line. |
-| A reworded claim under the policy | The renamed struct plus a `#[deprecated]` type alias for the old name beside it in the slice's `src/<slice>/spec.rs` — where the old path resolved, which is the point of an alias; Phase 2's check does not lint, so a deprecation reaches the agent only as the post-edit hook's context | `#[deprecated]` on the claim struct itself; a hard rename, with Phase 2's check tolerating unresolved citations; widening Phase 2's policy to the citing module | A deprecated `Spec` struct registers a claim that, once its citations move, has no implementer — checks 10 and 11 refuse it, and only Phase 2 could delete it. Unresolved citations are compile errors no lint level tolerates, and they stop the registry tests compiling too. Widening the policy gives Phase 2 the code it exists to be kept out of. The alias registers nothing, warns at exactly the citation sites, and clippy's `deprecated` is the one lint whose firing at Phase 2 is the methodology's own signal rather than a defect; the gate at Phase 7 still denies it. |
+| A reworded claim under the policy | The renamed struct plus a `#[deprecated]` type alias for the old name beside it in the slice's claims file, wherever `layout::spec_file` puts it — where the old path resolved, which is the point of an alias; Phase 2's check does not lint, so a deprecation reaches the agent only as the post-edit hook's context | `#[deprecated]` on the claim struct itself; a hard rename, with Phase 2's check tolerating unresolved citations; widening Phase 2's policy to the citing module | A deprecated `Spec` struct registers a claim that, once its citations move, has no implementer — checks 10 and 11 refuse it, and only Phase 2 could delete it. Unresolved citations are compile errors no lint level tolerates, and they stop the registry tests compiling too. Widening the policy gives Phase 2 the code it exists to be kept out of. The alias registers nothing, warns at exactly the citation sites, and clippy's `deprecated` is the one lint whose firing at Phase 2 is the methodology's own signal rather than a defect; the gate at Phase 7 still denies it. |
 | Staging | Exactly the policy's allowed paths | `git add -A`; the agent names files | The set that bounds edits bounds the commit; anything else the agent could not have written. |
 | Stop-refusal budget | Refuse while the check fails, up to Claude Code's cap of eight | One refusal then allow (the first design); refuse forever | A failing check is not a reason to let the phase end; eight rounds of clippy output is more than a fixable phase needs, and the cap leaves a dirty, uncommitted tree the next precondition refuses. A `stop` block is always allowed, so an honest stop is never blocked. |
 | Trusted binary in the tool's own workspace | Hooks name the installed `cargo-lid-rs` directly, refreshed from `main` after merge; no synced script | A synced `hooks/run` script preferring `cargo run -p cargo-lid-rs` here (the first design); a separate worktree build | A worker in this repository edits the hook's own source; running it from the tree means the policy is whatever the worker last wrote. Enforcing only landed policy is the price of the tool being its own consumer. |
@@ -628,6 +656,46 @@ document does not imply it.
 | Where the artifacts live | `agent/` and `workflow/` beside `skill/` in the `lid-rs` crate, synced under one rule | Inside `skill/`; a separate crate; the plugin | Claude Code reads agents and workflows from `.claude/agents/` and `.claude/workflows/`; the files are version-coupled to the skill they point at, so they ship with it. |
 
 ## Open Questions & Future Decisions
+
+### Open
+
+**(Answered below, and the answer is reading 1 — left here with its
+alternatives so the choice can be reversed in one function.)**
+
+**What a crate-root slice's directory is, for the path policy.** The policy
+must stop spelling `src/<slice>` from the name (above), but `layout::slice_dir`
+answers `src` for a crate-root slice, and `matches_any` admits everything under
+an allowed directory. For `cargo-lid-rs` that is eight other slices' code. The
+readings, none yet chosen, and this is the human's because it moves a
+confused-deputy boundary rather than a path:
+
+1. **`src` minus the module-slice directories that crate holds.** The layout
+   already knows which members hold which slices, so the subtraction is
+   answerable. Truest to "the slice is the crate"; makes the allowed set depend
+   on how many slices a crate has, so a new module slice silently narrows a
+   crate-root slice's permissions.
+2. **Top-level Rust source only** — `src/*.rs`, no recursion — plus
+   `src/lib.rs`. Simple, and it is what a crate-root slice's own code actually
+   is once its module slices are excluded, but it forbids a crate-root slice
+   any subdirectory of its own that is not a slice.
+3. **Refuse the form outright**: a crate-root slice may not run phases 3-7
+   until it is converted to a module slice. Honest and cheap, and it forces
+   slice 18 to a Phase 0 answer (`lid-rs-shape` names a crate, so it would have
+   to become a module of one).
+
+**Chosen: reading 1.** It is not a trade against the other two so much as the
+faithful definition — a crate-root slice's code is its crate's `src`, and
+another slice's directory is that other slice's code, not this one's. The
+objection raised against it (a new module slice silently narrowing a
+crate-root slice's permissions) is the rule working: when code moves into a
+slice of its own, it stops being the crate-root slice's to write. Reading 2
+forbids a crate-root slice any subdirectory that is not a slice, which
+`cargo-lid-rs` would fail today; reading 3 refuses a form the layout defines
+and would force slice 18 and slice 23 to a Phase 0 rename apiece.
+
+The defect blocks **two** of the remaining slices, not one: slice 18
+(`lid-rs-shape`) and slice 23, whose document belongs at
+`lid-rs-pipeline/src/lld.md`. Both are crate-root.
 
 ### Deferred
 1. Workspace-appended gate steps (`mdbook build book` here): a
