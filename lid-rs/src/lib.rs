@@ -10,6 +10,7 @@ pub mod graph;
 pub mod outcome;
 pub mod registry;
 pub mod trace;
+pub mod validate;
 pub mod vocab;
 
 // `canary` is a leaf of the `registry` slice and lives beside it, but its path
