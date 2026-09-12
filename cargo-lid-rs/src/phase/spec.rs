@@ -52,6 +52,58 @@ pub struct PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce;
 #[lid(free)]
 pub struct ACheckStopsAtTheFirstFailingStep;
 
+// ---- phase-check: what a step invokes -------------------------------------------
+//
+// A step's arguments are data — one function from a `Step` to the list
+// `cargo_step` runs — so every rule about what a step invokes is a property
+// of a returned list, which a validation asserts without running cargo. The
+// two below are written in the controlled language and carry no mark.
+
+/// When [`args_of`](crate::phase::args_of) is asked for a step that invokes
+/// cargo, the argument list it answers with shall carry `--locked`, whichever
+/// of the six cargo steps it is, so the check proves the workspace builds from
+/// the lock file the commit carries rather than from one cargo rewrote on the
+/// way past.
+#[derive(Spec)]
+pub struct EveryCargoStepIsLocked;
+
+/// When [`args_of`](crate::phase::args_of) is asked for
+/// [`Step::Doc`](crate::phase::Step::Doc), the argument list it answers with
+/// shall carry `--document-private-items` beside `--no-deps`, so rustdoc reads
+/// the private items a slice's claims mostly cite instead of skipping them.
+#[derive(Spec)]
+pub struct TheDocStepDocumentsPrivateItems;
+
+// ---- phase-check 7: the gate's mutation base ------------------------------------
+//
+// The first of these is a sibling of `TheBaseIsTheNewestGateCommitReachableFromHead`
+// and not a sharer of it: that claim is the red run's rule about which commit
+// `gate_base` answers with, and this one is the gate's rule about what the
+// mutation step does with the answer, so either could change without the
+// other. All three are written in the controlled language and carry no mark.
+
+/// When [`gate_base`](crate::phase::gate_base) answers with a gate commit at
+/// the gate's mutation step, [`run_step`](crate::phase::run_step) shall run the
+/// mutation engine with `--diff-base` naming that commit and no other base,
+/// so check 12 is scoped to what this branch's phases changed since the slice
+/// was last whole.
+#[derive(Spec)]
+pub struct TheGatesMutationStepDiffsAgainstTheGateCommit;
+
+/// When [`mutation_base`](crate::phase::mutation_base) is asked on a history
+/// holding no `phase 7:` commit reachable from `HEAD`, the base it answers
+/// with shall be the commit `git merge-base main HEAD` names — the point the
+/// branch was cut from — and never the trunk itself.
+#[derive(Spec)]
+pub struct WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain;
+
+/// When [`merge_base_with_main`](crate::phase::merge_base_with_main) finds no
+/// `main` or no common ancestor of `main` and `HEAD`, the mutation step shall
+/// fail naming `main` rather than run against a base that would mean
+/// something else.
+#[derive(Spec)]
+pub struct NoMergeBaseWithMainFailsTheMutationStepNamingTheRef;
+
 // ---- phase-check 5: the red run ----------------------------------------------
 
 /// When the slice's claims are identified, they shall be the registered
@@ -189,16 +241,6 @@ pub struct PhaseTwoMayWriteOnlyTheOwnCratesSpecFiles;
 #[lid(free)]
 pub struct PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices;
 
-/// The name
-/// [`PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices`]
-/// carried while a phase's directory was one directory, whatever the slice's
-/// shape. The alias registers no claim, so the graph sees only the claim it
-/// points at; every citation of this name warns with its replacement, and
-/// those citations are the later phases' work list.
-#[deprecated = "replaced by PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices"]
-pub type PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntent =
-    PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsIntentNorAnotherSlices;
-
 /// When a Phase 5 or 7 agent edits or writes under the slice's own crate, the
 /// target shall be the slice's module file or a Rust source file under the
 /// slice's directory and under no other slice's directory in that crate —
@@ -207,16 +249,6 @@ pub type PhasesThreeAndFourMayWriteTheOwnCratesSliceCodeAndLibraryRootNotItsInte
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices;
-
-/// The name
-/// [`PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices`]
-/// carried while a phase's directory was one directory, whatever the slice's
-/// shape. The alias registers no claim, so the graph sees only the claim it
-/// points at; every citation of this name warns with its replacement, and
-/// those citations are the later phases' work list.
-#[deprecated = "replaced by PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices"]
-pub type PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntent =
-    PhasesFiveAndSevenMayWriteOnlyTheOwnCratesSliceCodeNotItsIntentNorAnotherSlices;
 
 /// When a target path contains a parent component or resolves outside both
 /// the slice's crate and its companion, the policy shall refuse it before
@@ -276,6 +308,14 @@ pub struct APathUnderTheCompanionIsJudgedByTheCompanionsTable;
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;
+
+/// When [`seat_claims`](crate::phase::policy::seat_claims) is asked for the
+/// companion seat, the claims file it answers with shall be the `spec.rs` in
+/// the companion's module directory named for the slice, whatever form the
+/// slice's own crate takes, and never the layout's own-crate answer placed
+/// under the companion.
+#[derive(Spec)]
+pub struct TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec;
 
 /// When a Phase 3 or 4 agent edits or writes under the companion, the target
 /// shall be the slice's module file there, `src/lib.rs` — where the
@@ -376,38 +416,171 @@ pub struct AFailingOutputNamesItsCheck;
 #[lid(free)]
 pub struct SyncedArtifactsMustMatchAtTheStop;
 
-/// When, after the check, any path outside the phase's allowed set has
-/// changed, the stop shall be refused naming it, and nothing shall be
-/// committed.
-#[derive(Spec)]
-#[lid(free)]
-pub struct ChangesOutsideThePolicyRefuseTheStop;
+// ---- hook stop: the staged set and the editing set --------------------------
+//
+// Two sets, because the writers differ. The *editing* set is the phase's
+// allowed paths of both seats — what the agent could have written. The
+// *staged* set is that plus, at Phase 7 only, the two workspace-root files
+// the hook's own bump wrote. The stop stages the staged set and filters
+// integrity against it; the editing verdict, the permitted moves a refusal
+// quotes, and the nothing-to-commit test keep reading the editing set, so a
+// bare version bump is never a commit and the refusal never offers
+// `Cargo.toml` as somewhere to fix a gate.
+//
+// Five claims below are rewordings, each a rename with the retired name kept
+// beside it as a `#[deprecated]` alias: the alias registers no claim, so the
+// graph sees only the claim it points at, and every citation of the old name
+// warns with its replacement — the later phases' work list. Four of the five
+// keep `#[lid(free)]` for one reason only: a validator of each is named for
+// something other than its claim, and check 14 exempts a validator's name
+// solely while every claim it cites is marked free. The alias resolves such a
+// citation to the reworded claim, so holding it would fail `cargo check` in a
+// file this phase may not edit. The reworded sentences are nevertheless
+// written in the controlled language, so the mark is dropped the moment those
+// validators are renamed for the new names. The fifth is held: its one
+// validator is named for it.
 
-/// When the slice's crate has a companion, the integrity check shall filter
-/// `git status` against both crates' allowed sets, so a change under the
-/// companion's table is the phase's own and any other is named.
+/// When [`outside_policy_clean`](crate::phase::integrity::outside_policy_clean)
+/// finds a path outside the phase's staged set changed after the check, the
+/// stop shall be refused naming that path, and nothing committed.
 #[derive(Spec)]
 #[lid(free)]
-pub struct IntegrityFiltersAgainstBothCratesAllowedPaths;
+pub struct ChangesOutsideTheStagedSetRefuseTheStop;
 
-/// When the check and both integrity checks pass, the hook shall stage
-/// exactly the phase's allowed paths and commit the block's message.
-#[derive(Spec)]
-#[lid(free)]
-pub struct OnlyThePoliciesPathsAreStaged;
+/// The name [`ChangesOutsideTheStagedSetRefuseTheStop`] carried while the set
+/// the integrity check filtered against was the phase's allowed paths alone.
+/// The alias registers no claim, so the graph sees only the claim it points
+/// at; every citation of this name warns with its replacement, and those
+/// citations are the later phases' work list.
+#[deprecated = "replaced by ChangesOutsideTheStagedSetRefuseTheStop"]
+pub type ChangesOutsideThePolicyRefuseTheStop = ChangesOutsideTheStagedSetRefuseTheStop;
 
-/// When the slice's crate has a companion and the check passes, the hook
-/// shall stage the phase's allowed paths of both crates — each table
-/// relative to its crate — and nothing else.
+/// When [`outside_policy_clean`](crate::phase::integrity::outside_policy_clean)
+/// runs for a slice whose crate has a companion, the `git status` it reads
+/// shall be filtered against the staged set of both crates — each seat's
+/// table relative to its crate — so a change under the companion's table is
+/// the phase's own and any other is named.
 #[derive(Spec)]
-#[lid(free)]
-pub struct TheStopStagesBothCratesAllowedPaths;
+pub struct IntegrityFiltersAgainstBothCratesStagedPaths;
 
-/// When nothing under the phase's allowed paths has changed, the stop shall
-/// be refused as having nothing to commit.
+/// The name [`IntegrityFiltersAgainstBothCratesStagedPaths`] carried while
+/// the set the integrity check filtered against was the phase's allowed
+/// paths alone. The alias registers no claim, so the graph sees only the
+/// claim it points at; every citation of this name warns with its
+/// replacement, and those citations are the later phases' work list.
+#[deprecated = "replaced by IntegrityFiltersAgainstBothCratesStagedPaths"]
+pub type IntegrityFiltersAgainstBothCratesAllowedPaths = IntegrityFiltersAgainstBothCratesStagedPaths;
+
+/// When the check and both integrity checks pass at
+/// [`hook_stop`](crate::phase::hook_stop), the commit it makes shall carry
+/// exactly the changes within the staged set — the phase's allowed paths
+/// plus what the hook itself wrote — under the block's message.
 #[derive(Spec)]
 #[lid(free)]
-pub struct NothingToCommitIsARefusal;
+pub struct TheStopStagesExactlyTheStagedSet;
+
+/// The name [`TheStopStagesExactlyTheStagedSet`] carried while what the stop
+/// staged was the phase's allowed paths alone. The alias registers no claim,
+/// so the graph sees only the claim it points at; every citation of this
+/// name warns with its replacement, and those citations are the later
+/// phases' work list.
+#[deprecated = "replaced by TheStopStagesExactlyTheStagedSet"]
+pub type OnlyThePoliciesPathsAreStaged = TheStopStagesExactlyTheStagedSet;
+
+/// When [`staged_paths`](crate::phase::policy::staged_paths) is asked for a
+/// slice whose crate has a companion, the set it answers with shall carry the
+/// phase's allowed paths of both crates — each seat's table relative to its
+/// crate — beside what the hook wrote, and nothing else.
+#[derive(Spec)]
+#[lid(free)]
+pub struct TheStopStagesBothCratesStagedPaths;
+
+/// The name [`TheStopStagesBothCratesStagedPaths`] carried while what the
+/// stop staged was the phase's allowed paths alone. The alias registers no
+/// claim, so the graph sees only the claim it points at; every citation of
+/// this name warns with its replacement, and those citations are the later
+/// phases' work list.
+#[deprecated = "replaced by TheStopStagesBothCratesStagedPaths"]
+pub type TheStopStagesBothCratesAllowedPaths = TheStopStagesBothCratesStagedPaths;
+
+/// When [`hook_stop`](crate::phase::hook_stop) finds no change under the
+/// phase's editing set — its allowed paths, and nothing the bump wrote — it
+/// shall refuse the stop as having nothing to commit, so a Phase 7 whose
+/// agent changed nothing is refused though the bump dirtied two files.
+#[derive(Spec)]
+#[lid(free)]
+pub struct NothingChangedInTheEditingSetIsARefusal;
+
+/// The name [`NothingChangedInTheEditingSetIsARefusal`] carried while the
+/// phase's allowed paths were the only set the stop knew. The alias
+/// registers no claim, so the graph sees only the claim it points at; every
+/// citation of this name warns with its replacement, and those citations are
+/// the later phases' work list.
+#[deprecated = "replaced by NothingChangedInTheEditingSetIsARefusal"]
+pub type NothingToCommitIsARefusal = NothingChangedInTheEditingSetIsARefusal;
+
+/// When [`staged_paths`](crate::phase::policy::staged_paths) is asked for
+/// Phase 7, the set it answers with shall carry the workspace root's
+/// `Cargo.toml` and `Cargo.lock` beside the phase's allowed paths, and at
+/// every other phase the allowed paths alone.
+#[derive(Spec)]
+pub struct TheBumpsRootFilesJoinTheStagedSetAtPhaseSevenOnly;
+
+/// When [`bumped_files_untouched`](crate::phase::integrity::bumped_files_untouched)
+/// finds `Cargo.toml` or `Cargo.lock` at the workspace root differing after
+/// the check from what the bump wrote, the stop shall be refused naming that
+/// file, and nothing committed.
+#[derive(Spec)]
+pub struct TheBumpedRootFilesMustStillEqualWhatTheBumpWrote;
+
+// ---- hook stop 7: the version bump --------------------------------------------
+//
+// A `phase 7:` commit is where a slice becomes a release candidate, and
+// packaging a version a registry already holds is a publish that cannot
+// happen. So the Phase 7 stop raises the workspace version before the check,
+// from the manifest at `HEAD` — which is what makes a refused stop's second
+// bump answer the same version. Every claim here is written in the
+// controlled language and carries no mark. The subject-version refusal is a
+// sibling of `ACommitSubjectMustCarryThisPhasesTag`, which is about the tag
+// and says nothing about a version.
+
+/// When [`bump_workspace_version`](crate::phase::bump_workspace_version)
+/// runs for a Phase 7 stop before the check, the version it writes to the
+/// working tree shall be one patch level above the workspace `version` the
+/// root manifest holds as committed at `HEAD`, so a second bump before any
+/// commit writes the same version again.
+#[derive(Spec)]
+pub struct PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead;
+
+/// When [`version_line`](crate::phase::version_line) scans the root
+/// manifest, the line it answers with shall be the first line beginning
+/// `version = "` after the workspace package table's header and before the
+/// next line that opens a table, so a later table's `version` is never the
+/// one patched.
+#[derive(Spec)]
+pub struct TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable;
+
+/// When [`bump_patch_version`](crate::phase::bump_patch_version) is given a
+/// manifest with no workspace package header or with no `version = "` line
+/// under that header before the next table or with a version that is not
+/// three dot-separated numbers, it shall fail naming what it looked for and
+/// patch no other line.
+#[derive(Spec)]
+pub struct AManifestTheBumpCannotReadFailsNamingWhatItLookedFor;
+
+/// When [`bump_workspace_version`](crate::phase::bump_workspace_version) has
+/// written the raised manifest, it shall run `cargo update --workspace
+/// --offline` and nothing wider, so `Cargo.lock` follows the members' new
+/// version while no third-party entry moves.
+#[derive(Spec)]
+pub struct TheBumpUpdatesTheLockForTheMembersAloneOffline;
+
+/// When the version [`subject_version`](crate::phase::subject_version) reads
+/// from a Phase 7 `commit` block's subject is not the one the bump produced,
+/// the stop shall be refused naming both versions — after the bump and
+/// before the check runs.
+#[derive(Spec)]
+pub struct APhaseSevenSubjectMustCarryTheBumpedVersion;
 
 /// When a phase commit is made, its message shall end with the
 /// `Lid-Rs-Phase`, `Lid-Rs-Agent`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, and
