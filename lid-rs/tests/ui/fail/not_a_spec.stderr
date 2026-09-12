@@ -12,10 +12,10 @@ help: the trait `Spec` is not implemented for `NotASpec`
   = help: the following other types implement trait `Spec`:
             ABareLinkTargetsItsBacktickedText
             ABehaviourVerbRecordsTheStarTemplate
+            ACitationIsNotMadeForAnotherClaimsEdge
+            ACitationNamesTheCitingItemWithItsSite
             AClaimOutsideTheUnwantedPatternCarriesNoOutcomeBound
             AClaimOutsideTheUnwantedPatternIsNoClaimedOwner
             AClaimWithoutATerminatorFailsToCompile
-            AFreeClaimCompilesWhateverItsText
-            AFreeClaimRecordsEmptyParts
-            ALexiconLineOutsideTheSubsetFailsEveryDerive
+            ACrateRootClaimsSliceIsEmpty
           and $N others
