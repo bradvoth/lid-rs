@@ -190,7 +190,11 @@ fn create_library_package(parent: &Path, name: &str) -> Result<PathBuf, String> 
     Ok(dir)
 }
 
-/// Every change `init` makes to `package`, in application order.
+/// Every change `init` makes to `package`, in application order. The
+/// crate-root pair — `src/lld.md` and `src/spec.rs`, the two paths the layout
+/// resolver reads the package's first slice from — is decided here, so a
+/// wrong path makes the scaffold something other than a crate-root slice.
+#[implements(spec::AnInitialisedPackageIsACrateRootSliceThatPassesItsOwnGate)]
 fn plan(package: &Package, options: &Options) -> Result<Vec<Change>, String> {
     let file = |relative: &str, template: &str| -> Result<Change, String> {
         Ok(Change::CreateFile {
@@ -280,7 +284,10 @@ fn existing_spec_directory(path: &Path) -> Option<String> {
 /// precedence, so both are named when both exist.
 #[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
 fn crate_root_claims_file_conflicts(path: &Path) -> Option<String> {
-    todo!("existing_file and existing_spec_directory joined for {}", path.display())
+    [existing_file(path), existing_spec_directory(path)]
+        .into_iter()
+        .flatten()
+        .reduce(|first, second| format!("{first}\n  {second}"))
 }
 
 /// A conflict naming the first appended table already in the manifest.
