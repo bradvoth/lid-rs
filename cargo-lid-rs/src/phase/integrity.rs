@@ -80,6 +80,7 @@ fn under_any(path: &Path, allowed: &[PathBuf]) -> bool {
 mod tests {
     use super::*;
     use crate::phase::fixture;
+    use crate::phase::policy::{staged_paths, workspace_paths};
     use lid_rs::validates;
 
     fn paths(list: &[&str]) -> Vec<PathBuf> {
@@ -100,15 +101,21 @@ mod tests {
     #[validates(spec::ChangesOutsideTheStagedSetRefuseTheStop)]
     fn changes_outside_the_staged_set_refuse_the_stop_naming_them() {
         let (dir, project) = fixture::copy("integrity-outside");
-        // Phase 7 of `hello` in the fixture's one crate: `src/hello.rs`, `src/hello`.
+        // Phase 7 of `hello` in the fixture's one crate: `src/hello.rs`,
+        // `src/hello` — and the two root files the bump writes.
         let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
         outside_policy_clean(&project, Phase::Seven, &crates).expect("clean");
         std::fs::write(dir.join("src/hello.rs"), "//! changed\n").expect("write");
-        outside_policy_clean(&project, Phase::Seven, &crates).expect("a change inside the policy is fine");
+        outside_policy_clean(&project, Phase::Seven, &crates).expect("a change inside the staged set is fine");
         std::fs::write(dir.join("src/stray.rs"), "").expect("write");
         std::fs::write(dir.join("Cargo.toml"), "broken").expect("write");
         let err = outside_policy_clean(&project, Phase::Seven, &crates).expect_err("outside changes are refused");
-        assert!(err.contains("src/stray.rs") && err.contains("Cargo.toml") && !err.contains("hello.rs"), "{err}");
+        // The root manifest is in Phase 7's staged set: `bumped_files_untouched`
+        // holds it to what the bump wrote, and this check does not name it.
+        assert!(err.contains("src/stray.rs") && !err.contains("hello.rs") && !err.contains("Cargo.toml"), "{err}");
+        // At any other phase the root files are outside the staged set, and named like anything else.
+        let at_three = outside_policy_clean(&project, Phase::Three, &crates).expect_err("outside changes are refused");
+        assert!(at_three.contains("Cargo.toml") && at_three.contains("src/stray.rs"), "{at_three}");
     }
 
     #[test]
@@ -128,17 +135,52 @@ mod tests {
         let err = outside_policy_clean(&project, Phase::Five, &crates).expect_err("outside either table is named");
         let named = err.contains("owner/tests/ui/fail.rs") && err.contains("app/src/lib.rs");
         assert!(named && !err.contains("owner/src/m.rs") && !err.contains("app/tests/ui/fail.rs"), "{err}");
+        // At Phase 7 the staged set of both crates carries the two files the
+        // bump writes at the workspace root, and no other manifest: the root's
+        // is not named there, while a member's is, beside the two above.
+        std::fs::write(dir.join("Cargo.toml"), "[workspace]\nresolver = \"2\"\nmembers = [\"owner\", \"app\"]\n# bumped\n").expect("write");
+        std::fs::write(dir.join("owner/Cargo.toml"), "[package]\nname = \"owner\"\nversion = \"0.1.0\"\nedition = \"2021\"\n# bumped\n").expect("write");
+        let at_seven = outside_policy_clean(&project, Phase::Seven, &crates).expect_err("outside either table is named");
+        let only_the_members_manifest = at_seven.contains("owner/Cargo.toml") && !at_seven.replace("owner/Cargo.toml", "").contains("Cargo.toml");
+        assert!(only_the_members_manifest && at_seven.contains("owner/tests/ui/fail.rs") && at_seven.contains("app/src/lib.rs"), "{at_seven}");
     }
 
     #[test]
     #[validates(spec::NothingChangedInTheEditingSetIsARefusal)]
     fn nothing_changed_in_the_editing_set_is_a_refusal_read_from_the_changes_within_it() {
-        let (dir, project) = fixture::copy("integrity-within");
-        let allowed = paths(&["src/hello.rs", "src/hello"]);
-        assert!(changed_within(&project, &allowed).expect("status").is_empty());
+        let (dir, project) = fixture::versioned("integrity-within");
+        let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
+        let editing = workspace_paths(&project, Phase::Seven, &crates).expect("the editing set");
+        assert_eq!(editing, paths(&["src/hello.rs", "src/hello"]));
+        assert!(changed_within(&project, &editing).expect("status").is_empty());
+        // A Phase 7 stop whose agent changed nothing: the bump lands — the
+        // wrong subject stops it there, before the check — and dirties the two
+        // root files, which are the staged set's and not the editing set's.
+        crate::phase::hook_stop(&project, Phase::Seven, &fixture::stop_input("n", "```commit\nphase 7: 9.9.9: nothing\n```\n")).expect("hook");
+        let staged = staged_paths(&project, Phase::Seven, &crates).expect("the staged set");
+        assert_eq!(changed_within(&project, &staged).expect("status"), paths(&["Cargo.lock", "Cargo.toml"]), "what the bump wrote");
+        assert!(changed_within(&project, &editing).expect("status").is_empty(), "nothing the agent could have written changed: nothing to commit");
+        // What the agent writes is read from the editing set; a change elsewhere is not.
         std::fs::create_dir_all(dir.join("src/hello")).expect("dir");
         std::fs::write(dir.join("src/hello/part.rs"), "").expect("write");
         std::fs::write(dir.join("README.md"), "x").expect("write");
-        assert_eq!(changed_within(&project, &allowed).expect("status"), paths(&["src/hello/part.rs"]));
+        assert_eq!(changed_within(&project, &editing).expect("status"), paths(&["src/hello/part.rs"]));
+    }
+
+    #[test]
+    #[validates(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
+    fn the_bumped_root_files_must_still_equal_what_the_bump_wrote() {
+        let (dir, project) = fixture::copy("integrity-bumped");
+        let files = paths(&["Cargo.toml", "Cargo.lock"]);
+        let written = contents_of(&project, &files).expect("read as the bump left them");
+        let (names, manifest): (Vec<PathBuf>, &[u8]) = (written.iter().map(|(path, _)| path.clone()).collect(), &written[0].1);
+        assert_eq!((names, manifest), (files, std::fs::read(dir.join("Cargo.toml")).expect("manifest").as_slice()));
+        bumped_files_untouched(&project, &written).expect("still as the bump wrote them");
+        // Something the check ran rewrote the manifest: refused naming that file, and not the lock beside it.
+        std::fs::write(dir.join("Cargo.toml"), "broken").expect("write");
+        let err = bumped_files_untouched(&project, &written).expect_err("Cargo.toml moved since the bump");
+        assert!(err.contains("Cargo.toml") && !err.contains("Cargo.lock"), "{err}");
+        // At any other phase the hook wrote nothing, so there is nothing to hold.
+        bumped_files_untouched(&project, &[]).expect("nothing to hold");
     }
 }

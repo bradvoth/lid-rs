@@ -1193,6 +1193,26 @@ pub(crate) mod fixture {
         (dir, project)
     }
 
+    /// The fixture with its version the workspace's, committed on `lld/hello`:
+    /// `[workspace.package] version = "0.1.0"` at the head of the root
+    /// manifest, the package taking its version from there — the shape the
+    /// Phase 7 bump reads at `HEAD`, which `cargo new` never writes.
+    pub fn versioned(name: &str) -> (PathBuf, Project) {
+        let (dir, project) = copy(name);
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
+        let package = manifest.replacen("version = \"0.1.0\"\n", "version.workspace = true\n", 1);
+        std::fs::write(dir.join("Cargo.toml"), format!("[workspace]\n\n[workspace.package]\nversion = \"0.1.0\"\n\n{package}")).expect("manifest");
+        git(&dir, &["add", "-A"]);
+        git(&dir, &["commit", "-q", "-m", "chore: the version is the workspace's"]);
+        (dir, project)
+    }
+
+    /// Whether the fixture's tree holds `version` as the workspace's — read
+    /// from the manifest's text, not through the bump's own reader.
+    pub fn tree_holds(dir: &Path, version: &str) -> bool {
+        std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest").contains(&format!("[workspace.package]\nversion = \"{version}\"\n"))
+    }
+
     /// The manifest tail that makes a member a proc-macro crate.
     pub const PROC_MACRO_LIB: &str = "[lib]\nproc-macro = true\n";
 
@@ -1473,6 +1493,38 @@ mod tests {
         assert_eq!(observed, (Ok(()), Ok(()), vec![true, true, true]), "the control packages under either form; every publisher packages, and leaves its tarball, only at once");
     }
 
+    /// The six steps that invoke cargo, the one `cargo package` naming a member.
+    fn cargo_steps() -> [Step; 6] {
+        [Step::Check, Step::Clippy, Step::Doc, Step::DocTests, Step::LibTests, Step::Package(strings(&["a"]))]
+    }
+
+    #[test]
+    #[validates(spec::EveryCargoStepIsLocked)]
+    fn every_cargo_step_is_locked() {
+        for step in cargo_steps() {
+            let args = args_of(&step);
+            let locked = args.iter().position(|a| a == "--locked");
+            // Before the `--` that hands the rest to clippy-driver, where cargo would never read it.
+            let separator = args.iter().position(|a| a == "--").unwrap_or(args.len());
+            assert!(locked.is_some_and(|at| at < separator), "{step:?}: {args:?}");
+        }
+        // A step that invokes no cargo has nothing to lock.
+        for step in [Step::SyncCheck, Step::Mutants, Step::Red, Step::LldChecks] {
+            assert!(args_of(&step).is_empty(), "{step:?}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::TheDocStepDocumentsPrivateItems)]
+    fn the_doc_step_documents_private_items() {
+        let args = args_of(&Step::Doc);
+        assert_eq!(args.first().map(String::as_str), Some("doc"), "{args:?}");
+        let flags = ["--no-deps", "--document-private-items"].map(|flag| args.iter().any(|a| a == flag));
+        assert_eq!(flags, [true, true], "both flags, beside each other: {args:?}");
+        // Phases 1 and 7 share the one doc step, so the flag is on at Phase 1 too.
+        assert!(plan(Phase::One, &[]).contains(&Step::Doc) && plan(Phase::Seven, &[]).contains(&Step::Doc));
+    }
+
     #[test]
     #[validates(spec::ACheckStopsAtTheFirstFailingStep)]
     fn a_check_stops_at_the_first_failing_step() {
@@ -1675,6 +1727,61 @@ mod tests {
         commit_all(&root, "docs: the phase 7: tag is a prefix");
         let base = gate_base(&project).expect("git");
         assert_eq!(base, Some(newest), "not the older gate {older}, nor the unreachable {unreachable}");
+    }
+
+    /// A scratch repository with a trunk `main` and a branch `lld/x` cut from
+    /// it, the trunk advanced after the cut — so the merge base, the trunk's
+    /// tip, and the branch's `HEAD` are three different commits — and no gate
+    /// commit anywhere. The merge base and the trunk's tip.
+    fn branched_repo(name: &str) -> (Project, String, String) {
+        let root = fixture::scratch(name);
+        fixture::git(&root, &["init", "-q", "-b", "main"]);
+        let project = project_in_repo(&root);
+        commit_all(&root, "phase 1: LLD for x");
+        let cut = commit_all(&root, "docs: where lld/x is cut");
+        git(&root, &["checkout", "-q", "-b", "lld/x"]);
+        commit_all(&root, "phase 2: claims for x");
+        git(&root, &["checkout", "-q", "main"]);
+        let trunk = commit_all(&root, "docs: the trunk moves on");
+        git(&root, &["checkout", "-q", "lld/x"]);
+        commit_all(&root, "phase 3: skeleton for x");
+        (project, cut, trunk)
+    }
+
+    #[test]
+    #[validates(spec::WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain, spec::TheGatesMutationStepDiffsAgainstTheGateCommit)]
+    fn without_a_gate_commit_the_mutation_base_is_the_merge_base_with_main_and_with_one_the_gate_commit() {
+        let (project, cut, trunk) = branched_repo("mutation-base");
+        let root = project.root().expect("the scratch root");
+        assert_eq!(gate_base(&project).expect("git"), None, "the branch holds no gate commit");
+        let base = mutation_base(&project).expect("a merge base exists");
+        assert_eq!(base, cut, "the point the branch was cut from — not the trunk's tip {trunk}, nor HEAD {}", fixture::head(&root));
+        // With a gate commit reachable from HEAD, the step diffs against it and
+        // no other base. This half is green before implementation exists:
+        // `gate_base` is whole, and the `Some` arm passes its answer through.
+        let gated = commit_all(&root, "phase 7: 0.1.0: x gated");
+        commit_all(&root, "phase 2: claims for x (Phase 8 edit)");
+        assert_eq!(mutation_base(&project).expect("git"), gated, "the gate commit, not the merge base {cut}");
+    }
+
+    #[test]
+    #[validates(spec::NoMergeBaseWithMainFailsTheMutationStepNamingTheRef)]
+    fn no_merge_base_with_main_fails_the_mutation_step_naming_the_ref() {
+        // No `main` at all.
+        let root = fixture::scratch("mutation-base-no-main");
+        fixture::git(&root, &["init", "-q", "-b", "lld/x"]);
+        let project = project_in_repo(&root);
+        commit_all(&root, "phase 1: LLD for x");
+        let err = merge_base_with_main(&project).expect_err("no main");
+        assert!(err.contains("main"), "{err}");
+        let step = run_step(&project, None, &Step::Mutants).expect_err("the step fails before the engine runs");
+        assert!(step.contains("main"), "{step}");
+        // A `main` that shares no ancestor with HEAD: an orphan trunk.
+        git(&root, &["checkout", "-q", "--orphan", "main"]);
+        commit_all(&root, "docs: an unrelated trunk");
+        git(&root, &["checkout", "-q", "lld/x"]);
+        let unrelated = mutation_base(&project).expect_err("no common ancestor");
+        assert!(unrelated.contains("main"), "{unrelated}");
     }
 
     #[test]
@@ -2055,6 +2162,113 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("y", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
         assert!(refuses(&verdict, "SKILL.md"), "{verdict:?}");
         assert_eq!(fixture::head(&dir), before);
+    }
+
+    /// A root manifest whose `[workspace.package]` version line has an
+    /// identical twin before its header — the root package's own — and another
+    /// after the table ends: only the line between the header and the next
+    /// table is the workspace's, and a splice that ignored the index would
+    /// patch the first twin.
+    const TWINNED_MANIFEST: &str = "\
+[workspace]
+members = [\"a\"]
+
+[package]
+name = \"root\"
+version = \"0.2.8\"
+
+[workspace.package]
+edition = \"2021\"
+version = \"0.2.8\"
+license = \"MIT\"
+
+[workspace.metadata.lid_rs]
+version = \"0.2.8\"
+";
+
+    #[test]
+    #[validates(spec::TheVersionLineIsTheFirstUnderWorkspacePackageBeforeTheNextTable)]
+    fn the_version_line_is_the_first_under_workspace_package_before_the_next_table() {
+        let header = TWINNED_MANIFEST.lines().position(|line| line == "[workspace.package]").expect("the header");
+        let line = version_line(TWINNED_MANIFEST).expect("the line");
+        assert_eq!(line, (header + 2, "0.2.8".to_string()), "the second line under the header, not the root package's twin before it");
+        let bumped = bump_patch_version(TWINNED_MANIFEST).expect("bumps");
+        let changed: Vec<(usize, &str)> =
+            TWINNED_MANIFEST.lines().zip(bumped.lines()).enumerate().filter(|(_, (before, after))| before != after).map(|(at, (_, after))| (at, after)).collect();
+        assert_eq!(changed, [(header + 2, "version = \"0.2.9\"")], "that line raised and every other as it was, both twins included:\n{bumped}");
+        assert_eq!(bumped.len(), TWINNED_MANIFEST.len(), "no byte beyond the digit moved");
+        // A table that ends without a version line is never answered from the next table.
+        let later_only = "[workspace.package]\nedition = \"2021\"\n\n[workspace.dependencies]\nversion = \"0.2.8\"\n";
+        let err = version_line(later_only).expect_err("the later table's line is not the one");
+        assert!(err.contains("version = \""), "{err}");
+        // And the table may be the manifest's last, with no line beginning `[` after it.
+        assert_eq!(version_line("[workspace]\n\n[workspace.package]\nversion = \"1.2.3\"\n").expect("the line"), (3, "1.2.3".to_string()));
+    }
+
+    #[test]
+    #[validates(spec::AManifestTheBumpCannotReadFailsNamingWhatItLookedFor)]
+    fn a_manifest_the_bump_cannot_read_fails_naming_what_it_looked_for() {
+        let no_header = "[package]\nname = \"a\"\nversion = \"0.1.0\"\n";
+        let no_line = "[workspace.package]\nedition = \"2021\"\n\n[package]\nversion = \"0.1.0\"\n";
+        let not_three = "[workspace.package]\nversion = \"0.1\"\n";
+        for (manifest, looked_for) in [(no_header, "[workspace.package]"), (no_line, "version = \""), (not_three, "0.1")] {
+            let err = bump_patch_version(manifest).expect_err(looked_for);
+            assert!(err.contains(looked_for), "names what it looked for: {err}");
+        }
+        assert!(next_patch("0.1.0-beta").is_err() && next_patch("a.b.c").is_err() && next_patch("").is_err(), "not three numbers");
+        assert_eq!(next_patch("0.2.8").expect("three numbers"), "0.2.9");
+        assert_eq!(next_patch("1.0.9").expect("three numbers"), "1.0.10", "the last number raised, not its last digit");
+    }
+
+    #[test]
+    #[validates(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
+    fn phase_sevens_stop_bumps_the_patch_version_from_the_manifest_at_head() {
+        let (dir, project) = fixture::versioned("bump-at-the-stop");
+        let before = fixture::head(&dir);
+        // A subject naming the wrong version is refused after the bump and
+        // before the check, so the stop is observed at the bump alone.
+        let stop = fixture::stop_input("b", "```commit\nphase 7: 9.9.9: warmth\n```\n");
+        let verdict = hook_stop(&project, Phase::Seven, &stop).expect("hook");
+        assert!(refuses(&verdict, "0.1.1"), "the bump produced 0.1.1: {verdict:?}");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "one patch level above HEAD's 0.1.0");
+        // Refused, the tree keeps the bump; the next stop of the same phase
+        // reads HEAD again and writes the same version — not 0.1.2, and not
+        // whatever the tree says meanwhile.
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
+        std::fs::write(dir.join("Cargo.toml"), manifest.replacen("0.1.1", "5.5.5", 1)).expect("write");
+        hook_stop(&project, Phase::Seven, &stop).expect("hook");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "the second bump reads the manifest at HEAD, not the tree's");
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1", "and so does a third, asked directly");
+        assert_eq!(fixture::head(&dir), before, "nothing was committed");
+    }
+
+    #[test]
+    #[validates(spec::TheBumpUpdatesTheLockForTheMembersAloneOffline)]
+    fn the_bump_updates_the_lock_for_the_members_alone_offline() {
+        let (dir, project) = fixture::versioned("bump-lock");
+        let lock_before = std::fs::read_to_string(dir.join("Cargo.lock")).expect("the lock cargo metadata wrote");
+        assert!(lock_before.contains("name = \"app\"\nversion = \"0.1.0\"\n"), "{lock_before}");
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1");
+        let lock_after = std::fs::read_to_string(dir.join("Cargo.lock")).expect("lock");
+        assert!(lock_after.contains("name = \"app\"\nversion = \"0.1.1\"\n"), "the member follows the manifest: {lock_after}");
+        let moved: Vec<(&str, &str)> = lock_before.lines().zip(lock_after.lines()).filter(|(before, after)| before != after).collect();
+        assert_eq!(moved, [("version = \"0.1.0\"", "version = \"0.1.1\"")], "the member's line alone: no third-party entry moves");
+        assert_eq!(lock_before.lines().count(), lock_after.lines().count(), "no entry added or removed");
+    }
+
+    #[test]
+    #[validates(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+    fn a_phase_seven_subject_must_carry_the_bumped_version_before_the_check() {
+        let (dir, project) = fixture::versioned("subject-version");
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
+        let before = fixture::head(&dir);
+        let wrong = hook_stop(&project, Phase::Seven, &fixture::stop_input("v", "```commit\nphase 7: 0.1.0: warmth\n```\n")).expect("hook");
+        assert!(refuses(&wrong, "0.1.0") && refuses(&wrong, "0.1.1"), "both versions: {wrong:?}");
+        let none = hook_stop(&project, Phase::Seven, &fixture::stop_input("v", "```commit\nphase 7: warmth\n```\n")).expect("hook");
+        assert!(refuses(&none, "0.1.1"), "no version at all names the bump's: {none:?}");
+        let tally = tally::load(&project, "v").expect("tally");
+        assert_eq!((tally.stop_checks, tally.stop_refusals), (0, 2), "refused before a gate was spent on either");
+        assert_eq!(fixture::head(&dir), before, "nothing was committed");
     }
 
     #[test]

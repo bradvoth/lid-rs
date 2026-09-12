@@ -1347,6 +1347,30 @@ mod tests {
     }
 
     #[test]
+    #[validates(spec::TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec)]
+    fn the_companion_seats_claims_file_is_its_module_directorys_spec() {
+        // The one place the two readings meet.
+        assert_eq!(seat_claims(Seat::Own, Path::new("src/spec.rs"), &module_code("owner")), PathBuf::from("src/spec.rs"));
+        assert_eq!(seat_claims(Seat::Companion, Path::new("src/spec.rs"), &module_code("owner")), PathBuf::from("src/owner/spec.rs"));
+        assert_eq!(seat_claims(Seat::Companion, Path::new("src/m/spec.rs"), &module_code("m")), PathBuf::from("src/m/spec.rs"), "for a module slice the two agree");
+        // A crate-root slice under a companion — `lid-rs-macros` under
+        // `lid-rs`: the layout's own-crate answer is the crate's `src/spec.rs`,
+        // which placed under the companion names a file no claim lives in.
+        let (project, rooted_crates) = rooted("policy-companion-claims-file");
+        let crates = SliceCrates { companion: Some(project.root().expect("the fixture's root").join("app")), ..rooted_crates };
+        assert_eq!(
+            workspace_paths(&project, Phase::Two, &crates).expect("both under the root"),
+            paths(&["owner/src/spec.rs", "owner/src/spec/mod.rs", "app/src/owner/spec.rs", "app/src/spec/mod.rs"]),
+            "the companion's row is its module directory's `spec.rs`, never `app/src/spec.rs`"
+        );
+        // And the verdict judges by the same file: Phase 2 writes it and no
+        // later phase does, while the own-crate answer placed under the
+        // companion is no row's there.
+        check_refusals_resolved(&project, &crates, &[Phase::Two], &[("app/src/owner/spec.rs", false), ("app/src/spec.rs", true)]);
+        check_refusals_resolved(&project, &crates, &[Phase::Three, Phase::Five, Phase::Seven], &[("app/src/owner/spec.rs", true), ("app/src/owner/leaf.rs", false)]);
+    }
+
+    #[test]
     #[validates(spec::AProcMacroSlicesClaimsAreHeldByItsCompanion)]
     fn a_proc_macro_slices_claims_are_held_by_its_companion() {
         assert_eq!(with_companion().claims_crate(), Path::new("/w/app"), "the companion, not the macro crate");
@@ -1389,8 +1413,13 @@ mod tests {
         // spelled into a path, which said nothing about the tree. It is the
         // same file the staging assertion below needs changed, written once.
         std::fs::write(dir.join("owner/src/m.rs"), "//! m\n").expect("the module that makes `m` a module of `owner`");
-        let both = workspace_paths(&project, Phase::Five, &crates).expect("both under the root");
-        assert_eq!(both, paths(&["owner/src/m.rs", "owner/src/m", "app/src/m.rs", "app/src/m", "app/tests/ui"]));
+        let both = paths(&["owner/src/m.rs", "owner/src/m", "app/src/m.rs", "app/src/m", "app/tests/ui"]);
+        assert_eq!(workspace_paths(&project, Phase::Five, &crates).expect("both under the root"), both);
+        // The staged set is both crates' allowed paths beside what the hook
+        // wrote — nothing at Phase 5, the two root files at Phase 7 — and nothing else.
+        assert_eq!(staged_paths(&project, Phase::Five, &crates).expect("both under the root"), both);
+        let at_seven: Vec<PathBuf> = both.iter().cloned().chain(paths(&["Cargo.toml", "Cargo.lock"])).collect();
+        assert_eq!(staged_paths(&project, Phase::Seven, &crates).expect("both under the root"), at_seven);
         // What the commit stages is the changes within that set, and nothing else.
         std::fs::create_dir_all(dir.join("app/tests/ui")).expect("dir");
         std::fs::write(dir.join("app/tests/ui/fail.rs"), "").expect("write");
@@ -1398,14 +1427,26 @@ mod tests {
         assert_eq!(crate::phase::integrity::changed_within(&project, &both).expect("status"), paths(&["app/tests/ui/fail.rs", "owner/src/m.rs"]));
         let own = SliceCrates { companion: None, ..crates };
         assert_eq!(workspace_paths(&project, Phase::Five, &own).expect("under the root"), paths(&["owner/src/m.rs", "owner/src/m"]));
-    }
-
-    #[test]
-    #[validates(spec::TheStopStagesBothCratesStagedPaths)]
-    fn the_stop_stages_both_crates_staged_paths_only_under_the_root() {
+        // A crate not under the root can stage nothing, and the failure names both.
         assert_eq!(crate_prefix(Path::new("/w"), Path::new("/w/app")).expect("under the root"), PathBuf::from("app"));
         let err = crate_prefix(Path::new("/w"), Path::new("/elsewhere/app")).expect_err("not under the root");
         assert!(err.contains("/elsewhere/app") && err.contains("/w"), "names both: {err}");
+    }
+
+    #[test]
+    #[validates(spec::TheBumpsRootFilesJoinTheStagedSetAtPhaseSevenOnly)]
+    fn the_bumps_root_files_join_the_staged_set_at_phase_seven_only() {
+        assert_eq!(hook_written_paths(Phase::Seven), paths(&["Cargo.toml", "Cargo.lock"]));
+        for phase in [Phase::One, Phase::Two, Phase::Three, Phase::Four, Phase::Five] {
+            assert!(hook_written_paths(phase).is_empty(), "{phase:?}: Phases 2 to 5 commit no release");
+        }
+        // Through the sets the stop reads, on the fixture's one crate.
+        let (dir, project) = fixture::copy("staged-root-files");
+        let crates = SliceCrates { slice: "hello".to_string(), own: dir, companion: None };
+        let allowed = paths(&["src/hello.rs", "src/hello"]);
+        assert_eq!(staged_paths(&project, Phase::Seven, &crates).expect("under the root"), paths(&["src/hello.rs", "src/hello", "Cargo.toml", "Cargo.lock"]));
+        assert_eq!(staged_paths(&project, Phase::Five, &crates).expect("under the root"), allowed);
+        assert_eq!(workspace_paths(&project, Phase::Seven, &crates).expect("under the root"), allowed, "the editing set carries neither, at Phase 7 as at any other");
     }
 
     #[test]

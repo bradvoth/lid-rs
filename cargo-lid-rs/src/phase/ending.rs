@@ -240,8 +240,12 @@ fn tracked(project: &Project, path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
+    use std::path::PathBuf;
+
     use super::*;
     use crate::phase::fixture;
+    use crate::phase::integrity::changed_within;
+    use crate::phase::policy::staged_paths;
     use lid_rs::validates;
 
     #[test]
@@ -326,16 +330,40 @@ mod tests {
     #[test]
     #[validates(spec::TheStopStagesExactlyTheStagedSet)]
     fn the_stop_stages_exactly_the_staged_set_it_is_given() {
-        let (dir, project) = fixture::copy("stage");
+        let (dir, project) = fixture::versioned("stage");
         std::fs::write(dir.join("src/hello.rs"), "//! staged\n").expect("write");
         std::fs::write(dir.join("README.md"), "not staged").expect("write");
-        let sha = stage_and_commit(&project, &[Path::new("src/hello.rs"), Path::new("src/hello")], "phase 3: skeleton for hello\n\nBody.\n", "Lid-Rs-Phase: 3\n").expect("commits");
+        // Phase 7: the staged set is the allowed paths plus the two root files
+        // the bump wrote; the editing set is the allowed paths alone.
+        let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
+        crate::phase::bump_workspace_version(&project).expect("the bump");
+        let editing = changed_within(&project, &workspace_paths(&project, Phase::Seven, &crates).expect("the editing set")).expect("status");
+        assert_eq!(editing, [PathBuf::from("src/hello.rs")], "what the agent wrote");
+        let staged = changed_within(&project, &staged_paths(&project, Phase::Seven, &crates).expect("the staged set")).expect("status");
+        assert_eq!(staged, ["Cargo.lock", "Cargo.toml", "src/hello.rs"].map(PathBuf::from), "and what the hook wrote");
+        let stageable: Vec<&Path> = staged.iter().map(PathBuf::as_path).collect();
+        let sha = stage_and_commit(&project, &stageable, "phase 7: 0.1.1: hello greets\n\nBody.\n", "Lid-Rs-Phase: 7\n").expect("commits");
         assert_eq!(fixture::head(&dir), sha);
         let stat = std::process::Command::new("git").args(["show", "--stat", "--format=", "HEAD"]).current_dir(&dir).output().expect("git");
         let stat = String::from_utf8_lossy(&stat.stdout);
-        assert!(stat.contains("src/hello.rs") && !stat.contains("README.md"), "{stat}");
+        assert!(["Cargo.toml", "Cargo.lock", "src/hello.rs"].iter().all(|file| stat.contains(file)) && !stat.contains("README.md"), "{stat}");
         let body = std::process::Command::new("git").args(["log", "-1", "--format=%B"]).current_dir(&dir).output().expect("git");
         let body = String::from_utf8_lossy(&body.stdout);
-        assert!(body.contains("Body.") && body.trim_end().ends_with("Lid-Rs-Phase: 3"), "{body}");
+        assert!(body.contains("Body.") && body.trim_end().ends_with("Lid-Rs-Phase: 7"), "{body}");
+    }
+
+    #[test]
+    #[validates(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+    fn a_phase_seven_subject_must_carry_the_bumped_version() {
+        assert_eq!(crate::phase::subject_version("phase 7: 0.3.0: the thing"), Some("0.3.0".to_string()));
+        assert_eq!(crate::phase::subject_version("phase 7: the thing"), None, "no version field");
+        subject_carries_version("phase 7: 0.3.0: the thing\n\nbody", "0.3.0").expect("the bump's version");
+        let other = subject_carries_version("\nphase 7: 0.2.9: the thing\n", "0.3.0").expect_err("another version");
+        assert!(other.contains("0.2.9") && other.contains("0.3.0"), "both versions: {other}");
+        let none = subject_carries_version("phase 7: the thing", "0.3.0").expect_err("no version");
+        assert!(none.contains("0.3.0") && none.contains("no version"), "{none}");
+        // A separate rule from the tag's: the right version under another phase's tag is refused for the tag.
+        subject_matches(Phase::Seven, "phase 7: 0.3.0: the thing").expect("the tag");
+        assert!(subject_matches(Phase::Seven, "phase 3: 0.3.0: the thing").is_err(), "the tag's rule says nothing about a version");
     }
 }
