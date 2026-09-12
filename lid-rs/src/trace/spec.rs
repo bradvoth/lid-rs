@@ -272,7 +272,7 @@ pub struct AnAbsentDocumentIsTheEmptyDocument;
 
 /// When [`stale`](crate::trace::stale) is given a generated document and a
 /// committed document that equal one another, it shall carry
-/// [`None`](Option::None).
+/// [`Option::None`].
 #[derive(Spec)]
 pub struct AnAgreeingDocumentIsNotStale;
 

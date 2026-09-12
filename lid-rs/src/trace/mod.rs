@@ -1,7 +1,9 @@
 #![doc = include_str!("lld.md")]
+use crate::claim::Language;
 use crate::graph::CanaryStripped;
 use crate::registry::{Edge, SpecMeta};
 use lid_rs::implements;
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// Where a package's generated trace document stands, relative to that
@@ -76,7 +78,8 @@ pub fn document_path(manifest_dir: &str) -> PathBuf {
 /// Below the guard it composes the header — which carries the qualification that
 /// a free claim's row holds none of that claim's wording — the ledger line over
 /// all the crate's claims, and one part per [`Section`], each naming its own
-/// [`Ledger`] and carrying the [`row`] of every claim in it.
+/// [`Ledger`] and carrying the [`row`] of every claim in it. That composition is
+/// `document_text`'s, so what stands here is the two decisions and nothing else.
 ///
 /// Its one other decision is the empty case: a crate whose own claims are none
 /// renders the empty string, not a header standing over no rows. That is what
@@ -102,7 +105,109 @@ pub fn render(
     impls: &[Edge],
     validations: &[Edge],
 ) -> Result<String, CanaryStripped> {
-    todo!("the document of {crate_name} over {specs:?}, {impls:?} and {validations:?}")
+    trusted(specs, impls, validations)?;
+    let parts = sections(crate_name, specs);
+    if parts.is_empty() {
+        return Ok(String::new());
+    }
+    Ok(document_text(&parts, impls, validations))
+}
+
+/// Whether the registrations [`render`] was given may be rendered from at all,
+/// carried as the refusal [`render`] answers with.
+///
+/// A registry whose canary triple is absent was stripped by the linker or never
+/// populated, and it is indistinguishable from a crate that registered nothing:
+/// it renders as the empty document, regeneration then erases every row of a
+/// committed file, and the freshness check demands the erasure. So the question
+/// is settled before anything is grouped or rendered.
+///
+/// It carries [`CanaryStripped`] rather than a `bool` because the answer this
+/// leaf gives is the answer [`render`] returns — a `bool` would leave the
+/// refusal itself written in the composition, where no test could tell a wrong
+/// answer from a missing one.
+#[implements(spec::RenderRefusesAStrippedRegistry)]
+fn trusted(
+    specs: &[SpecMeta],
+    impls: &[Edge],
+    validations: &[Edge],
+) -> Result<(), CanaryStripped> {
+    todo!("whether {specs:?}, {impls:?} and {validations:?} carry the canary triple")
+}
+
+/// The document's opening: what a reader of it is looking at, and the one
+/// guarantee a row cannot give.
+///
+/// A row is built from what the registry holds, and the registry holds a claim's
+/// parts and never its sentence — for a claim marked
+/// [`Language::Free`](crate::claim::Language::Free) it holds nothing of the text
+/// at all. So a change to a free claim's wording changes no row here, and the
+/// page says so itself rather than leaving a reader of a diff to infer a
+/// guarantee that holds for the claims held to the language only.
+///
+/// A function and not a `const`, for the reason [`DOCUMENT`] is fed to
+/// [`document_path`]: a claim whose only implementer is data is true from the
+/// skeleton onward, so no test of it could be red before the leaf exists.
+#[implements(spec::TheHeaderNamesThatAFreeClaimsRowHoldsNoWording)]
+fn header() -> &'static str {
+    todo!("the document's header")
+}
+
+/// The whole document below the guard: the header, the ledger of every claim the
+/// crate registered, and one part per [`Section`] in the order [`sections`]
+/// carries them.
+///
+/// The crate's own ledger is the [`ledger`] of the claims its sections hold, and
+/// not a second count over the registrations it was handed: which claims are the
+/// crate's is [`sections`]'s answer, and counting them again here would be a
+/// second place for the crate scope to be decided.
+#[implements(
+    spec::TheHeaderNamesThatAFreeClaimsRowHoldsNoWording,
+    spec::TheDocumentNamesTheLedgerOfAllItsClaimsAboveItsSections,
+    spec::TheDocumentNamesEverySectionItsClaimsFallInto,
+    spec::TheDocumentCarriesTheRowOfEveryClaimOfTheCrate,
+)]
+fn document_text(parts: &[Section<'_>], impls: &[Edge], validations: &[Edge]) -> String {
+    let claims: Vec<&SpecMeta> = parts.iter().flat_map(|part| part.claims.iter().copied()).collect();
+    let body: Vec<String> = parts.iter().map(|part| section_text(part, impls, validations)).collect();
+    format!("{}\n{}\n\n{}", header(), ledger_line(ledger(&claims)), body.join("\n"))
+}
+
+/// One [`Section`]'s part of the document: its name, its own [`Ledger`] below
+/// that name, and the [`row`] of every claim it holds, under the one heading
+/// those rows stand beneath.
+///
+/// The section's ledger stands below its name and above its rows, so that a
+/// count and the rows it counts are read together and a diff that changes one
+/// shows the other.
+#[implements(
+    spec::TheDocumentNamesEverySectionItsClaimsFallInto,
+    spec::TheDocumentNamesEachSectionsLedgerBelowThatSectionsName,
+    spec::TheDocumentCarriesTheRowOfEveryClaimOfTheCrate,
+)]
+fn section_text(part: &Section<'_>, impls: &[Edge], validations: &[Edge]) -> String {
+    let rows: Vec<String> = part.claims.iter().map(|meta| row(meta, impls, validations)).collect();
+    format!(
+        "## {}\n\n{}\n\n| Claim | Pattern | Language | Implemented by | Validated by |\n\
+         | --- | --- | --- | --- | --- |\n{}\n",
+        part.name,
+        ledger_line(part.ledger),
+        rows.join("\n"),
+    )
+}
+
+/// One [`Ledger`] as the count line a section or a whole document stands over:
+/// each counted category with its number, and the total.
+///
+/// The shape a count section takes, written in one place so that a section's
+/// line and the document's line are one answer rather than two, and so that the
+/// shape pass fills the same shape when it has a caller.
+#[implements(
+    spec::TheDocumentNamesEachSectionsLedgerBelowThatSectionsName,
+    spec::TheDocumentNamesTheLedgerOfAllItsClaimsAboveItsSections,
+)]
+fn ledger_line(counts: Ledger) -> String {
+    todo!("the count line of {counts:?}")
 }
 
 /// The invoking crate's claims, grouped into the sections their names spell.
@@ -129,7 +234,43 @@ pub fn render(
     spec::OneRegistryRendersOneDocumentWhateverItsOrder,
 )]
 pub fn sections<'a>(crate_name: &str, specs: &'a [SpecMeta]) -> Vec<Section<'a>> {
-    todo!("the sections of {crate_name} over {specs:?}")
+    let prefix = format!("{crate_name}::");
+    let mut grouped: BTreeMap<&str, Vec<&'a SpecMeta>> = BTreeMap::new();
+    for meta in specs.iter().filter(|meta| meta.name.starts_with(&prefix)) {
+        grouped.entry(section_name(crate_name, meta.name)).or_default().push(meta);
+    }
+    grouped.into_iter().map(|(name, claims)| section(name, claims)).collect()
+}
+
+/// The name of the [`Section`] a claim falls into: the slice its name spells,
+/// and the crate's own name where that is empty.
+///
+/// A crate-root slice keeps its claims in `src/spec.rs`, so their names spell no
+/// segment at all between the crate and `spec` — the crate is the slice there,
+/// and it names the section rather than leaving the document with a part nothing
+/// is called.
+#[implements(
+    spec::ACrateRootSlicesSectionIsNamedForTheCrate,
+    spec::SectionsGroupTheCratesClaimsByTheirSlice,
+)]
+fn section_name<'a>(crate_name: &'a str, spec_name: &'a str) -> &'a str {
+    let slice = slice_of(spec_name);
+    if slice.is_empty() { crate_name } else { slice }
+}
+
+/// One group of claims as a [`Section`]: the claims in the order their rows are
+/// written, and the [`ledger`] of exactly those claims.
+///
+/// The order is by name, because `linkme` promises none across link units and a
+/// freshness comparison requires that one registry render one byte sequence.
+#[implements(
+    spec::EachSectionCarriesTheLedgerOfItsOwnClaims,
+    spec::OneRegistryRendersOneDocumentWhateverItsOrder,
+)]
+fn section<'a>(name: &str, mut claims: Vec<&'a SpecMeta>) -> Section<'a> {
+    claims.sort_by_key(|meta| meta.name);
+    let counts = ledger(&claims);
+    Section { name: name.to_string(), claims, ledger: counts }
 }
 
 /// The slice a claim's name spells: the segments between the crate segment and
@@ -154,6 +295,10 @@ pub fn slice_of(name: &str) -> &str {
 ///
 /// The two edge sets are passed separately because a row names them separately;
 /// each is turned into text by [`citations`].
+///
+/// The [`Pattern`](crate::claim::Pattern) is written as the enum spells its own
+/// variant, so a pattern added to the language needs no second table here saying
+/// what to call it.
 #[implements(
     spec::ARowNamesItsClaim,
     spec::ARowNamesItsClaimsPattern,
@@ -163,7 +308,25 @@ pub fn slice_of(name: &str) -> &str {
     spec::ARowCarriesItsClaimsValidatingItems,
 )]
 pub fn row(meta: &SpecMeta, impls: &[Edge], validations: &[Edge]) -> String {
-    todo!("the row of {meta:?} among {impls:?} and {validations:?}")
+    format!(
+        "| `{}` | {:?} | {} | {} | {} |",
+        meta.name,
+        meta.claim.pattern,
+        language_mark(meta.claim.language),
+        citations(meta.name, impls).join(", "),
+        citations(meta.name, validations).join(", "),
+    )
+}
+
+/// What a row says of a claim held to the controlled language, and what it says
+/// of one marked free of it.
+///
+/// The distinction the free ramp is counted by, said once: a row and a
+/// [`Ledger`] answer the same question about the same claim, and a reader who
+/// counts the marked rows of a section must arrive at that section's free count.
+#[implements(spec::ARowNamesAFreeClaimAsFree, spec::ARowDoesNotNameAHeldClaimAsFree)]
+fn language_mark(language: Language) -> &'static str {
+    todo!("what a row calls {language:?}")
 }
 
 /// The items in `edges` citing `spec_name`, each written `item (file:line)`,
@@ -191,11 +354,16 @@ pub fn citations(spec_name: &str, edges: &[Edge]) -> Vec<String> {
 /// The ramp the registry can answer today: the free mark is on the registered
 /// struct, not only on [`Spec::FREE`](crate::Spec::FREE), so a consumer holding a
 /// [`SpecMeta`] can count it without any new machinery.
+///
+/// The claims arrive as references because that is what a [`Section`] holds and
+/// what a document's own count is taken over: a [`SpecMeta`] is neither `Clone`
+/// nor `Copy`, so a signature over the registrations themselves could count a
+/// registry but never a section of one.
 #[implements(
     spec::TheControlledCountIsTheClaimsHeldToTheLanguage,
     spec::TheFreeCountIsTheClaimsMarkedFree,
 )]
-pub fn ledger(specs: &[SpecMeta]) -> Ledger {
+pub fn ledger(specs: &[&SpecMeta]) -> Ledger {
     todo!("the controlled and free counts over {specs:?}")
 }
 
@@ -220,13 +388,51 @@ pub fn committed(path: &Path) -> String {
 ///
 /// An absent file reaches this as the empty string, so absence is staleness only
 /// where something was generated.
+///
+/// A search and a message: whether the two differ, and where, is one question,
+/// and what to tell whoever must repair it is another. The verdict is the first
+/// answer carried into the second, so a document that agrees produces no message
+/// at all rather than a message nobody reads.
 #[implements(
     spec::AnAgreeingDocumentIsNotStale,
     spec::AStaleDocumentIsNamedByItsFirstDifferingLine,
     spec::AStaleDocumentsMessageNamesTheRegenCommand,
 )]
 pub fn stale(generated: &str, committed: &str) -> Option<String> {
-    todo!("whether {generated} differs from {committed}")
+    first_difference(generated, committed).map(repair_message)
+}
+
+/// Where the generated and the committed documents first part company, counted
+/// from the first line as one, or [`Option::None`] where they agree.
+///
+/// The whole of check 26's question. A document absent from the tree arrives
+/// here as the empty string, so it differs at the first line of anything that
+/// was generated and agrees with a crate that generated nothing.
+///
+/// A line and not a byte offset: the reader of the verdict opens the file at a
+/// line, and a document whose rows are one claim each puts the disagreement in
+/// the row that caused it.
+#[implements(
+    spec::AnAgreeingDocumentIsNotStale,
+    spec::AStaleDocumentIsNamedByItsFirstDifferingLine,
+)]
+fn first_difference(generated: &str, committed: &str) -> Option<usize> {
+    todo!("the first line at which {generated} differs from {committed}")
+}
+
+/// What a stale document's verdict says: the line the two first differ at, and
+/// the invocation that writes the document again.
+///
+/// The message is read by whoever has to make the tree agree with the registry,
+/// and the only thing they may do about it is regenerate: a hand-edited document
+/// is one the next generation overwrites. So the repair is named in the verdict
+/// rather than left to be remembered.
+#[implements(
+    spec::AStaleDocumentIsNamedByItsFirstDifferingLine,
+    spec::AStaleDocumentsMessageNamesTheRegenCommand,
+)]
+fn repair_message(line: usize) -> String {
+    todo!("the verdict on a document differing at line {line}")
 }
 
 pub mod spec;
