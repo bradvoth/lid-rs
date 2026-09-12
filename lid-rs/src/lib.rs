@@ -51,6 +51,11 @@ pub use vocab::{Noun, Traceable};
 
 pub use ::lid_rs_macros::{Outcome, Spec, implements, implements_module, spec, validates};
 
+// The shape pins beside the citation macros, so consumer code writes
+// `use lid_rs::{flow, leaf};` and never names `lid-rs-macros`. Their meaning
+// is read from source by `lid-rs-shape`; the expansion is the item unchanged.
+pub use ::lid_rs_macros::{flow, leaf};
+
 // Hand-authored implementation edges for the citation claims: lid-rs-macros is a
 // proc-macro crate, which links into no target binary and so can neither
 // carry citations nor register anything — its edges live here, at the
@@ -61,7 +66,10 @@ pub use ::lid_rs_macros::{Outcome, Spec, implements, implements_module, spec, va
 [`crate::lid_rs_macros::spec::ImplementsCitationsRegisterEdges`], \
 [`crate::lid_rs_macros::spec::ValidatesCitationsRegisterEdges`], \
 [`crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment`], \
-[`crate::lid_rs_macros::spec::MalformedCitationsFailToCompile`]."]
+[`crate::lid_rs_macros::spec::MalformedCitationsFailToCompile`], \
+[`crate::lid_rs_macros::spec::AsyncCitationsFailToCompile`], \
+[`crate::lid_rs_macros::spec::PinsExpandToTheirItemUnchanged`], \
+[`crate::lid_rs_macros::spec::PinsRefuseArguments`]."]
 const _: () = {
     /// One hand edge per (claim, macro item) pair.
     macro_rules! macro_edge {
@@ -85,6 +93,13 @@ const _: () = {
     macro_edge!(crate::lid_rs_macros::spec::ValidatesCitationsRegisterEdges, "lid_rs_macros::validates");
     macro_edge!(crate::lid_rs_macros::spec::ModuleCitationsTraceByContainment, "lid_rs_macros::implements_module");
     macro_edge!(crate::lid_rs_macros::spec::MalformedCitationsFailToCompile, "lid_rs_macros::expand");
+    // The async refusal and the shape pins: kept by `refuse_async` and
+    // `passthrough_pin`, both private to `lid_rs_macros::expand`, which is the
+    // item these edges name (`lid-rs-macros/src/lld.md`, "What Phase 3 writes
+    // in the companion").
+    macro_edge!(crate::lid_rs_macros::spec::AsyncCitationsFailToCompile, "lid_rs_macros::expand");
+    macro_edge!(crate::lid_rs_macros::spec::PinsExpandToTheirItemUnchanged, "lid_rs_macros::expand");
+    macro_edge!(crate::lid_rs_macros::spec::PinsRefuseArguments, "lid_rs_macros::expand");
 };
 
 // The same exception, for the controlled-language slice: the language is

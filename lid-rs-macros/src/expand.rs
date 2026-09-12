@@ -206,7 +206,7 @@ pub fn citation(args: TokenStream, item: TokenStream, verb: Verb) -> syn::Result
     let paths = parse_spec_paths(args)?;
     if let Ok(f) = syn::parse2::<ItemFn>(item.clone()) {
         let guard = name_guard(&f.sig.ident, &paths, &verb);
-        let cited = cite_fn(f, &paths, &verb);
+        let cited = cite_fn(f, &paths, &verb)?;
         return Ok(quote!(#cited #guard));
     }
     if let Ok(s) = syn::parse2::<ItemStruct>(item.clone()) {
@@ -235,11 +235,35 @@ fn name_guard(ident: &syn::Ident, paths: &[Path], verb: &Verb) -> TokenStream {
     }
 }
 
+/// Refuses to cite an `async fn`, before anything is wrapped around its body.
+///
+/// Both wrappings assume a body that runs to completion where it is written;
+/// on an `async fn` the body is a future, and the `#[implements]` guard would
+/// be held across every `.await` in it, attributing every unrelated future
+/// polled in the interval to the cited claim. The refusal is one unconditional
+/// act for both verbs: an error spanned on the `async` keyword, or `Ok(())`
+/// (`lid-rs-macros/src/lld.md`, "Citing an `async fn` is refused").
+///
+/// This is the layer-0 body, and it refuses nothing: the signature's
+/// `asyncness` is read and `Ok(())` answered whatever it holds. It is a value
+/// rather than a `todo!()` because this function runs inside every citation in
+/// the workspace (the LLD's "How `refuse_async` is skeletoned"); the refusal
+/// itself is the leaf `fail/async_implements.rs` is red against until it lands.
+fn refuse_async(sig: &syn::Signature) -> syn::Result<()> {
+    let _ = sig.asyncness;
+    Ok(())
+}
+
 /// Cites a fn: the runtime observation around its body, one registration per
 /// spec at the top of it, and the doc lines — uniform for free fns and
 /// methods, since `impl` blocks admit no free consts but every fn body admits
 /// items.
-fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
+///
+/// Its first act is [`refuse_async`], so a signature that cannot be wrapped is
+/// an error at `citation`'s `?` rather than a wrapping that has already
+/// happened.
+fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> syn::Result<TokenStream> {
+    refuse_async(&f.sig)?;
     let item_expr = item_path_expr(&f.sig.ident);
     f.block = Box::new(observed(&f, paths, verb));
     for path in paths {
@@ -247,7 +271,7 @@ fn cite_fn(mut f: ItemFn, paths: &[Path], verb: &Verb) -> TokenStream {
         f.block.stmts.insert(0, parse_quote!(#registration));
     }
     f.attrs.extend(doc_attrs(verb, paths));
-    f.into_token_stream()
+    Ok(f.into_token_stream())
 }
 
 /// The body a cited fn runs under: a span for the code that keeps a claim, a
@@ -359,6 +383,18 @@ pub fn implements_module(input: TokenStream) -> syn::Result<TokenStream> {
         .iter()
         .map(|p| edge_registration(&Verb::Implements, p, &item_expr));
     Ok(quote!(#(#registrations)*))
+}
+
+/// Expands `#[flow]` and `#[leaf]`: the whole expansion of both pins.
+///
+/// A pin is a mark `lid-rs-shape` reads from source, never from an expansion,
+/// so the item's tokens are emitted unchanged and never parsed — what the
+/// compiler sees is what the author wrote. Neither pin takes arguments: a
+/// non-empty `args` is an error spanned on the arguments, because nothing reads
+/// them and an argument accepted and ignored is a mark whose meaning the next
+/// reader has to guess (`lid-rs-macros/src/lld.md`, "The shape pins").
+pub fn passthrough_pin(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
+    todo!("passthrough_pin: args=`{args}`, item=`{item}`")
 }
 
 /// Expands `#[spec("FOREIGN-ID")]`: re-emits the struct with a doc alias so

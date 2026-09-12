@@ -62,6 +62,30 @@ pub fn implements_module(input: TokenStream) -> TokenStream {
         .into()
 }
 
+/// Pins a fn as routing: declares that its body must stay a flow decision, so
+/// that the shape pass fails when it acquires work. Takes no arguments and
+/// emits the fn unchanged — the mark is read from source by `lid-rs-shape`,
+/// never from this expansion. Accepted on free fns, inherent methods, trait
+/// method declarations and trait-impl methods; not on closures, which are
+/// classified by the fn containing them.
+#[proc_macro_attribute]
+pub fn flow(args: TokenStream, item: TokenStream) -> TokenStream {
+    expand::passthrough_pin(args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
+/// Pins a fn as a leaf: declares that a public fn's work is intended, so that
+/// rule B allows and counts it. Takes no arguments and emits the fn unchanged
+/// — the mark is read from source by `lid-rs-shape`, never from this
+/// expansion. Accepted in the same four fn positions as [`flow`].
+#[proc_macro_attribute]
+pub fn leaf(args: TokenStream, item: TokenStream) -> TokenStream {
+    expand::passthrough_pin(args.into(), item.into())
+        .unwrap_or_else(syn::Error::into_compile_error)
+        .into()
+}
+
 /// Attaches a foreign spec ID (compliance matrix, customer requirement) to a
 /// spec struct as `#[doc(alias = "...")]`, keeping it greppable and
 /// rustdoc-searchable.
