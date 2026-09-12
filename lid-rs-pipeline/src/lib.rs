@@ -494,3 +494,448 @@ mod intent_graph {
     //! This crate's instance of the graph checks (README §4.2).
     lid_rs::intent_graph!();
 }
+
+#[cfg(test)]
+mod tests {
+    //! What these validations observe, and where each of them observes it.
+    //!
+    //! Most of the reading's items take plain data — a subject, a log, a slice
+    //! of [`PhaseCommit`]s, a tool version — so most of these tests construct
+    //! the case rather than a repository. The rest need one, because what they
+    //! observe is a range of commits, a document that moved, a tree holding
+    //! uncommitted work, or a slice no workspace member holds a document for;
+    //! each of those builds one with [`repository`].
+    //!
+    //! **Three claims are observed through a composition and not through an
+    //! item that names them**, because Phase 4 wrote that item's body and a
+    //! test aimed at it would answer correctly before anything is implemented:
+    //!
+    //! | Claim | Observed through | The written body it would otherwise reach |
+    //! |---|---|---|
+    //! | [`APhaseIsTheNumberOfItsSubjectsPhasePrefix`](spec::APhaseIsTheNumberOfItsSubjectsPhasePrefix) | [`phase_commits`] | [`checked_phase`], [`phase_record`] |
+    //! | [`ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo`](spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo) | [`reached_verdict`] | [`restart_of`], [`since_newest_phase`] |
+    //! | [`TheReportCarriesTheStateAndTheFindingsTheReadingRaised`](spec::TheReportCarriesTheStateAndTheFindingsTheReadingRaised) | [`status`] | a [`Report`] built in the test |
+    //!
+    //! [`AnUnresolvableSliceLeavesTheRestartVerdictUnanswered`](spec::AnUnresolvableSliceLeavesTheRestartVerdictUnanswered)
+    //! is that hazard in its sharpest form: [`restart_verdict`] answers
+    //! `Ok(None)` for an unresolvable slice without reaching any unimplemented
+    //! item at all, so it is observed through [`status`] on a branch naming a
+    //! slice no member holds a document for — where the slice must be resolved
+    //! before any verdict is reached.
+    //!
+    //! **The branch point is asserted deliberately.**
+    //! [`ABranchWithNoPhaseCommitOfItsOwnIsAnsweredWithItsBranchPoint`](spec::ABranchWithNoPhaseCommitOfItsOwnIsAnsweredWithItsBranchPoint)
+    //! and [`ACommitTheBranchsBaseAlsoReachesIsNotThisBranchsPhase`](spec::ACommitTheBranchsBaseAlsoReachesIsNotThisBranchsPhase)
+    //! share [`branch_log`], and one test of the range would satisfy both
+    //! while telling neither apart. The first is asserted over [`status`], of
+    //! the commit the branch left its base at and the phase it does *not* take
+    //! from the base; the second over [`branch_log`], of the range itself.
+    //!
+    //! **No expectation is read back from the code under test.** The commit a
+    //! fixture's branch left its base at is read from git and never from
+    //! [`fork_point`](cargo_lid_rs::headless_canopy_agent::fork_point); the
+    //! phases and trailers a log is expected to yield are the ones its records
+    //! were written with; and the tool version a mismatch is judged against is
+    //! handed to [`tool_findings`] as a parameter, which is what that
+    //! parameter is for — a mismatch is a case a test constructs, not one only
+    //! a differently-built binary produces.
+
+    use std::process::Command;
+
+    use lid_rs::validates;
+
+    use super::*;
+
+    /// The manifest of the fixture workspace: one member, `app`.
+    const WORKSPACE_MANIFEST: &str = "[workspace]\nresolver = \"2\"\nmembers = [\"app\"]\n";
+
+    /// The manifest of that member, which depends on nothing.
+    const MEMBER_MANIFEST: &str = "[package]\nname = \"app\"\nversion = \"0.1.0\"\nedition = \"2021\"\n";
+
+    /// The fixture slice's document, which is what makes `app` the member that
+    /// holds a document for the slice `hello` — and so what makes `hello`
+    /// resolvable and every other name not.
+    const SLICE_DOCUMENT: &str = "# hello\n\nThe hello slice.\n";
+
+    /// A fresh scratch directory, canonical as the paths `cargo metadata`
+    /// reports are.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("lid-rs-pipeline-tests").join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir.canonicalize().expect("scratch dir")
+    }
+
+    /// Runs git in `dir` under an identity of its own, asserting it succeeded.
+    fn git(dir: &Path, args: &[&str]) {
+        let ran = Command::new("git")
+            .args(["-c", "user.email=pipeline@tests", "-c", "user.name=pipeline tests"])
+            .args(args)
+            .current_dir(dir)
+            .status()
+            .expect("git");
+        assert!(ran.success(), "git {args:?} in {}", dir.display());
+    }
+
+    /// Stages everything and commits it under `subject`, empty commits and all.
+    fn commit_all(dir: &Path, subject: &str) {
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-q", "--allow-empty", "-m", subject]);
+    }
+
+    /// The fixture's current `HEAD`, read from git.
+    fn head_of(dir: &Path) -> String {
+        let shown = Command::new("git").args(["rev-parse", "HEAD"]).current_dir(dir).output().expect("git rev-parse");
+        String::from_utf8_lossy(&shown.stdout).trim().to_string()
+    }
+
+    /// A workspace whose one member holds the slice `hello`'s document, with
+    /// two phase commits on `main` and `subjects` committed after it on
+    /// `lld/hello`, oldest first.
+    ///
+    /// The commits on `main` are the ancestry a branch cut after a merge
+    /// carries and the range it does not (pipeline `§4.2`): a reading that
+    /// took the whole ancestry would answer phase 3 for every branch built
+    /// here, whatever the branch itself committed.
+    ///
+    /// Answers the directory, the project, and the commit the branch left its
+    /// base at — read from git, so that what the fixture pins is the
+    /// repository rather than this crate's reading of it.
+    fn repository(name: &str, subjects: &[&str]) -> (PathBuf, Project, String) {
+        let dir = scratch(name);
+        std::fs::write(dir.join("Cargo.toml"), WORKSPACE_MANIFEST).expect("the workspace manifest");
+        std::fs::write(dir.join(".gitignore"), "/target\nCargo.lock\n").expect("the ignore file");
+        std::fs::create_dir_all(dir.join("app/src/hello")).expect("the member's source");
+        std::fs::write(dir.join("app/Cargo.toml"), MEMBER_MANIFEST).expect("the member's manifest");
+        std::fs::write(dir.join("app/src/lib.rs"), "").expect("the member's library");
+        std::fs::write(dir.join("app/src/hello/lld.md"), SLICE_DOCUMENT).expect("the slice's document");
+        git(&dir, &["init", "-q", "-b", "main"]);
+        commit_all(&dir, "phase 1: LLD for hello");
+        commit_all(&dir, "phase 3: skeleton for hello");
+        let base = head_of(&dir);
+        git(&dir, &["checkout", "-q", "-b", "lld/hello"]);
+        for subject in subjects {
+            git(&dir, &["commit", "-q", "--allow-empty", "-m", subject]);
+        }
+        let project = Project::load_at(&dir.join("Cargo.toml")).expect("cargo metadata");
+        (dir, project, base)
+    }
+
+    /// One record of a [`LOG_FORMAT`] log, as `git log` writes it: the commit,
+    /// its subject, its trailer block, and the separator that ends it.
+    fn record(commit: &str, subject: &str, trailers: &str) -> String {
+        format!("{commit}\n{subject}\n{trailers}{RECORD_SEPARATOR}")
+    }
+
+    /// One `Name: value` trailer.
+    fn trailer(name: &str, value: &str) -> Trailer {
+        Trailer { name: name.to_string(), value: value.to_string() }
+    }
+
+    /// One phase commit as the reading holds it.
+    fn commit_of(commit: &str, subject: &str, phase: Option<Phase>, trailers: Vec<Trailer>) -> PhaseCommit {
+        PhaseCommit { commit: commit.to_string(), subject: subject.to_string(), phase, trailers }
+    }
+
+    /// A finding of the reading's own shape, carrying `message`.
+    fn finding(message: &str) -> Finding {
+        Finding {
+            check: 0,
+            rule: None,
+            severity: "warning".to_string(),
+            file: None,
+            line: None,
+            item: None,
+            claim: None,
+            message: message.to_string(),
+            fix: None,
+            source: "status".to_string(),
+        }
+    }
+
+    /// A report of a branch at phase 4 carrying `findings`, built here and
+    /// backed by no repository — so that a rendering agreeing with it is a
+    /// rendering built from the report.
+    fn report_of(findings: Vec<Finding>) -> Report {
+        let state = Status {
+            slice: "hello".to_string(),
+            branch_point: "b0b0b0b".to_string(),
+            phase: Some(Phase::Four),
+            next: Some(Phase::Five),
+            restart: Some(Restart::Resume),
+            commits: vec![commit_of("c1", "phase 4: descend for hello", Some(Phase::Four), vec![trailer("Lid-Rs-Phase", "4")])],
+            uncommitted: Vec::new(),
+        };
+        Report { state, findings }
+    }
+
+    /// Whether a finding names `needle` anywhere in what it carries.
+    fn names(raised: &[Finding], needle: &str) -> bool {
+        raised.iter().any(|found| format!("{found:?}").contains(needle))
+    }
+
+    /// The phase the state names is the newest phase commit's, and not an
+    /// older commit's — including where the newest phase subject names a phase
+    /// with no check of its own.
+    #[test]
+    #[validates(spec::TheStateIsTheNewestPhaseCommitTheBranchMade)]
+    fn the_state_is_the_newest_phase_commit_the_branch_made() {
+        let descended = commit_of("c3", "phase 4: descend for hello", Some(Phase::Four), Vec::new());
+        let skeleton = commit_of("c2", "phase 3: skeleton for hello", Some(Phase::Three), Vec::new());
+        let leaves = commit_of("c1", "phase 6: leaves for hello", None, Vec::new());
+        let newest_first = [descended, skeleton.clone()];
+        let over_an_uncheckable = [leaves, skeleton];
+        assert_eq!(
+            (newest_phase(&newest_first), newest_phase(&over_an_uncheckable)),
+            (Some(Phase::Four), Some(Phase::Three)),
+            "the newest of the branch's phase commits that names a phase",
+        );
+    }
+
+    /// The range read is the branch's own commits, so the phase subject its
+    /// base also reaches is no part of the reading.
+    #[test]
+    #[validates(spec::ACommitTheBranchsBaseAlsoReachesIsNotThisBranchsPhase)]
+    fn a_commit_the_branchs_base_also_reaches_is_not_this_branchs_phase() {
+        let (dir, project, base) = repository("base-reaches", &["phase 4: descend for hello"]);
+        let own = head_of(&dir);
+        let log = branch_log(&project, &own_commits(&base)).expect("the branch's own commits");
+        assert_eq!(
+            (log.contains(&own), log.contains(&base)),
+            (true, false),
+            "the commit the branch made, and not the `phase 3:` commit its base reaches",
+        );
+    }
+
+    /// A record's phase is its subject's `phase <N>:` number, and none where
+    /// the subject carries no such prefix — observed over a whole log, since
+    /// the item that reads one subject was written at Phase 4.
+    #[test]
+    #[validates(spec::APhaseIsTheNumberOfItsSubjectsPhasePrefix)]
+    fn a_phase_is_the_number_of_its_subjects_phase_prefix() {
+        let log = [
+            record("c3", "phase 4: descend for hello", "Lid-Rs-Phase: 4\n"),
+            record("c2", "chore: no business of this reading", ""),
+            record("c1", "phase foo: a subject naming no number", ""),
+        ]
+        .concat();
+        let read = phase_commits(&log);
+        let phases: Vec<Option<Phase>> = read.iter().map(|found| found.phase).collect();
+        assert_eq!(
+            (read.len(), phases),
+            (2, vec![Some(Phase::Four), None]),
+            "the number of each `phase ` subject's prefix, and no record for the subject that opens with none",
+        );
+    }
+
+    /// The phase next is the first the branch holds no commit for, and not the
+    /// one after the newest: a branch holding 2, 3 and 5 is taken up at 4.
+    #[test]
+    #[validates(spec::ThePhaseNextIsTheFirstOneTheBranchHasNoCommitFor)]
+    fn the_phase_next_is_the_first_one_the_branch_has_no_commit_for() {
+        let five = commit_of("c3", "phase 5: failing tests (red) for hello", Some(Phase::Five), Vec::new());
+        let three = commit_of("c2", "phase 3: skeleton for hello", Some(Phase::Three), Vec::new());
+        let two = commit_of("c1", "phase 2: claims for hello", Some(Phase::Two), Vec::new());
+        let with_a_gap = [five, three.clone(), two.clone()];
+        let in_order = [three, two];
+        assert_eq!(
+            (next_phase(&with_a_gap), next_phase(&in_order)),
+            (Some(Phase::Four), Some(Phase::Four)),
+            "the first phase a run builds that the branch holds no commit for",
+        );
+    }
+
+    /// A branch that committed no phase of its own is answered with the commit
+    /// it left its base at, and with no phase — not with the base's.
+    #[test]
+    #[validates(spec::ABranchWithNoPhaseCommitOfItsOwnIsAnsweredWithItsBranchPoint)]
+    fn a_branch_with_no_phase_commit_of_its_own_is_answered_with_its_branch_point() {
+        let (_dir, project, base) = repository("no-phase-commit", &["chore: a note", "docs: another note"]);
+        let report = status(&project, "lld/hello", None).expect("a reading of a branch that committed no phase");
+        assert_eq!(
+            (report.state.branch_point, report.state.phase),
+            (base, None),
+            "the commit the branch left its base at, and no phase read from the base",
+        );
+    }
+
+    /// Every phase commit is reported with its own trailers, in the order its
+    /// message carries them — not the newest commit's alone.
+    #[test]
+    #[validates(spec::EveryPhaseCommitOnTheBranchIsReportedWithItsTrailers)]
+    fn every_phase_commit_on_the_branch_is_reported_with_its_trailers() {
+        let log = [
+            record("c2", "phase 4: descend for hello", "Lid-Rs-Phase: 4\nLid-Rs-Agent: lid-rs-phase-4\n"),
+            record("c1", "phase 3: skeleton for hello", "Lid-Rs-Phase: 3\n"),
+        ]
+        .concat();
+        let carried: Vec<Vec<Trailer>> = phase_commits(&log).into_iter().map(|found| found.trailers).collect();
+        assert_eq!(
+            carried,
+            vec![
+                vec![trailer("Lid-Rs-Phase", "4"), trailer("Lid-Rs-Agent", "lid-rs-phase-4")],
+                vec![trailer("Lid-Rs-Phase", "3")],
+            ],
+            "each phase commit's trailers, with the older commit's kept",
+        );
+    }
+
+    /// A document changed after the newest phase commit restarts the pipeline
+    /// at Phase 2, naming that document.
+    #[test]
+    #[validates(spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)]
+    fn a_document_changed_after_the_newest_phase_commit_restarts_at_phase_two() {
+        let (dir, project, _base) = repository("document-changed", &["phase 4: descend for hello"]);
+        let newest = head_of(&dir);
+        std::fs::write(dir.join("app/src/hello/lld.md"), "# hello\n\nThe hello slice, amended.\n").expect("the amended document");
+        commit_all(&dir, "docs: amend the LLD");
+        let verdict = reached_verdict(&project, "hello", &own_commits(&newest)).expect("a verdict for a slice the layout placed");
+        assert_eq!(
+            verdict,
+            Restart::AtPhaseTwo { document: dir.join("app/src/hello/lld.md") },
+            "the restart the moved document earns, naming it",
+        );
+    }
+
+    /// A tree holding uncommitted work is read and reported, not refused.
+    #[test]
+    #[validates(spec::ADirtyWorkingTreeIsReportedAndNotRefused)]
+    fn a_dirty_working_tree_is_reported_and_not_refused() {
+        let (dir, project, _base) = repository("dirty-tree", &["phase 4: descend for hello"]);
+        std::fs::write(dir.join("app/src/lib.rs"), "// work the tree has not committed\n").expect("the uncommitted work");
+        let reported = uncommitted(&project).expect("a reading of a tree that holds uncommitted work");
+        assert_eq!(reported, vec!["app/src/lib.rs".to_string()], "the path the work is in, reported rather than refused");
+    }
+
+    /// A subject that opens `phase ` and names no number a phase can be read
+    /// from raises a finding against that commit, and the readable subject
+    /// beside it raises none.
+    #[test]
+    #[validates(spec::AMalformedPhaseSubjectIsAFindingAgainstItsCommit)]
+    fn a_malformed_phase_subject_is_a_finding_against_its_commit() {
+        let commits = [
+            commit_of("c2", "phase foo: a subject naming no number", None, Vec::new()),
+            commit_of("c1", "phase 4: descend for hello", Some(Phase::Four), Vec::new()),
+        ];
+        let raised = malformed_findings(&commits);
+        assert_eq!(
+            (raised.len(), names(&raised, "c2")),
+            (1, true),
+            "one finding, against the commit whose subject the reading cannot read",
+        );
+    }
+
+    /// A `Lid-Rs-Tool` trailer whose value is not the running binary's version
+    /// raises a finding naming that commit; one that matches raises none.
+    #[test]
+    #[validates(spec::AToolTrailerTheBinaryDoesNotMatchIsAFinding)]
+    fn a_tool_trailer_the_binary_does_not_match_is_a_finding() {
+        let commits = [
+            commit_of("c2", "phase 4: descend for hello", Some(Phase::Four), vec![trailer(TOOL_TRAILER, "9.9.9")]),
+            commit_of("c1", "phase 3: skeleton for hello", Some(Phase::Three), vec![trailer(TOOL_TRAILER, "0.1.0")]),
+        ];
+        let raised = tool_findings(&commits, "0.1.0");
+        assert_eq!(
+            (raised.len(), names(&raised, "c2")),
+            (1, true),
+            "one finding, naming the commit a tool of another version made",
+        );
+    }
+
+    /// A branch naming a slice no member holds a document for is read, and the
+    /// slice is a finding beside the state rather than a refusal.
+    #[test]
+    #[validates(spec::AnUnresolvableSliceIsAFindingBesideTheStateAndNotARefusal)]
+    fn an_unresolvable_slice_is_a_finding_beside_the_state_and_not_a_refusal() {
+        let (_dir, project, _base) = repository("unresolvable-finding", &["phase 4: descend for ghost"]);
+        let report = status(&project, "lld/ghost", None).expect("a reading, not a refusal");
+        assert!(names(&report.findings, "ghost"), "the finding names the slice no member holds a document for: {report:?}");
+    }
+
+    /// That reading answers no restart verdict: the `lld.md` the verdict is
+    /// made against is a document no member holds.
+    #[test]
+    #[validates(spec::AnUnresolvableSliceLeavesTheRestartVerdictUnanswered)]
+    fn an_unresolvable_slice_leaves_the_restart_verdict_unanswered() {
+        let (_dir, project, _base) = repository("unresolvable-verdict", &["phase 4: descend for ghost"]);
+        let report = status(&project, "lld/ghost", None).expect("a reading, not a refusal");
+        assert_eq!(report.state.restart, None, "no verdict at all, rather than the resume a missing document cannot earn");
+    }
+
+    /// A branch that is not `lld/<slice>` is refused naming the convention —
+    /// and only when no slice is given beside it.
+    #[test]
+    #[validates(spec::ABranchThatNamesNoSliceIsRefusedNamingTheConvention)]
+    fn a_branch_that_names_no_slice_is_refused_naming_the_convention() {
+        let beside_it = slice_named("feature/status", Some("hello")).expect("the slice given beside the branch");
+        let refusal = slice_named("feature/status", None).expect_err("a branch naming no slice, with none given");
+        assert_eq!(
+            (beside_it.as_str(), refusal.contains("feature/status"), refusal.contains("lld/")),
+            ("hello", true, true),
+            "the branch named, and the convention it does not follow",
+        );
+    }
+
+    /// The report is the pair: the branch's state, and the findings the
+    /// reading raised — the empty list where it raised none.
+    #[test]
+    #[validates(spec::TheReportCarriesTheStateAndTheFindingsTheReadingRaised)]
+    fn the_report_carries_the_state_and_the_findings_the_reading_raised() {
+        let (_dir, project, _base) = repository("the-pair", &["phase 4: descend for hello"]);
+        let report = status(&project, "lld/hello", None).expect("a reading of the branch");
+        assert_eq!(
+            (report.state.slice.as_str(), report.state.phase, report.findings.is_empty()),
+            ("hello", Some(Phase::Four), true),
+            "the state beside the finding list a reading that raised nothing carries",
+        );
+    }
+
+    /// The report reaches `target/lid/status.json` under the root, and the
+    /// empty finding list — the half of "whatever it found" that a write can
+    /// silently suppress — does not stop it being written.
+    ///
+    /// The expected path is spelled here rather than asked of the code that
+    /// writes it: a test that derived its expectation from the writer would
+    /// hold for a writer that chose any path at all. This is how the catalog's
+    /// own tests pin the same directory (`catalog/mod.rs`, `written_report`),
+    /// and it settles neither of the LLD's Unresolved rows — what is asserted
+    /// is a file at a path, not a route to it.
+    #[test]
+    #[validates(spec::TheReportIsWrittenToStatusJsonWhateverItFound)]
+    fn the_report_is_written_to_status_json_whatever_it_found() {
+        let root = scratch("written-report");
+        let expected = root.join("target/lid/status.json");
+        let written = write_report(&root, &report_of(Vec::new())).expect("the path it wrote");
+        assert_eq!(
+            (written.as_path(), expected.is_file()),
+            (expected.as_path(), true),
+            "the file a reading that raised no finding still writes",
+        );
+    }
+
+    /// The rendering carries what the report holds, including a branch point
+    /// and a slice no repository the run could read would answer.
+    #[test]
+    #[validates(spec::TheRenderingIsBuiltFromTheReportAndNeverFromASecondReading)]
+    fn the_rendering_is_built_from_the_report_and_never_from_a_second_reading() {
+        let text = rendering(&report_of(Vec::new()));
+        assert_eq!(
+            (text.contains("hello"), text.contains("b0b0b0b")),
+            (true, true),
+            "the state the report carries, which no repository backs: {text}",
+        );
+    }
+
+    /// Every finding the report holds is named in the rendering.
+    #[test]
+    #[validates(spec::TheRenderingNamesEveryFindingTheReportHolds)]
+    fn the_rendering_names_every_finding_the_report_holds() {
+        let held = vec![finding("a subject naming no number"), finding("a tool of another version")];
+        let text = rendering(&report_of(held));
+        assert_eq!(
+            (text.contains("a subject naming no number"), text.contains("a tool of another version")),
+            (true, true),
+            "both findings, named: {text}",
+        );
+    }
+}
