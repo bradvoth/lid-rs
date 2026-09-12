@@ -18,6 +18,11 @@ const PACKAGE_NAME: &str = "__LID_PACKAGE_NAME__";
 /// The `.gitignore` entry for the mutation engine's output.
 const MUTANTS_IGNORE: &str = "mutants.out/";
 
+/// The crate-root slice's claims file, relative to the package directory —
+/// the one emitted file whose conflict rule looks beside the path as well as
+/// at it.
+const CRATE_ROOT_CLAIMS_FILE: &str = "src/spec.rs";
+
 /// Manifest table headers `init` appends, any of which already present is a
 /// conflict.
 const APPENDED_TABLES: [&str; 3] = ["[lints", "[package.metadata.lid_rs]", "[profile.test]"];
@@ -52,7 +57,8 @@ pub struct Package {
 /// One planned change, computed before anything is written.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Change {
-    /// A new file; the path existing is a conflict.
+    /// A new file; the path existing is a conflict, and for the crate-root
+    /// claims file so is a `spec/` directory beside it.
     CreateFile {
         /// Where to write.
         path: PathBuf,
@@ -116,7 +122,7 @@ pub fn run_new(args: &[String]) -> Result<(), String> {
 
 /// Augments the package in `dir`: locate, plan, refuse on any conflict,
 /// apply.
-#[implements(spec::AnInitialisedPackagePassesItsOwnGate)]
+#[implements(spec::AnInitialisedPackageIsACrateRootSliceThatPassesItsOwnGate)]
 pub fn init_in(dir: &Path, options: &Options) -> Result<(), String> {
     let package = Package::locate(dir)?;
     let plan = plan(&package, options)?;
@@ -197,7 +203,8 @@ fn plan(package: &Package, options: &Options) -> Result<Vec<Change>, String> {
         Change::AppendManifestTables { path: package.dir.join("Cargo.toml") },
         file("clippy.toml", include_str!("../../templates/clippy.toml"))?,
         file("docs/intent/hld.md", include_str!("../../templates/hld.md"))?,
-        file("src/spec/mod.rs", include_str!("../../templates/spec_mod.rs"))?,
+        file("src/lld.md", include_str!("../../templates/lld.md"))?,
+        file(CRATE_ROOT_CLAIMS_FILE, include_str!("../../templates/spec.rs"))?,
         Change::WireLibrary { path: package.dir.join("src/lib.rs") },
         file(".github/workflows/gate.yml", include_str!("../../templates/gate.yml"))?,
         Change::EnsureLine { path: package.dir.join(".gitignore"), line: MUTANTS_IGNORE.to_string() },
@@ -237,9 +244,10 @@ fn refuse_conflicts(plan: &[Change]) -> Result<(), String> {
 
 impl Change {
     /// What already exists that this change would clobber, if anything.
-    #[implements(spec::InitWritesNothingWhenAnyTargetConflicts)]
+    #[implements(spec::InitWritesNothingWhenAnyTargetConflicts, spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
     fn conflict(&self) -> Option<String> {
         match self {
+            Change::CreateFile { path, .. } if is_crate_root_claims_file(path) => crate_root_claims_file_conflicts(path),
             Change::CreateFile { path, .. } | Change::SyncSkill { path, .. } => existing_file(path),
             Change::AppendManifestTables { path } => existing_table(path),
             Change::WireLibrary { path } => existing_graph(path),
@@ -251,6 +259,28 @@ impl Change {
 /// A conflict if `path` exists.
 fn existing_file(path: &Path) -> Option<String> {
     path.exists().then(|| format!("{} already exists", path.display()))
+}
+
+/// Whether `path` is the package's `src/spec.rs` — the target whose conflict
+/// rule also looks at a `src/spec/` directory beside it.
+#[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
+fn is_crate_root_claims_file(path: &Path) -> bool {
+    todo!("whether {} ends with {CRATE_ROOT_CLAIMS_FILE}", path.display())
+}
+
+/// A conflict if a `spec/` directory sits beside the claims file at `path`,
+/// naming the directory: `pub mod spec;` would resolve to both.
+#[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
+fn existing_spec_directory(path: &Path) -> Option<String> {
+    todo!("the `spec/` directory beside {}", path.display())
+}
+
+/// Every conflict at the claims file `path`: what [`existing_file`] and
+/// [`existing_spec_directory`] each return, joined into one message — no
+/// precedence, so both are named when both exist.
+#[implements(spec::ASpecDirectoryConflictsWithTheCrateRootClaimsFile)]
+fn crate_root_claims_file_conflicts(path: &Path) -> Option<String> {
+    todo!("existing_file and existing_spec_directory joined for {}", path.display())
 }
 
 /// A conflict naming the first appended table already in the manifest.
@@ -314,9 +344,10 @@ fn wire_library(path: &Path) -> Result<(), String> {
     create_file(path, &wired_library(&existing))
 }
 
-/// The library text with the HLD include prepended and the spec module and
-/// graph checks appended — pure, so the wiring is unit-testable.
-#[implements(spec::InitWiresTheLibraryIntoTheGraph)]
+/// The library text with the HLD and crate-root `lld.md` includes prepended
+/// and the sibling spec module and graph checks appended — pure, so the
+/// wiring is unit-testable.
+#[implements(spec::InitWiresTheLibraryAsTheCrateRootSlice)]
 fn wired_library(existing: &str) -> String {
     format!(
         "{}{existing}{}",
@@ -431,7 +462,7 @@ mod tests {
         let untouched = (
             std::fs::read_to_string(dir.join("Cargo.toml")).expect("read") == manifest_before,
             !dir.join("docs/intent/hld.md").exists(),
-            !dir.join("src/spec/mod.rs").exists(),
+            !dir.join("src/spec.rs").exists(),
         );
         assert_eq!(untouched, (true, true, true), "nothing may be written on conflict");
     }
@@ -512,8 +543,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::InitWiresTheLibraryIntoTheGraph)]
-    fn init_wires_the_library_into_the_graph() {
+    #[validates(spec::InitWiresTheLibraryAsTheCrateRootSlice)]
+    fn init_wires_the_library_as_the_crate_root_slice() {
         let existing = "//! Mine.\n\n/// Adds.\npub fn add(a: u8, b: u8) -> u8 {\n    a + b\n}\n";
         let wired = wired_library(existing);
         let shape = (
@@ -592,7 +623,7 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::AnInitialisedPackagePassesItsOwnGate, spec::NewCreatesALibraryPackageThenInitialisesIt)]
+    #[validates(spec::AnInitialisedPackageIsACrateRootSliceThatPassesItsOwnGate, spec::NewCreatesALibraryPackageThenInitialisesIt)]
     fn new_creates_a_library_package_then_initialises_it_and_passes_its_own_gate() {
         let dir = fresh_package("new-gate");
         let (tests_ok, tests_out) = cargo_in(&dir, &["test", "--lib"]);
@@ -626,7 +657,7 @@ mod tests {
     #[validates(spec::EmittedFilesCarryThePackageFacts)]
     fn an_initialised_package_has_no_placeholders_left() {
         let dir = fresh_package("new-placeholders");
-        let leftovers: Vec<PathBuf> = ["src/lib.rs", "src/spec/mod.rs", "docs/intent/hld.md", "AGENTS.md", ".claude/skills/lid-rs/SKILL.md"]
+        let leftovers: Vec<PathBuf> = ["src/lib.rs", "src/lld.md", "src/spec.rs", "docs/intent/hld.md", "AGENTS.md", ".claude/skills/lid-rs/SKILL.md"]
             .iter()
             .map(|f| dir.join(f))
             .filter(|f| std::fs::read_to_string(f).expect("emitted file").contains("__LID_"))
