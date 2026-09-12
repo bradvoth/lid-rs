@@ -82,3 +82,24 @@ const _: () = {
     canary_entry!(First);
     canary_entry!(Second);
 };
+
+#[cfg(test)]
+mod tests {
+    use super::present;
+    use lid_rs::validates;
+
+    /// The canary reaches the registry of a binary that links this crate.
+    ///
+    /// Applied to the real [`OUTCOMES`](crate::OUTCOMES) and not to a synthetic
+    /// slice, because what is asserted is that the registrations survived
+    /// linking into *this* binary: a hand-built input would pass over a section
+    /// the linker had stripped, which is the one thing the canary exists to
+    /// tell apart from a binary that legitimately registers no outcome of its
+    /// own. Registered outside `cfg(test)`, so the same holds for a consumer's
+    /// test binary, which links this crate compiled without it.
+    #[test]
+    #[validates(crate::outcome::spec::TheCanaryOutcomeIsEnumerableWhereverTheCrateIsLinked)]
+    fn the_canary_outcome_is_enumerable_wherever_the_crate_is_linked() {
+        assert!(present(&crate::OUTCOMES), "the canary's registrations were stripped");
+    }
+}
