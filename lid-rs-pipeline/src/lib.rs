@@ -6,11 +6,13 @@ pub mod spec;
 use std::path::{Path, PathBuf};
 
 use cargo_lid_rs::catalog::Finding;
-use cargo_lid_rs::headless_canopy_agent::{fork_point, own_commits};
+use cargo_lid_rs::coach;
+use cargo_lid_rs::headless_canopy_agent::{PHASES, fork_point, own_commits, slice_of};
 use cargo_lid_rs::layout;
 use cargo_lid_rs::phase::{Phase, Tag, tag_of};
 use cargo_lid_rs::project::Project;
 use lid_rs::implements;
+use serde::{Serialize, Serializer};
 
 /// The `git log` format one commit of the branch is read in: its object name,
 /// its subject, and its message's trailers unfolded onto one line each, the
@@ -45,12 +47,41 @@ const TOOL_TRAILER: &str = "Lid-Rs-Tool";
 /// links and the version it reports cannot differ.
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// A phase's number in the report, in the phase's place: the one number
+/// [`Phase`](cargo_lid_rs::phase::Phase)'s `TryFrom<u8>` answers this phase
+/// for, found by searching the numbers rather than by stating the table again
+/// — and nothing at all where the state names no phase.
+///
+/// `Phase` derives no `Serialize`, so a report holding one has to say what a
+/// phase is in JSON. The number-to-phase table is already written three times
+/// in `cargo-lid-rs` — the public `TryFrom<u8>` and two byte-identical
+/// private copies of it — and a match here would be the fourth, the only one
+/// with nothing to compare it against. Inverting the one public conversion by
+/// search states no table at all: a changed `TryFrom` changes this answer
+/// with it, and the two cannot come apart.
+///
+/// The search cannot fail for a phase that exists — `TryFrom` answers some
+/// number for every variant — which is what the `expect` says. A sentinel for
+/// that arm would be a number the report could carry and no phase has.
+///
+/// This is the single place a phase becomes a number in this crate: both
+/// fields that hold one are serialized through it.
+fn phase_number<S: Serializer>(phase: &Option<Phase>, serializer: S) -> Result<S::Ok, S::Error> {
+    phase
+        .map(|named| {
+            (1..=u8::MAX)
+                .find(|number| Phase::try_from(*number).is_ok_and(|found| found == named))
+                .expect("`Phase::try_from` answers every phase for some number")
+        })
+        .serialize(serializer)
+}
+
 /// One `Name: value` trailer of a commit message.
 ///
 /// A name and a value rather than a closed set of names: the trailers a phase
 /// commit carries grow with what writes them, and a reading that recognised
 /// only the names it knew would drop the next one silently.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct Trailer {
     /// The trailer's name, as the message spells it — `Lid-Rs-Phase`.
     pub name: String,
@@ -59,7 +90,7 @@ pub struct Trailer {
 }
 
 /// One `phase N:` commit the branch made, as the reading found it.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct PhaseCommit {
     /// The commit's object name.
     pub commit: String,
@@ -78,6 +109,7 @@ pub struct PhaseCommit {
     /// reading has nothing to say about. Which of the two a record is, is
     /// read from the subject's `phase ` opening when the record is taken,
     /// not from the tag.
+    #[serde(serialize_with = "phase_number")]
     pub phase: Option<Phase>,
     /// The commit's trailers, in the order its message carries them, so a
     /// reader sees which agent and which tally produced the phase.
@@ -90,7 +122,7 @@ pub struct PhaseCommit {
 /// reading that could not reach them gives neither, which is the absent
 /// [`Status::restart`] rather than a third variant here: the variants are the
 /// reasons a run resumes or begins again, and "unanswered" is not a reason.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[implements(spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)]
 pub enum Restart {
     /// Neither document moved after the newest phase commit: a run takes the
@@ -113,7 +145,7 @@ pub enum Restart {
 /// commit rather than the newest commit's trailers, `uncommitted` holds work
 /// the tree has not committed rather than being a reason to refuse, and
 /// `restart` is absent where the reading could not reach that verdict at all.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[implements(
     spec::EveryPhaseCommitOnTheBranchIsReportedWithItsTrailers,
     spec::ADirtyWorkingTreeIsReportedAndNotRefused,
@@ -128,9 +160,11 @@ pub struct Status {
     pub branch_point: String,
     /// The phase last committed on this branch, and none where the branch made
     /// no phase commit of its own.
+    #[serde(serialize_with = "phase_number")]
     pub phase: Option<Phase>,
     /// The phase a run would take up next, and none where the branch holds a
     /// commit for every phase a run builds.
+    #[serde(serialize_with = "phase_number")]
     pub next: Option<Phase>,
     /// Whether a resume is a resume, and none where the reading could not
     /// reach that verdict — the slice's `lld.md` being a document no workspace
@@ -150,7 +184,7 @@ pub struct Status {
 /// The state is not a defect and does not fit the finding schema; the findings
 /// are the three things a reading can raise about one commit or one name. The
 /// pair keeps both without making either the other.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[implements(spec::TheReportCarriesTheStateAndTheFindingsTheReadingRaised)]
 pub struct Report {
     /// The branch's state.
@@ -227,19 +261,29 @@ pub fn status(project: &Project, branch: &str, slice: Option<&str>) -> Result<Re
     Ok(Report { state, findings })
 }
 
-/// The slice the branch is for: the one `branch` names, or `slice` where a
-/// caller gives one, as
-/// [`slice_of`](cargo_lid_rs::headless_canopy_agent::slice_of) resolves the
-/// pair — and, for a branch that is neither, the refusal naming the
+/// The slice the branch is for: the one a caller gives, whatever branch is
+/// checked out, and the one `branch` names where a caller gives none — and,
+/// for a branch that names none with none given, the refusal naming the
 /// `lld/<slice>` convention, which is the one occasion this reading answers
-/// with no state at all.
+/// with no state at all. That is the document's "refused only when nothing
+/// else names one".
+///
+/// [`slice_of`](cargo_lid_rs::headless_canopy_agent::slice_of) answers the
+/// second case alone, and cannot be asked the first: it resolves the *pair*,
+/// refusing `feature/status` even with a slice named beside it, because a run
+/// it precedes writes commits on the slice's branch. A reading writes nothing
+/// and is run wherever an operator stands, so a slice it was given is a slice
+/// it has.
 ///
 /// The refusal is the sentence `slice_of` already produces rather than a
 /// second wording of it: one convention, stated in one place. What differs is
 /// its shape — a `Stop` is the canopy run's ending, and a reading has none.
 #[implements(spec::ABranchThatNamesNoSliceIsRefusedNamingTheConvention)]
 fn slice_named(branch: &str, slice: Option<&str>) -> Result<String, String> {
-    todo!("resolve the slice of `{branch}`, against {slice:?}")
+    match slice {
+        Some(given) => Ok(given.to_string()),
+        None => slice_of(branch, None).map_err(|stop| stop.decisions.join("\n")),
+    }
 }
 
 /// The branch's own commits in [`LOG_FORMAT`], over the range `range` names —
@@ -257,7 +301,12 @@ fn slice_named(branch: &str, slice: Option<&str>) -> Result<String, String> {
     spec::EveryPhaseCommitOnTheBranchIsReportedWithItsTrailers,
 )]
 fn branch_log(project: &Project, range: &str) -> Result<String, String> {
-    todo!("read `git log {LOG_FORMAT} {range}` in {:?}", project.root())
+    let logged = project.git()?.args(["log", LOG_FORMAT, range]).output().map_err(|why| format!("running git log: {why}"))?;
+    logged
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&logged.stdout).into_owned())
+        .ok_or_else(|| format!("reading the branch's own commits over `{range}`: {}", String::from_utf8_lossy(&logged.stderr)))
 }
 
 /// Every phase commit a [`LOG_FORMAT`] log holds, newest first as `git log`
@@ -314,7 +363,11 @@ fn checked_phase(subject: &str) -> Option<Phase> {
 /// none.
 #[implements(spec::EveryPhaseCommitOnTheBranchIsReportedWithItsTrailers)]
 fn trailers(block: &str) -> Vec<Trailer> {
-    todo!("read the trailers of {block:?}")
+    block
+        .lines()
+        .filter_map(|line| line.split_once(": "))
+        .map(|(name, value)| Trailer { name: name.to_string(), value: value.to_string() })
+        .collect()
 }
 
 /// The phase the branch last committed: the phase of the newest of its
@@ -325,7 +378,7 @@ fn trailers(block: &str) -> Vec<Trailer> {
     spec::ABranchWithNoPhaseCommitOfItsOwnIsAnsweredWithItsBranchPoint,
 )]
 fn newest_phase(commits: &[PhaseCommit]) -> Option<Phase> {
-    todo!("take the newest phase among {} commit(s)", commits.len())
+    commits.iter().find_map(|made| made.phase)
 }
 
 /// The phase a run would take up next: the first of the phases a run builds
@@ -334,7 +387,7 @@ fn newest_phase(commits: &[PhaseCommit]) -> Option<Phase> {
 /// every phase.
 #[implements(spec::ThePhaseNextIsTheFirstOneTheBranchHasNoCommitFor)]
 fn next_phase(commits: &[PhaseCommit]) -> Option<Phase> {
-    todo!("take the first phase none of {} commit(s) holds", commits.len())
+    PHASES.into_iter().find(|phase| commits.iter().all(|made| made.phase != Some(*phase)))
 }
 
 /// The paths the working tree holds uncommitted work in, from
@@ -345,7 +398,12 @@ fn next_phase(commits: &[PhaseCommit]) -> Option<Phase> {
 /// dirty tree, and this one reports it.
 #[implements(spec::ADirtyWorkingTreeIsReportedAndNotRefused)]
 fn uncommitted(project: &Project) -> Result<Vec<String>, String> {
-    todo!("read `git status --porcelain` in {:?}", project.root())
+    let shown = project.git()?.args(["status", "--porcelain"]).output().map_err(|why| format!("running git status: {why}"))?;
+    shown
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&shown.stdout).lines().filter_map(|line| line.get(3..)).map(str::to_string).collect())
+        .ok_or_else(|| format!("reading the working tree: {}", String::from_utf8_lossy(&shown.stderr)))
 }
 
 /// The commits the restart verdict reads over: those after the newest
@@ -392,14 +450,23 @@ fn reached_verdict(project: &Project, slice: &str, range: &str) -> Result<Restar
 /// lives.
 #[implements(spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)]
 fn watched_documents(project: &Project, slice: &str) -> Result<Vec<PathBuf>, String> {
-    todo!("collect the documents `{slice}` was derived from in {:?}", project.root())
+    let index = coach::intent_paths(project);
+    let hlds = coach::hlds(&index).into_iter().map(Path::to_path_buf);
+    Ok(std::iter::once(layout::lld_path(project, slice)?).chain(hlds).collect())
 }
 
 /// Which of `documents` a commit in `range` changed, and none where no commit
 /// in it changed any of them.
 #[implements(spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)]
 fn document_changed(project: &Project, range: &str, documents: &[PathBuf]) -> Result<Option<PathBuf>, String> {
-    todo!("find which of {documents:?} a commit in {range} changed in {:?}", project.root())
+    let root = project.root()?;
+    let touched = project.git()?.args(["log", "--name-only", "--format=", range]).output().map_err(|why| format!("running git log: {why}"))?;
+    let named = touched
+        .status
+        .success()
+        .then(|| String::from_utf8_lossy(&touched.stdout).into_owned())
+        .ok_or_else(|| format!("reading the paths changed over `{range}`: {}", String::from_utf8_lossy(&touched.stderr)))?;
+    Ok(named.lines().filter(|line| !line.is_empty()).map(|line| root.join(line)).find(|path| documents.contains(path)))
 }
 
 /// What a changed document means: a restart at Phase 2 naming it, and a
@@ -418,7 +485,38 @@ fn restart_of(changed: Option<PathBuf>) -> Restart {
 /// subjects names one.
 #[implements(spec::AMalformedPhaseSubjectIsAFindingAgainstItsCommit)]
 fn malformed_findings(commits: &[PhaseCommit]) -> Vec<Finding> {
-    todo!("raise a finding against each unreadable subject among {} commit(s)", commits.len())
+    commits
+        .iter()
+        .filter(|made| made.phase.is_none())
+        .map(|made| raised(&made.commit, format!("`{}` opens `{PHASE_PREFIX}` and names no phase with a check of its own", made.subject)))
+        .collect()
+}
+
+/// One finding of this reading's own: what it says, and the commit or the
+/// name it says it of.
+///
+/// The three findings a reading raises differ in that pair alone, and the
+/// rest of the schema is what a reading rather than a check answers with: no
+/// LID-rs check names any of them, so `check` is 0 and `rule` and `fix` are
+/// absent; each points at a commit or at a branch's slice and not at a place
+/// in a file, so `file` and `line` are absent; `severity` is a warning
+/// because a reading that raised one still answered; and `source` is the
+/// command, as every writer of this schema records it. Composed once, so that
+/// three findings of one command cannot come to disagree about what a finding
+/// of it looks like.
+fn raised(item: &str, message: String) -> Finding {
+    Finding {
+        check: 0,
+        rule: None,
+        severity: "warning".to_string(),
+        file: None,
+        line: None,
+        item: Some(item.to_string()),
+        claim: None,
+        message,
+        fix: None,
+        source: "status".to_string(),
+    }
 }
 
 /// The findings the branch's [`TOOL_TRAILER`] trailers raise: one naming each
@@ -430,7 +528,12 @@ fn malformed_findings(commits: &[PhaseCommit]) -> Vec<Finding> {
 /// binary could produce.
 #[implements(spec::AToolTrailerTheBinaryDoesNotMatchIsAFinding)]
 fn tool_findings(commits: &[PhaseCommit], version: &str) -> Vec<Finding> {
-    todo!("raise a finding for each {TOOL_TRAILER} among {} commit(s) that is not {version}", commits.len())
+    commits
+        .iter()
+        .filter_map(|made| made.trailers.iter().find(|held| held.name == TOOL_TRAILER).map(|held| (made, held)))
+        .filter(|(_, held)| held.value != version)
+        .map(|(made, held)| raised(&made.commit, format!("`{}` records {TOOL_TRAILER} {}, and this binary is {version}", made.subject, held.value)))
+        .collect()
 }
 
 /// The finding an unresolvable slice raises: one naming `slice` and carrying
@@ -438,7 +541,10 @@ fn tool_findings(commits: &[PhaseCommit], version: &str) -> Vec<Finding> {
 /// workspace member holds the slice's document.
 #[implements(spec::AnUnresolvableSliceIsAFindingBesideTheStateAndNotARefusal)]
 fn unresolvable_findings(slice: &str, unresolvable: Option<&str>) -> Vec<Finding> {
-    todo!("raise the finding `{slice}` earns from {unresolvable:?}")
+    unresolvable
+        .map(|refusal| raised(slice, format!("the branch names the slice `{slice}`, which no workspace member holds a document for: {refusal}")))
+        .into_iter()
+        .collect()
 }
 
 /// Writes a reading's report to `target/lid/status.json` under `root`,
@@ -448,9 +554,20 @@ fn unresolvable_findings(slice: &str, unresolvable: Option<&str>) -> Vec<Finding
 /// It writes whatever the reading found: an empty finding list is written too,
 /// so that a report holding no finding and no report at all are different
 /// things to whoever reads the file next.
+///
+/// The two-segment join is spelled here rather than asked of
+/// `catalog::write_report`, which is private to that slice and typed to the
+/// catalog's own report: what the two share is a directory name, not a
+/// reading, and widening the catalog's writer is a change on a slice already
+/// gated (`lld.md`, Decisions).
 #[implements(spec::TheReportIsWrittenToStatusJsonWhateverItFound)]
 pub fn write_report(root: &Path, report: &Report) -> Result<PathBuf, String> {
-    todo!("write the state of `{}` and its {} finding(s) under {}", report.state.slice, report.findings.len(), root.display())
+    let directory = root.join("target").join("lid");
+    std::fs::create_dir_all(&directory).map_err(|why| format!("creating {}: {why}", directory.display()))?;
+    let path = directory.join("status.json");
+    let json = serde_json::to_string_pretty(report).map_err(|why| format!("rendering {}: {why}", path.display()))?;
+    std::fs::write(&path, json).map_err(|why| format!("writing {}: {why}", path.display()))?;
+    Ok(path)
 }
 
 /// The human rendering of a reading: the state a reader reads on stdout, and
@@ -476,9 +593,31 @@ pub fn rendering(report: &Report) -> String {
 /// Given the state and nothing to read the repository with, for the reason
 /// [`rendering`] is: what a reader is shown and what `status.json` holds are
 /// two renderings of one value.
+///
+/// The three fields that may be absent — the two phases and the verdict — are
+/// shown as they are held, in `Debug`. A rendering that spelled "none" for
+/// each would be a decision per field with no claim above it, and a reader of
+/// this text wants the value the JSON beside it carries.
 #[implements(spec::TheRenderingIsBuiltFromTheReportAndNeverFromASecondReading)]
 fn rendered_state(state: &Status) -> String {
-    todo!("render the state of `{}`", state.slice)
+    let commits: Vec<String> = state
+        .commits
+        .iter()
+        .map(|made| {
+            let carried: Vec<String> = made.trailers.iter().map(|held| format!("{}: {}", held.name, held.value)).collect();
+            format!("  {} {} [{}]", made.commit, made.subject, carried.join("; "))
+        })
+        .collect();
+    format!(
+        "slice {}\nbranch point {}\nphase {:?}\nnext {:?}\nrestart {:?}\ncommits:\n{}\nuncommitted: {}",
+        state.slice,
+        state.branch_point,
+        state.phase,
+        state.next,
+        state.restart,
+        commits.join("\n"),
+        state.uncommitted.join(", "),
+    )
 }
 
 /// Every finding the report holds, one a line, and nothing at all for a
@@ -486,7 +625,11 @@ fn rendered_state(state: &Status) -> String {
 /// branch as it expected to.
 #[implements(spec::TheRenderingNamesEveryFindingTheReportHolds)]
 fn rendered_findings(findings: &[Finding]) -> String {
-    todo!("render {} finding(s)", findings.len())
+    findings
+        .iter()
+        .map(|found| format!("- {} ({})", found.message, found.item.as_deref().unwrap_or_default()))
+        .collect::<Vec<String>>()
+        .join("\n")
 }
 
 #[cfg(test)]
@@ -513,7 +656,7 @@ mod tests {
     //! | Claim | Observed through | The written body it would otherwise reach |
     //! |---|---|---|
     //! | [`APhaseIsTheNumberOfItsSubjectsPhasePrefix`](spec::APhaseIsTheNumberOfItsSubjectsPhasePrefix) | [`phase_commits`] | [`checked_phase`], [`phase_record`] |
-    //! | [`ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo`](spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo) | [`reached_verdict`] | [`restart_of`], [`since_newest_phase`] |
+    //! | [`ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo`](spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo) | [`status`] | [`restart_of`], [`since_newest_phase`] |
     //! | [`TheReportCarriesTheStateAndTheFindingsTheReadingRaised`](spec::TheReportCarriesTheStateAndTheFindingsTheReadingRaised) | [`status`] | a [`Report`] built in the test |
     //!
     //! [`AnUnresolvableSliceLeavesTheRestartVerdictUnanswered`](spec::AnUnresolvableSliceLeavesTheRestartVerdictUnanswered)
@@ -530,6 +673,26 @@ mod tests {
     //! while telling neither apart. The first is asserted over [`status`], of
     //! the commit the branch left its base at and the phase it does *not* take
     //! from the base; the second over [`branch_log`], of the range itself.
+    //!
+    //! **Three of these validations answer a mutant that survived check 12 at
+    //! Phase 7.** Each answers it by observing its own claim over a second case
+    //! the first form could not tell from the first — never by widening what
+    //! the claim says, and never by a claim this slice does not hold.
+    //!
+    //! [`ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo`](spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)
+    //! is read through [`status`] over two branches — the document moved after
+    //! the newest phase commit, and moved before it — because a validator that
+    //! handed [`reached_verdict`] a range of its own could not see which range
+    //! [`since_newest_phase`] chose, and every fixture's document was changed
+    //! at *some* point in its history. That is the row the table above records
+    //! as moved.
+    //! [`AnUnresolvableSliceLeavesTheRestartVerdictUnanswered`](spec::AnUnresolvableSliceLeavesTheRestartVerdictUnanswered)
+    //! reads a placed slice beside the unplaceable one, "no verdict" being also
+    //! what a [`restart_verdict`] that reached none for anything would answer.
+    //! [`TheReportIsWrittenToStatusJsonWhateverItFound`](spec::TheReportIsWrittenToStatusJsonWhateverItFound)
+    //! reads the written file back, a file that exists saying nothing about the
+    //! report in it — and that file is where [`phase_number`] is observable at
+    //! all, being the only place a phase becomes a number.
     //!
     //! **No expectation is read back from the code under test.** The commit a
     //! fixture's branch left its base at is read from git and never from
@@ -781,19 +944,32 @@ mod tests {
     }
 
     /// A document changed after the newest phase commit restarts the pipeline
-    /// at Phase 2, naming that document.
+    /// at Phase 2, naming that document — and the same document changed
+    /// *before* that commit does not, which is the half that says which range
+    /// was read.
+    ///
+    /// Read through [`status`], where the range comes from
+    /// [`since_newest_phase`], rather than through [`reached_verdict`] with a
+    /// range the test chose: a validator that hands in its own range holds for
+    /// an implementation that reads any range at all, and every commit of
+    /// either fixture changed this document at some point in its history.
     #[test]
     #[validates(spec::ADocumentChangedAfterTheNewestPhaseCommitRestartsAtPhaseTwo)]
     fn a_document_changed_after_the_newest_phase_commit_restarts_at_phase_two() {
-        let (dir, project, _base) = repository("document-changed", &["phase 4: descend for hello"]);
-        let newest = head_of(&dir);
-        std::fs::write(dir.join("app/src/hello/lld.md"), "# hello\n\nThe hello slice, amended.\n").expect("the amended document");
-        commit_all(&dir, "docs: amend the LLD");
-        let verdict = reached_verdict(&project, "hello", &own_commits(&newest)).expect("a verdict for a slice the layout placed");
+        let amended = "# hello\n\nThe hello slice, amended.\n";
+        let (after, moved_after, _base) = repository("document-moved-after", &["phase 4: descend for hello"]);
+        std::fs::write(after.join("app/src/hello/lld.md"), amended).expect("the amended document");
+        commit_all(&after, "docs: amend the LLD");
+        let (before, moved_before, _base) = repository("document-moved-before", &[]);
+        std::fs::write(before.join("app/src/hello/lld.md"), amended).expect("the amended document");
+        commit_all(&before, "docs: amend the LLD");
+        commit_all(&before, "phase 4: descend for hello");
+        let restarted = status(&moved_after, "lld/hello", None).expect("a reading of the branch the document moved on");
+        let resumed = status(&moved_before, "lld/hello", None).expect("a reading of the branch the document moved before");
         assert_eq!(
-            verdict,
-            Restart::AtPhaseTwo { document: dir.join("app/src/hello/lld.md") },
-            "the restart the moved document earns, naming it",
+            (restarted.state.restart, resumed.state.restart),
+            (Some(Restart::AtPhaseTwo { document: after.join("app/src/hello/lld.md") }), Some(Restart::Resume)),
+            "the restart a document moved after the newest phase commit earns, and the resume the same move before it does not disturb",
         );
     }
 
@@ -853,13 +1029,21 @@ mod tests {
     }
 
     /// That reading answers no restart verdict: the `lld.md` the verdict is
-    /// made against is a document no member holds.
+    /// made against is a document no member holds. The slice the same
+    /// workspace *does* hold a document for is read beside it, because "no
+    /// verdict" is also what a reading that never reached one would answer,
+    /// and the claim is that the unplaceable `lld.md` is why.
     #[test]
     #[validates(spec::AnUnresolvableSliceLeavesTheRestartVerdictUnanswered)]
     fn an_unresolvable_slice_leaves_the_restart_verdict_unanswered() {
-        let (_dir, project, _base) = repository("unresolvable-verdict", &["phase 4: descend for ghost"]);
-        let report = status(&project, "lld/ghost", None).expect("a reading, not a refusal");
-        assert_eq!(report.state.restart, None, "no verdict at all, rather than the resume a missing document cannot earn");
+        let (_dir, project, _base) = repository("unresolvable-verdict", &["phase 4: descend for hello"]);
+        let unplaceable = status(&project, "lld/ghost", None).expect("a reading, not a refusal");
+        let placed = status(&project, "lld/hello", None).expect("a reading of the slice a member holds a document for");
+        assert_eq!(
+            (unplaceable.state.restart, placed.state.restart),
+            (None, Some(Restart::Resume)),
+            "no verdict at all for the slice no `lld.md` could be found for, and the verdict the placed slice earns",
+        );
     }
 
     /// A branch that is not `lld/<slice>` is refused naming the convention —
@@ -898,18 +1082,33 @@ mod tests {
     /// writes it: a test that derived its expectation from the writer would
     /// hold for a writer that chose any path at all. This is how the catalog's
     /// own tests pin the same directory (`catalog/mod.rs`, `written_report`),
-    /// and it settles neither of the LLD's Unresolved rows — what is asserted
-    /// is a file at a path, not a route to it.
+    /// and what is asserted is a file at a path, not a route to it.
+    ///
+    /// What the file holds is read back as a [`serde_json::Value`] and not
+    /// through the types that wrote it: a round trip would agree with any
+    /// serialization that could be reversed, while the report a reader of this
+    /// file gets is the JSON that exists. It is also the only place
+    /// [`phase_number`]'s inversion is observable — a phase reaches this file
+    /// as a number and nowhere else — so a file whose existence alone was
+    /// asserted left every phase free to be written as the wrong number.
     #[test]
     #[validates(spec::TheReportIsWrittenToStatusJsonWhateverItFound)]
     fn the_report_is_written_to_status_json_whatever_it_found() {
         let root = scratch("written-report");
         let expected = root.join("target/lid/status.json");
         let written = write_report(&root, &report_of(Vec::new())).expect("the path it wrote");
+        let held: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&written).expect("the file it wrote")).expect("the JSON it holds");
         assert_eq!(
-            (written.as_path(), expected.is_file()),
-            (expected.as_path(), true),
-            "the file a reading that raised no finding still writes",
+            (
+                written.as_path(),
+                held["state"]["slice"].as_str(),
+                held["state"]["phase"].as_u64(),
+                held["state"]["next"].as_u64(),
+                held["findings"].as_array().map(Vec::len),
+            ),
+            (expected.as_path(), Some("hello"), Some(4), Some(5), Some(0)),
+            "the report a reading that raised no finding still writes, phases and all: {held}",
         );
     }
 
