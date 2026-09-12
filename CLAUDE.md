@@ -65,7 +65,7 @@ source.
 ```bash
 cargo check --all-targets
 cargo clippy --all-targets -- -D warnings
-RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps
+RUSTDOCFLAGS="-D rustdoc::broken_intra_doc_links" cargo doc --no-deps --document-private-items
 cargo test --doc
 cargo test --lib
 cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs -p lid-rs-shape --allow-dirty   # tarballs build standalone

@@ -322,7 +322,7 @@ pub fn parse(text: &str, file: &Path) -> Result<Lexicon, String> {
 /// The parse reads the file twice through this enum — once for the verb
 /// tables, once for the prohibited table — so the classification is done once
 /// and the forms are a closed set: a line that is none of them never becomes a
-/// `Line` at all, because [`line`] rejects it naming the file and the line.
+/// `Line` at all, because [`line()`] rejects it naming the file and the line.
 enum Line {
     /// A comment or a blank line, which the format ignores.
     Ignored,
