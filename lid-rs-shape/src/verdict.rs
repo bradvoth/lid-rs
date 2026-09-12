@@ -65,3 +65,88 @@ fn is_public(vis: &syn::Visibility) -> bool {
 fn marked_leaf(attrs: &[syn::Attribute]) -> bool {
     todo!("whether `#[leaf]` is among the {} attributes of the declaration", attrs.len())
 }
+
+#[cfg(test)]
+mod tests {
+    //! The verdict over functions parsed from source: the rule a report names,
+    //! flow as the absence of a failure, and the mark the shape carries.
+    //!
+    //! The functions are parsed whole rather than assembled field by field, so
+    //! what a test states is what a source could write. The file is a fixture's
+    //! and is never read: nothing here touches a filesystem, because a verdict
+    //! is composed from tokens alone.
+
+    use std::path::PathBuf;
+
+    use lid_rs::validates;
+
+    use super::*;
+
+    /// A function as the pass reads one, from the source a fixture wrote.
+    fn function(source: &str) -> Function {
+        let parsed: syn::ItemFn = syn::parse_str(source).expect("a function the fixture wrote");
+        Function {
+            file: PathBuf::from("src/hello/mod.rs"),
+            vis: parsed.vis,
+            attrs: parsed.attrs,
+            sig: parsed.sig,
+            block: *parsed.block,
+        }
+    }
+
+    /// The block a fixture wrote, parsed.
+    fn block(source: &str) -> syn::Block {
+        syn::parse_str(source).expect("a block the fixture wrote")
+    }
+
+    /// A body whose statements are the call forms F1 admits and nothing else.
+    const ROUTES: &str = "fn routes() { let read = source(path)?; answer(read) }";
+
+    /// A body doing arithmetic, which fails F1 and is a leaf.
+    const WORKS: &str = "fn works() { let total = left + right; answer(total) }";
+
+    /// A body that breaks two rules is reported under the lower-numbered of
+    /// them: a literal argument breaks F3 and F5 and is named 3, and a closure
+    /// bound by a `let` breaks F1 and F4 and is named 1.
+    #[test]
+    #[validates(spec::TheVerdictNamesTheLowestNumberedRuleTheBodyFailed)]
+    fn the_verdict_names_the_lowest_numbered_rule_the_body_failed() {
+        let literal_argument = block("{ record(read, 3)?; }");
+        let bound_closure = block("{ let answer = |input| respond(input); answer(read) }");
+        assert_eq!(
+            (first_failed(&literal_argument, &[]), first_failed(&bound_closure, &[])),
+            (Some(3), Some(1)),
+            "the lowest-numbered rule among those the body failed, so a report is stable under a body breaking two",
+        );
+    }
+
+    /// A body failing none of the six is flow and names no rule; one failing
+    /// any is a leaf and names the rule.
+    #[test]
+    #[validates(spec::ABodyFailingNoneOfTheSixRulesIsFlow)]
+    fn a_body_failing_none_of_the_six_rules_is_flow() {
+        let routing = shape_of(&function(ROUTES), &[]);
+        let working = shape_of(&function(WORKS), &[]);
+        assert_eq!(
+            ((routing.flow, routing.first_failed), (working.flow, working.first_failed)),
+            ((true, None), (false, Some(1))),
+            "flow is the absence of a failure, and a leaf's shape names the rule a report names",
+        );
+    }
+
+    /// The mark is read from the declaration's attributes and carried onto the
+    /// shape, which is the only place a reader of the classification can count
+    /// the public leaves rule B allowed.
+    #[test]
+    #[validates(spec::TheShapeOfAMarkedFunctionCarriesTheMarkSoItIsCounted)]
+    fn the_shape_of_a_marked_function_carries_the_mark_so_it_is_counted() {
+        let read_from_the_attributes = marked_leaf(&function("#[leaf] pub fn allowed() { work(input) }").attrs);
+        let carried = shape_of(&function("#[leaf] pub fn allowed() { let total = left + right; answer(total) }"), &[]);
+        let unmarked = shape_of(&function(WORKS), &[]);
+        assert_eq!(
+            (read_from_the_attributes, carried.marked_leaf, unmarked.marked_leaf),
+            (true, true, false),
+            "the mark is read from the attributes and reaches the classification, and an unmarked function carries none",
+        );
+    }
+}

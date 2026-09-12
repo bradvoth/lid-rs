@@ -107,3 +107,140 @@ pub(crate) fn fails_f6(body: &syn::Block, allow_macros: &[String]) -> bool {
 pub(crate) fn dispatch_arity(body: &syn::Block) -> usize {
     todo!("the arms the decision structure in a body of {} statements routes among", body.stmts.len())
 }
+
+#[cfg(test)]
+mod tests {
+    //! One validator per rule, each over a body that breaks the rule and a
+    //! body that does not.
+    //!
+    //! The pairing is what makes the test falsifiable: a rule answering the
+    //! same thing for every body would satisfy half of each claim, and the
+    //! bodies here are chosen so that only the rule under test separates them.
+    //! They are parsed from source rather than built, because the tokens a
+    //! source wrote are the whole of what a rule reads.
+    //!
+    //! Each rule is put its own body and not a whole verdict, because the
+    //! verdict evaluates all six rules at once: aimed through
+    //! [`crate::verdict`] every one of these would name the same rule, which is
+    //! the opposite of what six claims were cut for.
+
+    use lid_rs::validates;
+
+    use super::*;
+
+    /// The block a fixture wrote, parsed.
+    fn block(source: &str) -> syn::Block {
+        syn::parse_str(source).expect("a block the fixture wrote")
+    }
+
+    /// A body of F1's call forms alone: `let pat = call(...)?;`, a bare call,
+    /// and the tail call.
+    const CALLS: &str = "{ let read = source(path)?; record(read)?; answer(read) }";
+
+    /// A body whose one decision structure is the `match` F2 admits, every arm
+    /// a single call.
+    const ONE_MATCH: &str = "{ match kind { Kind::A => first(input), Kind::B => second(input) } }";
+
+    /// A body holding a second decision structure beside the one F2 admits.
+    const TWO_MATCHES: &str = "{ match kind { Kind::A => first(input), Kind::B => second(input) } \
+                               match other { Kind::A => third(input), Kind::B => fourth(input) } }";
+
+    /// A body whose one decision structure is the two-way `if` F2 admits,
+    /// whose arms are blocks by Rust's grammar and so are what F4 must except.
+    const ONE_IF: &str = "{ if ready(input) { first(input) } else { second(input) } }";
+
+    /// A statement that is neither a call form nor the decision structure F2
+    /// admits makes the body a leaf; the call forms and that structure do not.
+    #[test]
+    #[validates(spec::ABodyWithAStatementThatIsNoCallFormIsALeafUnderF1)]
+    fn a_body_with_a_statement_that_is_no_call_form_is_a_leaf_under_f1() {
+        let computes = block("{ let total = left + right; answer(total) }");
+        assert_eq!(
+            (fails_f1(&computes), fails_f1(&block(CALLS)), fails_f1(&block(ONE_MATCH))),
+            (true, false, false),
+            "F1 admits its three call forms and the statement F2 allows, and no other statement",
+        );
+    }
+
+    /// A second decision structure makes the body a leaf; the one F2 admits
+    /// does not.
+    #[test]
+    #[validates(spec::ABodyWithMoreThanOneDecisionStructureIsALeafUnderF2)]
+    fn a_body_with_more_than_one_decision_structure_is_a_leaf_under_f2() {
+        assert_eq!(
+            (
+                fails_f2_a_second_decision_structure(&block(TWO_MATCHES)),
+                fails_f2_a_second_decision_structure(&block(ONE_MATCH)),
+            ),
+            (true, false),
+            "one decision structure is admitted and a second is not",
+        );
+    }
+
+    /// An arm that is more than a single call makes the body a leaf; arms that
+    /// are each one call do not.
+    #[test]
+    #[validates(spec::ADecisionArmThatIsNoSingleCallMakesTheBodyALeafUnderF2)]
+    fn a_decision_arm_that_is_no_single_call_makes_the_body_a_leaf_under_f2() {
+        let working_arm = block("{ match kind { Kind::A => { let read = source(path)?; answer(read) } Kind::B => second(input) } }");
+        assert_eq!(
+            (fails_f2_an_arm_that_is_no_single_call(&working_arm), fails_f2_an_arm_that_is_no_single_call(&block(ONE_MATCH))),
+            (true, false),
+            "an arm doing work is a leaf's arm, and an arm that is one call is not",
+        );
+    }
+
+    /// An argument outside the admitted forms makes the body a leaf; a path, a
+    /// field access, a reference and an accessor chain do not.
+    #[test]
+    #[validates(spec::AnArgumentOutsideTheAdmittedFormsMakesTheBodyALeafUnderF3)]
+    fn an_argument_outside_the_admitted_forms_makes_the_body_a_leaf_under_f3() {
+        let computed = block("{ record(left + right)? }");
+        let admitted = block("{ let read = source(&self.path)?; record(read.name())? }");
+        assert_eq!(
+            (fails_f3(&computed), fails_f3(&admitted)),
+            (true, false),
+            "an argument the caller computed is work in a routing node, and a written access is not",
+        );
+    }
+
+    /// A closure, and a block that is no arm of the decision structure F2
+    /// admits, each make the body a leaf; the arms of that structure do not.
+    #[test]
+    #[validates(spec::AClosureOrANonArmBlockMakesTheBodyALeafUnderF4)]
+    fn a_closure_or_a_non_arm_block_makes_the_body_a_leaf_under_f4() {
+        let closure = block("{ let answer = |input| respond(input); answer(read) }");
+        let bare_block = block("{ { record(read)?; } answer(read) }");
+        assert_eq!(
+            (fails_f4(&closure), fails_f4(&bare_block), fails_f4(&block(ONE_IF))),
+            (true, true, false),
+            "F4's exception is the arm of the structure F2 admits, and nothing else is excepted",
+        );
+    }
+
+    /// A literal other than `()` makes the body a leaf; the unit literal does
+    /// not.
+    #[test]
+    #[validates(spec::ALiteralOtherThanUnitMakesTheBodyALeafUnderF5)]
+    fn a_literal_other_than_unit_makes_the_body_a_leaf_under_f5() {
+        assert_eq!(
+            (fails_f5(&block("{ record(read, 3)? }")), fails_f5(&block("{ record(read, ())? }"))),
+            (true, false),
+            "F5 admits the unit literal alone",
+        );
+    }
+
+    /// A macro outside the set the caller gave makes the body a leaf; one
+    /// inside it does not — the set being the caller's and this rule holding
+    /// none of its own.
+    #[test]
+    #[validates(spec::AMacroOutsideTheAllowedSetMakesTheBodyALeafUnderF6)]
+    fn a_macro_outside_the_allowed_set_makes_the_body_a_leaf_under_f6() {
+        let allowed = ["todo".to_string(), "unimplemented".to_string()];
+        assert_eq!(
+            (fails_f6(&block("{ assert!(ready); }"), &allowed), fails_f6(&block("{ todo!(\"not yet\") }"), &allowed)),
+            (true, false),
+            "the allowed set is the one passed in, so a skeleton's `todo!` is flow and another macro is not",
+        );
+    }
+}

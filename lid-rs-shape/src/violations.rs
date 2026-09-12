@@ -134,3 +134,94 @@ fn tested_name(written: &str, wrappers: &[String]) -> String {
 fn is_denied_name(name: &str) -> bool {
     todo!("whether `{name}` is one of the names rule V denies")
 }
+
+#[cfg(test)]
+mod tests {
+    //! The three decisions this module makes that no composition above it
+    //! could make instead: the mark that is rule B's escape, the set of names
+    //! rule V denies, and the name a written type is tested by.
+    //!
+    //! The rules that the composition could also get wrong — by dropping a
+    //! finding it was handed — are validated through [`crate::check`] instead,
+    //! where an empty answer is a visible wrong answer.
+    //!
+    //! Nothing here touches a filesystem. A shape and a signature are plain
+    //! data the caller of `check` hands over, so a fixture writes them.
+
+    use lid_rs::validates;
+
+    use super::*;
+
+    /// A leaf as the classification carries one: not public, not marked, and
+    /// routing among nothing.
+    fn leaf(function: &str, file: &str) -> Shape {
+        Shape {
+            file: PathBuf::from(file),
+            function: function.to_string(),
+            public: false,
+            flow: false,
+            first_failed: Some(1),
+            dispatch_arity: 0,
+            marked_leaf: false,
+        }
+    }
+
+    /// Owned names, as the caller hands its wrappers over.
+    fn strings(names: &[&str]) -> Vec<String> {
+        names.iter().map(|name| (*name).to_string()).collect()
+    }
+
+    /// The `mod.rs` a fixture's slice is in.
+    const SLICE_MOD: &str = "src/hello/mod.rs";
+
+    /// The mark is the escape from rule B's finding, and the absence of it is
+    /// not: a pass that dropped every marked function would answer none for
+    /// both.
+    #[test]
+    #[validates(spec::APublicLeafMarkedLeafIsNoFindingUnderRuleB)]
+    fn a_public_leaf_marked_leaf_is_no_finding_under_rule_b() {
+        let mods = vec![PathBuf::from(SLICE_MOD)];
+        let marked = rule_b(&Shape { public: true, marked_leaf: true, ..leaf("allowed", SLICE_MOD) }, &mods);
+        let unmarked = rule_b(&Shape { public: true, ..leaf("counted", SLICE_MOD) }, &mods);
+        assert_eq!(
+            (marked, unmarked.is_some()),
+            (None, true),
+            "`#[leaf]` is rule B's escape, and a public leaf without it is still the rule's finding",
+        );
+    }
+
+    /// The denied names are README's deny clause and no other name — which is
+    /// this crate's narrowing of rule V, stated as an allow-list over
+    /// vocabulary types that nothing in reach enumerates.
+    #[test]
+    #[validates(spec::RuleVDeniesReadmesDenyClauseAndNoOtherName)]
+    fn rule_v_denies_readmes_deny_clause_and_no_other_name() {
+        let clause = ["String", "&str", "bool", "u8", "usize", "i64", "f32", "f64", "char"];
+        let outside = ["PathBuf", "Duration", "Report", "Outcome"];
+        let denied: Vec<&str> = clause.into_iter().filter(|name| is_denied_name(name)).collect();
+        let also_denied: Vec<&str> = outside.into_iter().filter(|name| is_denied_name(name)).collect();
+        assert_eq!(
+            (denied, also_denied),
+            (clause.to_vec(), Vec::new()),
+            "every name README's deny clause holds, and no name outside it — the narrowing, not the allow-list",
+        );
+    }
+
+    /// A type written as one of the wrappers the caller gave is tested by the
+    /// name that wrapper holds, however the tokens are spaced, and a type
+    /// written as no wrapper is tested by the name as written.
+    #[test]
+    #[validates(spec::AGivenWrapperIsUnwrappedBeforeRuleVTestsTheName)]
+    fn a_given_wrapper_is_unwrapped_before_rule_v_tests_the_name() {
+        let wrappers = strings(&["Option", "Vec", "Box", "Arc"]);
+        assert_eq!(
+            (
+                tested_name("Option<String>", &wrappers),
+                tested_name("Vec < Box < Report > >", &wrappers),
+                tested_name("Report", &wrappers),
+            ),
+            ("String".to_string(), "Report".to_string(), "Report".to_string()),
+            "the name inside every wrapper the caller named, and the written name where there is none",
+        );
+    }
+}

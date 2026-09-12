@@ -325,3 +325,279 @@ mod intent_graph {
     //! This crate's instance of the graph checks (README §4.2).
     lid_rs::intent_graph!();
 }
+
+#[cfg(test)]
+mod tests {
+    //! The claims the crate's two entry points answer, put to them there.
+    //!
+    //! Five of these are claims a leaf below decides and a composition here
+    //! could still drop: [`check`] answering an empty vector, and
+    //! [`signatures`] answering an empty one, are wrong answers that falsify
+    //! the claim as surely as a wrong decision does. They are validated here
+    //! rather than at the leaf so that both the decision and its propagation
+    //! are covered by the one test the claim is allowed.
+    //!
+    //! The four claims about what the pass does where it cannot answer are
+    //! here for the same reason and one more: a finding raised in place of a
+    //! panic, and an empty classification in place of a refusal, are only
+    //! observable at the entry point.
+    //!
+    //! [`check`] takes plain data, so its fixtures are written rather than
+    //! parsed; [`classify`] and [`signatures`] take a crate root, so theirs are
+    //! files under a scratch directory, made the way this workspace's other
+    //! slices make one. No fixture holds a `#[path]` naming another file, so
+    //! nothing here walks in a circle.
+
+    use lid_rs::validates;
+
+    use super::*;
+
+    /// The file a fixture's slice keeps its public functions in.
+    const SLICE_MOD: &str = "src/hello/mod.rs";
+
+    /// A file of the fixture's slice that is no slice `mod.rs`.
+    const WORK: &str = "src/hello/work.rs";
+
+    /// A leaf as the classification carries one: not public, not marked, and
+    /// routing among nothing.
+    fn leaf(function: &str, file: &str) -> Shape {
+        Shape {
+            file: PathBuf::from(file),
+            function: function.to_string(),
+            public: false,
+            flow: false,
+            first_failed: Some(1),
+            dispatch_arity: 0,
+            marked_leaf: false,
+        }
+    }
+
+    /// A flow node as the classification carries one.
+    fn flow_node(function: &str, file: &str) -> Shape {
+        Shape { public: true, flow: true, first_failed: None, ..leaf(function, file) }
+    }
+
+    /// One function's written signature, as a fixture spells it.
+    fn signature(function: &str, parameters: &[&str], returns: Option<&str>) -> Signature {
+        Signature {
+            file: PathBuf::from(WORK),
+            function: function.to_string(),
+            parameters: parameters.iter().map(|written| (*written).to_string()).collect(),
+            returns: returns.map(str::to_string),
+        }
+    }
+
+    /// The wrappers README names, as the caller hands them over.
+    fn wrappers() -> Vec<String> {
+        ["Option", "Result", "Vec", "Box", "Arc"].iter().map(|name| (*name).to_string()).collect()
+    }
+
+    /// The rule each finding is under and what it names — a function for the
+    /// three rules, and the file or module for the two gaps in coverage, which
+    /// name no function at all.
+    fn under(finding: &Finding) -> (&'static str, String) {
+        match finding {
+            Finding::RuleA { function, .. } => ("A", function.clone()),
+            Finding::RuleB { function, .. } => ("B", function.clone()),
+            Finding::RuleV { function, .. } => ("V", function.clone()),
+            Finding::Unparsable { file, .. } => ("unparsable", file.display().to_string()),
+            Finding::Unreachable { module, .. } => ("unreachable", module.clone()),
+        }
+    }
+
+    /// What the findings say, in the order they were answered.
+    fn reported(findings: &[Finding]) -> Vec<(&'static str, String)> {
+        findings.iter().map(under).collect()
+    }
+
+    /// Type tokens without the spacing a printer chooses.
+    fn tight(tokens: &str) -> String {
+        tokens.replace(' ', "")
+    }
+
+    /// A fresh scratch directory, as this workspace's other slices make one.
+    fn scratch(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join("lid-rs-shape-tests").join(name);
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).expect("scratch dir");
+        dir
+    }
+
+    /// A crate root holding the files named, each under the directory its path
+    /// implies.
+    fn crate_with(name: &str, files: &[(&str, &str)]) -> PathBuf {
+        let root = scratch(name);
+        for (path, source) in files {
+            let file = root.join(path);
+            std::fs::create_dir_all(file.parent().expect("a fixture path with a directory")).expect("fixture directory");
+            std::fs::write(&file, source).expect("fixture source");
+        }
+        root
+    }
+
+    /// A leaf routing among as many kinds as the arm count given is reported
+    /// under rule A, and one routing among fewer is not.
+    #[test]
+    #[validates(spec::ALeafRoutingAmongTheGivenArmCountIsAFindingUnderRuleA)]
+    fn a_leaf_routing_among_the_given_arm_count_is_a_finding_under_rule_a() {
+        let classification = Classification {
+            shapes: vec![
+                Shape { dispatch_arity: 3, ..leaf("dispatches", WORK) },
+                Shape { dispatch_arity: 1, ..leaf("chooses", WORK) },
+            ],
+        };
+        assert_eq!(
+            reported(&check(&classification, &[], &[], 3, &wrappers())),
+            vec![("A", "dispatches".to_string())],
+            "the leaf routing among the arm count given reaches the caller, and the one routing among fewer is no finding",
+        );
+    }
+
+    /// An unmarked public leaf in one of the slice `mod.rs` files given is
+    /// reported under rule B; a public leaf in a file that is no slice's
+    /// `mod.rs` is not.
+    #[test]
+    #[validates(spec::AnUnmarkedPublicLeafInASliceModIsAFindingUnderRuleB)]
+    fn an_unmarked_public_leaf_in_a_slice_mod_is_a_finding_under_rule_b() {
+        let classification = Classification {
+            shapes: vec![
+                Shape { public: true, ..leaf("counted", SLICE_MOD) },
+                Shape { public: true, ..leaf("elsewhere", WORK) },
+            ],
+        };
+        let mods = vec![PathBuf::from(SLICE_MOD)];
+        assert_eq!(
+            reported(&check(&classification, &[], &mods, 3, &wrappers())),
+            vec![("B", "counted".to_string())],
+            "the rule is stated over the slice `mod.rs` files the caller gave, and its finding reaches the caller",
+        );
+    }
+
+    /// A flow parameter written as a denied name is reported under rule V, and
+    /// one written as a name outside the deny clause is not.
+    #[test]
+    #[validates(spec::AFlowParameterWrittenAsADeniedNameIsAFindingUnderRuleV)]
+    fn a_flow_parameter_written_as_a_denied_name_is_a_finding_under_rule_v() {
+        let classification = Classification { shapes: vec![flow_node("reads", WORK), flow_node("routes", WORK)] };
+        let signatures = vec![signature("reads", &["String"], None), signature("routes", &["Report"], None)];
+        assert_eq!(
+            reported(&check(&classification, &signatures, &[], 3, &wrappers())),
+            vec![("V", "reads".to_string())],
+            "the parameter position is read and its finding reaches the caller",
+        );
+    }
+
+    /// A flow `Ok` type written as a denied name is reported under rule V, and
+    /// one written as a name outside the deny clause is not.
+    #[test]
+    #[validates(spec::AFlowOkTypeWrittenAsADeniedNameIsAFindingUnderRuleV)]
+    fn a_flow_ok_type_written_as_a_denied_name_is_a_finding_under_rule_v() {
+        let classification = Classification { shapes: vec![flow_node("reads", WORK), flow_node("routes", WORK)] };
+        let signatures = vec![
+            signature("reads", &[], Some("Result<String, Error>")),
+            signature("routes", &[], Some("Result<Report, Error>")),
+        ];
+        assert_eq!(
+            reported(&check(&classification, &signatures, &[], 3, &wrappers())),
+            vec![("V", "reads".to_string())],
+            "the `Ok` type is read out of the whole written return, and its finding reaches the caller",
+        );
+    }
+
+    /// The name rule V compares is the one the source wrote: a parameter
+    /// written `Text`, which the fixture's crate declares as `type Text =
+    /// String;`, is no finding, while one written `String` is.
+    #[test]
+    #[validates(spec::RuleVTestsTheNameTheSourceWroteAndResolvesNothing)]
+    fn rule_v_tests_the_name_the_source_wrote_and_resolves_nothing() {
+        let classification = Classification { shapes: vec![flow_node("aliased", WORK), flow_node("written", WORK)] };
+        let signatures = vec![signature("aliased", &["Text"], None), signature("written", &["String"], None)];
+        assert_eq!(
+            reported(&check(&classification, &signatures, &[], 3, &wrappers())),
+            vec![("V", "written".to_string())],
+            "an alias is not chased to the name it stands for: resolving one is the line the carve-out does not cross",
+        );
+    }
+
+    /// Every function of the crate carries its parameter tokens, whether the
+    /// classification answers flow or leaf for it.
+    #[test]
+    #[validates(spec::EveryFunctionOfTheCrateHasItsSignatureTokens)]
+    fn every_function_of_the_crate_has_its_signature_tokens() {
+        let source = "pub fn routes(input: &Report) -> Outcome { answer(input) }\n\
+                      pub fn works(left: usize, right: usize) -> usize { left + right }\n";
+        let root = crate_with("signature-tokens", &[("src/lib.rs", source)]);
+        let carried: Vec<(String, String)> =
+            signatures(&root).iter().map(|read| (read.function.clone(), tight(&read.parameters.join(",")))).collect();
+        assert_eq!(
+            carried,
+            vec![("routes".to_string(), "&Report".to_string()), ("works".to_string(), "usize,usize".to_string())],
+            "the flow node and the leaf both, each with the parameter tokens its declaration wrote",
+        );
+    }
+
+    /// A file `syn` cannot parse is answered as a finding, the rest of the
+    /// pass running on — never a panic and never a silent skip.
+    #[test]
+    #[validates(spec::AFileSynCannotParseIsAFindingAndNotAPanic)]
+    fn a_file_syn_cannot_parse_is_a_finding_and_not_a_panic() {
+        let root = crate_with("unparsable", &[("src/lib.rs", "pub fn broken( {\n")]);
+        let (classification, findings) = classify(&root, &[]);
+        let rules: Vec<&str> = reported(&findings).iter().map(|(rule, _)| *rule).collect();
+        assert_eq!(
+            (classification.shapes.len(), rules),
+            (0, vec!["unparsable"]),
+            "a gap in the coverage of every rule at once is reported, and the reading returns",
+        );
+    }
+
+    /// A crate with no `src` directory is answered with the empty
+    /// classification and no finding: a member with nothing to classify is no
+    /// violation.
+    #[test]
+    #[validates(spec::ACrateWithNoSrcDirectoryIsTheEmptyClassification)]
+    fn a_crate_with_no_src_directory_is_the_empty_classification() {
+        let root = crate_with("no-src", &[("Cargo.toml", "[package]\nname = \"member\"\n")]);
+        assert_eq!(
+            classify(&root, &[]),
+            (Classification::default(), Vec::new()),
+            "nothing to classify is answered with nothing, and with no refusal",
+        );
+    }
+
+    /// A module the source gates with `#[cfg]` is classified as written,
+    /// whether the gate is over a file module or an inline one: the pass reads
+    /// tokens and evaluates no gate.
+    #[test]
+    #[validates(spec::ACfgGatedModuleIsClassifiedAsWritten)]
+    fn a_cfg_gated_module_is_classified_as_written() {
+        let root = crate_with(
+            "cfg-gated",
+            &[
+                ("src/lib.rs", "#[cfg(test)]\nmod inline { pub fn checks() { answer(read) } }\n\n#[cfg(feature = \"extra\")]\nmod extra;\n"),
+                ("src/extra.rs", "pub fn gated() { answer(read) }\n"),
+            ],
+        );
+        let read: Vec<String> = classify(&root, &[]).0.shapes.iter().map(|shape| shape.function.clone()).collect();
+        assert_eq!(
+            read,
+            vec!["checks".to_string(), "gated".to_string()],
+            "the gated inline module and the gated file module are both read, the gate evaluated for neither",
+        );
+    }
+
+    /// A module declaration whose `#[path]` names no string literal is
+    /// reported unreachable: coverage the pass cannot read is coverage it must
+    /// not claim.
+    #[test]
+    #[validates(spec::APathAttributeThatIsNoLiteralIsReportedUnreachable)]
+    fn a_path_attribute_that_is_no_literal_is_reported_unreachable() {
+        let source = "#[path = concat!(\"gener\", \"ated.rs\")]\nmod generated;\n";
+        let root = crate_with("no-literal-path", &[("src/lib.rs", source)]);
+        assert_eq!(
+            reported(&classify(&root, &[]).1),
+            vec![("unreachable", "generated".to_string())],
+            "the module the pass cannot follow is named, rather than passed over",
+        );
+    }
+}
