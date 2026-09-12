@@ -62,8 +62,11 @@ pub fn implements_module(input: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Pins a fn as routing: declares that its body must stay a flow decision, so
-/// that the shape pass fails when it acquires work. Takes no arguments and
+/// Pins a fn as routing: declares that its body is meant to stay a flow
+/// decision. The declaration is the whole of what exists today — no check
+/// reads `flow` yet; `lid-rs-shape` reads only `leaf` — and the check that
+/// compares the mark to the shape the body derives is a later change of this
+/// crate (`lid-rs-macros/src/lld.md`, Deferred 2). Takes no arguments and
 /// emits the fn unchanged — the mark is read from source by `lid-rs-shape`,
 /// never from this expansion. Accepted on free fns, inherent methods, trait
 /// method declarations and trait-impl methods; not on closures, which are

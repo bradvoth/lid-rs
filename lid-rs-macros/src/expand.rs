@@ -243,15 +243,14 @@ fn name_guard(ident: &syn::Ident, paths: &[Path], verb: &Verb) -> TokenStream {
 /// polled in the interval to the cited claim. The refusal is one unconditional
 /// act for both verbs: an error spanned on the `async` keyword, or `Ok(())`
 /// (`lid-rs-macros/src/lld.md`, "Citing an `async fn` is refused").
-///
-/// This is the layer-0 body, and it refuses nothing: the signature's
-/// `asyncness` is read and `Ok(())` answered whatever it holds. It is a value
-/// rather than a `todo!()` because this function runs inside every citation in
-/// the workspace (the LLD's "How `refuse_async` is skeletoned"); the refusal
-/// itself is the leaf `fail/async_implements.rs` is red against until it lands.
 fn refuse_async(sig: &syn::Signature) -> syn::Result<()> {
-    let _ = sig.asyncness;
-    Ok(())
+    match sig.asyncness {
+        Some(token) => Err(syn::Error::new(
+            token.span,
+            "lid-rs: spans across `.await` are not supported yet (README §6.8) — cite a synchronous fn",
+        )),
+        None => Ok(()),
+    }
 }
 
 /// Cites a fn: the runtime observation around its body, one registration per
@@ -394,7 +393,13 @@ pub fn implements_module(input: TokenStream) -> syn::Result<TokenStream> {
 /// them and an argument accepted and ignored is a mark whose meaning the next
 /// reader has to guess (`lid-rs-macros/src/lld.md`, "The shape pins").
 pub fn passthrough_pin(args: TokenStream, item: TokenStream) -> syn::Result<TokenStream> {
-    todo!("passthrough_pin: args=`{args}`, item=`{item}`")
+    if !args.is_empty() {
+        return Err(syn::Error::new_spanned(
+            args,
+            "lid-rs: `#[flow]` and `#[leaf]` take no arguments",
+        ));
+    }
+    Ok(item)
 }
 
 /// Expands `#[spec("FOREIGN-ID")]`: re-emits the struct with a doc alias so

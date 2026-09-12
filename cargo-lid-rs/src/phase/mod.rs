@@ -2313,16 +2313,22 @@ version = \"0.2.8\"
     #[test]
     #[validates(spec::ACompileTimeSliceNeedsTheHumansAcceptance)]
     fn a_compile_time_slice_needs_the_humans_acceptance() {
-        // The workspace's own `lid-rs-macros` slice lives in a proc-macro
-        // crate and carries no acceptance file. Its document is colocated at
-        // the crate root, so the file the refusal asks the human for is the
-        // one beside it — named whole, so the human is asked for a path and
-        // not for a convention.
-        let workspace = fixture::workspace();
-        let target = Path::new(env!("CARGO_MANIFEST_DIR")).join("../lid-rs-macros/src/expand.rs");
-        let input = fixture::tool_input("m", "Edit", &target);
-        let verdict = edit_verdict_for(&workspace, Phase::Seven, "lid-rs-macros", &input).expect("hook");
-        assert!(refuses(&verdict, "lid-rs-macros/src/compile-time-accepted"), "{verdict:?}");
+        // A proc-macro crate naming a usable companion, so the slice's crates
+        // resolve, whose document is at its crate root and which carries no
+        // acceptance. The verdict path — not the gate called on its own,
+        // which the test below covers — reaches the acceptance gate and names
+        // the file whole, so the human is asked for a path and not for a
+        // convention. The shape is built here rather than read off this
+        // workspace's own `lid-rs-macros`: a test that reads the tree it runs
+        // in asserts whatever that tree happens to be, and passes only until
+        // a Phase 1 commits the acceptance file.
+        let owner = format!("{}{}", fixture::PROC_MACRO_LIB, fixture::companion_setting("app"));
+        let (dir, project) = fixture::two_member_workspace("compile-time-acceptance", &owner, "");
+        std::fs::write(dir.join("owner/src/lld.md"), "# owner\n\nThe owner slice.\n").expect("the document, at the crate root");
+        assert!(!dir.join("owner/src/compile-time-accepted").exists(), "the fixture carries no acceptance");
+        let input = fixture::tool_input("m", "Edit", &dir.join("owner/src/lib.rs"));
+        let verdict = edit_verdict_for(&project, Phase::Seven, "owner", &input).expect("hook");
+        assert!(refuses(&verdict, "owner/src/compile-time-accepted"), "{verdict:?}");
     }
 
     #[test]
