@@ -44,8 +44,8 @@ mechanism prose would obscure.
 | 1 | "…" | … |
 
 Each slice runs Phases 0–7 of the LID-rs flow with a stop at every phase
-boundary; its LLD lives at `docs/intent/<slice>/lld.md` and is included as the
-documentation of the module that implements it.
+boundary; its LLD lives at `src/<slice>/lld.md`, beside its code, and is
+included as the documentation of the module that implements it.
 
 ## Key Design Decisions
 

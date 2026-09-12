@@ -12,16 +12,17 @@ not work without.
 | Artifact | Location |
 |---|---|
 | HLD | `docs/intent/hld.md`, included via `#![doc = include_str!]` in `src/lib.rs` |
-| LLD, per slice | `docs/intent/<slice>/lld.md`, included via `#[doc = include_str!]` on the slice's module |
-| Atomic claims | `#[derive(Spec)]` unit structs in `src/spec/`; the doc comment is the claim; descriptive names, never numbered IDs |
+| LLD, crate-root slice | `src/lld.md`, included via `#![doc = include_str!("lld.md")]` in `src/lib.rs`; its claims in `src/spec.rs` |
+| LLD, per slice | `src/<slice>/lld.md`, beside the code, included via `#![doc = include_str!("lld.md")]` inside `src/<slice>/mod.rs`; the document's presence is what marks the directory a slice |
+| Atomic claims | `#[derive(Spec)]` unit structs in `src/<slice>/spec.rs`, beside the slice's `lld.md` (`src/spec.rs` for the crate root); the doc comment is the claim; descriptive names, never numbered IDs |
 | Code → claim | `#[implements(spec::ClaimName)]` |
 | Test → claim | `#[validates(spec::ClaimName)]` on `#[cfg(test)]` unit tests inside the library — never under `tests/`, which never links into the registry |
 
 ## The eight phases (README §8)
 
 0. Name the slice: a user-visible operation, not a component.
-1. Write the LLD (human-owned; the agent drafts) — `docs/intent/<slice>/lld.md`.
-2. Derive claims (the agent proposes, the human approves) — `src/spec/`.
+1. Write the LLD (human-owned; the agent drafts) — `src/<slice>/lld.md`.
+2. Derive claims (the agent proposes, the human approves) — `src/<slice>/spec.rs`.
 3. Layer-0 skeleton: signatures + `#[implements]` + `todo!()`; `cargo check` passes.
 4. Descend one layer, breadth-first; check and review at each layer.
 5. Failing-first `#[validates]` tests — confirm red against `todo!()`.

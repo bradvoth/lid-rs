@@ -4,8 +4,8 @@
 
 README §13 is an eleven-step checklist for making a package LID-ready:
 dependency, lint levels, clippy thresholds, mutation profile, an HLD wired
-into `lib.rs`, a `spec` module, the graph checks, a CI gate, and an agent
-instruction file. Every step is mechanical and every step is easy to get
+into `lib.rs`, the first slice's document and claims file, the graph checks, a
+CI gate, and an agent instruction file. Every step is mechanical and every step is easy to get
 subtly wrong — a lint left at `warn`, an `include_str!` one directory off, a
 `[profile.test]` forgotten so inlining erases mutation sites. `cargo lid-rs
 init` performs the checklist; `cargo lid-rs new <name>` runs `cargo new
@@ -45,14 +45,15 @@ Run in a directory holding a package manifest (`Cargo.toml` with
 | `[profile.test] opt-level = 0` | appended table | `[profile.test]` present → conflict |
 | `clippy.toml` (README §7 thresholds) | new file | exists → conflict |
 | `docs/intent/hld.md` — HLD skeleton with the section headings this workspace's HLD uses | new file | exists → conflict |
-| `src/spec/mod.rs` — `//!` doc, no claims | new file | exists → conflict |
-| `src/lib.rs` — `#![doc = include_str!("../docs/intent/hld.md")]` prepended; `pub mod spec;` and the `intent_graph!()` test module appended | edit in place; created if absent (a bin-only package gains a library target, which LID needs for `#[validates]` tests) | `intent_graph!` already present → conflict |
+| `src/lld.md` — the crate-root slice's document: the package's first slice is the crate root until a `src/<slice>/` directory exists | new file | exists → conflict |
+| `src/spec.rs` — the crate-root slice's claims file: `//!` doc, no claims | new file | exists, or a `src/spec/` directory exists (the pre-colocation claims module, which `pub mod spec;` would make ambiguous) → conflict |
+| `src/lib.rs` — `#![doc = include_str!("../docs/intent/hld.md")]` and `#![doc = include_str!("lld.md")]` prepended; `pub mod spec;` and the `intent_graph!()` test module appended | edit in place; created if absent (a bin-only package gains a library target, which LID needs for `#[validates]` tests) | `intent_graph!` already present → conflict |
 | `.github/workflows/gate.yml` — README §4.5 in order, installing `cargo-mutants` and `cargo-lid-rs` | new file | exists → conflict |
 | `.gitignore` — `mutants.out/` | appended line | line present → skipped, not a conflict |
-| `AGENTS.md` — the eight phases, the dispatch/work rule, the gate, and where the full skill lives; `CLAUDE.md` importing it (`@AGENTS.md`) | new files | either exists → conflict |
+| `AGENTS.md` — the eight phases, the dispatch/work rule, the gate, the colocated artifact paths of README §11.1, and where the full skill lives; `CLAUDE.md` importing it (`@AGENTS.md`) | new files | either exists → conflict |
 | `.claude/skills/lid-rs/SKILL.md` — the operating skill | `cargo lid-rs sync` from the resolved `lid-rs` dependency (`docs/intent/sync/lld.md`), run after `cargo add` | exists → conflict |
 
-`new <name>` runs `cargo new --lib <name>`, empties the generated `src/lib.rs`
+`new <name>` runs `cargo new --lib <name>`, replaces the generated `src/lib.rs` with the documented template
 (cargo's `add` function carries no doc comment and would fail
 `missing_docs = "deny"` on the first gate run; the file itself must stay,
 since a package with no target has no metadata), and then performs `init` in
@@ -66,6 +67,64 @@ The lint levels go in `[lints.*]` on the package, not `[workspace.lints]`:
 single-package project reads. A workspace member is not a target of this
 slice (see Deferred).
 
+## The package's first slice is its crate root
+
+A freshly initialised package has no slice directory, and `init` invents no
+name for one: the crate root *is* the first slice, which is README §11.1's
+second shape. So the scaffold is a slice in the colocated layout — `src/lld.md`
+as the slice's document, `src/spec.rs` as its claims file, both declared from
+`src/lib.rs` (`#![doc = include_str!("lld.md")]` beside the HLD include, and
+`pub mod spec;`). The HLD stays at `docs/intent/hld.md`, which is where it
+belongs in either layout.
+
+The library therefore carries two inner doc attributes, and rustdoc
+concatenates them: the package's high-level design, then the first slice's
+document. `src/spec.rs` holds its `//!` doc and no claims, because Phase 2 of
+the first slice is the human's, not `init`'s.
+
+`src/lld.md` is a short document rather than a stub. It states that the
+package's first slice is the crate root until a `src/<slice>/` directory
+exists, and it carries a `## Decisions & Alternatives` heading with one
+four-cell row — because `cargo lid-rs lld-check` refuses a document without
+one (`lld_review/lld.md`), and a scaffold that cannot pass the check the
+package's own Phase 1 runs is a scaffold that fails the gate it installed.
+
+The proof that the scaffold *is* a crate-root slice is in-process, not a
+subprocess: the validator of
+`AnInitialisedPackageIsACrateRootSliceThatPassesItsOwnGate` opens the
+scaffolded package as a `Project`, asserts `layout::Form::of_slice` answers
+`CrateRoot` for the package's name, and runs `lld_review`'s checks over the
+scaffolded `src/lld.md` the way `cargo lid-rs lld-check` does, asserting they
+report nothing — beside the gate run it already makes. The template is data
+and can be wrong in no other observable way, so the claim on that validator
+is what makes the one-row Decisions table a requirement rather than a habit.
+
+### What the layout resolver requires of the scaffold
+
+Verified against a scratch `cargo new` package with the tool built from this
+workspace. `layout::Form::of_slice` answers `CrateRoot` for a slice when two
+things hold, and only those two:
+
+1. The crate's `src/lld.md` exists — the document's presence is the only thing
+   that marks a directory a slice.
+2. The slice's name is the manifest's `[package] name`, spelled exactly as the
+   manifest spells it, hyphens and all — `src/lld.md` names no slice itself, so
+   the package name is where the name comes from.
+
+Nothing reads `src/spec.rs` to decide the form; `layout::spec_file` *derives*
+`src/spec.rs` from the form once `CrateRoot` is settled. So `cargo lid-rs
+lld-check --slice <package-name>` resolves the scaffold's `src/lld.md`, and
+the first slice's phases find their claims file where the resolver says it is.
+
+One shape defeats it, and it is brownfield only: a package that already holds
+`src/<package-name-as-a-module>/` — package `demo-pkg` with a `src/demo_pkg/`
+— is read as a *module* slice, and its document is looked for at
+`src/demo_pkg/lld.md`. `init` writes `src/lld.md` there as everywhere; that
+package's crate-root slice is unresolvable until the module is renamed or that
+directory carries its own document. `init` neither detects this nor refuses
+it: it is the general brownfield bargain — the package is made LID-ready and
+the first gate run names what the package already had (Deferred 5).
+
 ## The skill
 
 The operating skill is the standing instruction an agent loads to run the
@@ -75,6 +134,30 @@ the `lid-rs` crate, and `init` obtains it the way every later update does —
 `sync` from the dependency `cargo add` just resolved
 (`docs/intent/sync/lld.md`). The skill a project gets is therefore the one
 that matches its `lid-rs`, not the one the installed tool happened to embed.
+
+## What lands by hand, and in what order
+
+Two things no phase of this slice may write. The phase policy's rows for a
+module slice name `src/init/`, plus `src/lib.rs` at Phases 3 and 4
+(`cargo-lid-rs/src/phase/policy.rs`, `own_table`); nothing under
+`cargo-lid-rs/templates/`, which is where every file `plan()` includes lives.
+
+**1. The new and reworded template files — after Phase 1, before Phase 3.**
+`templates/lld.md` (the crate-root slice's document, with its one-row
+Decisions table), `templates/spec.rs` (the `//!` doc `templates/spec_mod.rs`
+carries, reworded for a file beside `lib.rs`), `templates/lib_header.rs` (the
+second `#![doc = include_str!("lld.md")]` line), `templates/AGENTS.md` (the
+artifact table and the phase list spelling `src/<slice>/lld.md`,
+`src/<slice>/spec.rs`, and the crate-root pair), and `templates/hld.md` (its
+one mention of a slice document's path). They must precede Phase 3 because
+`plan()` reaches them through `include_str!`, so the skeleton's `cargo check`
+fails on a missing file. `templates/spec_mod.rs` stays in this commit: `plan()`
+still includes it until Phase 3 rewrites the entry, and a deleted include is a
+red `cargo check` at the hand commit itself.
+
+**2. Deleting `templates/spec_mod.rs` — after Phase 3.** Once the skeleton's
+`plan()` no longer names it, the file is dead and goes. Both commits are the
+human's, with this section as their reason.
 
 ## Decisions & Alternatives
 
@@ -88,6 +171,7 @@ that matches its `lid-rs`, not the one the installed tool happened to embed.
 | Bin-only packages | `init` creates `src/lib.rs`; the existing binary is untouched | Refuse; require `--lib`; document `main.rs` on the user's behalf | `cargo new` defaults to a binary. LID's validations live in the library test binary (§5.2), so a package without a library cannot run checks 10–12; creating the library is the smallest change that makes the package eligible, and cargo discovers it without a manifest edit. The binary is the user's code: the lint levels apply to it immediately (§11, brownfield), so the package's first full gate run names its undocumented `main` — the intended adoption experience, not a defect of `init`. |
 | `new`'s `lib.rs` | Emptied, then wired by `init` into the documented skeleton | Keep cargo's `add` function and document it in place; delete the file and let `init` create it | cargo's boilerplate exists to be replaced; documenting a placeholder function is busywork the first slice deletes anyway. Deleting was tried and fails: `cargo metadata` rejects a package with no target, so `init` cannot locate it. `init` on an existing package never replaces `lib.rs`. |
 | Agent instructions | `AGENTS.md` with the phases, the rule, and the gate; `CLAUDE.md` = `@AGENTS.md`; the skill synced from the dependency | `CLAUDE.md` only; a URL to the published skill and nothing local; wait for the plugin; a skill template embedded in the tool (the 0.1 arrangement) | `AGENTS.md` is the cross-tool convention and `CLAUDE.md` imports it, so both Claude Code and other agents read one text. A URL alone leaves an agent that does not fetch operating blind. A template in the tool describes the tool's version, not the project's `lid-rs`; syncing from the dependency ties the skill to the crate whose mechanics it documents and gives projects an update path. |
+| Scaffold layout | The crate root is the package's first slice: `src/lld.md` and `src/spec.rs`, wired from `src/lib.rs`; the HLD stays at `docs/intent/hld.md` | Keep the pre-colocation `src/spec/mod.rs` re-exporting a file per slice; scaffold a named first slice directory `src/<name>/{lld.md,spec.rs,mod.rs}`; ask `layout` for the paths at scaffold time | README §11.1 makes an `lld.md` in a directory the only marker of a slice, so a scaffold emitting `src/spec/mod.rs` teaches a layout the resolver, the phase policy and the book no longer read — and leaves the package's own first slice with nowhere its document resolves. A named first slice directory would have `init` make Phase 0's decision, which is the decision with the largest downstream cost in the methodology, and would leave a dead directory when the human names the slice something else. Asking `layout` at scaffold time is asking a resolver where a slice is that does not exist yet: every door there answers from a document on disk, so the only answer available before `init` writes one is the refusal — `init` writes the layout, it does not read it, and the check that it wrote the right one is `lld-check` run afterwards. Claims to reword at Phase 2, each renamed with a `#[deprecated]` alias: `InitWiresTheLibraryIntoTheGraph` (the library is wired with two doc includes and a sibling `spec` module, not one include and a `spec` directory) and `AnInitialisedPackagePassesItsOwnGate` (the end-to-end proof now also resolves the scaffold as a crate-root slice). Claims this change adds or rewords are written in the controlled language and carry no `#[lid(free)]` mark; the slice's other marks stay until its own burn-down (the ramp's per-slice rule, `lid-rs-macros/src/claim/lld.md`). |
 | Workspace members | Out of scope; `init` targets the package in the current directory | Detect membership and write `[workspace.lints]` + `[lints] workspace = true` | Two manifests, two conflict rules, and a package that inherits lints from a root `init` did not write. Deferred until a member project asks for it. |
 
 ## Open Questions & Future Decisions
@@ -102,9 +186,13 @@ that matches its `lid-rs`, not the one the installed tool happened to embed.
    toolchain enforces and a constraint on the parts that are process guidance
    and could update independently. Where that seam lies is not yet clear;
    break the skill up once it is.
+5. `init` on a package that already holds a module named for the package, whose
+   crate-root slice the layout resolver reads as a module slice.
 
 ## References
 
-- README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html) (configuration), [§11](https://bradvoth.github.io/lid-rs/spec/layout.html) (layout and brownfield adoption), [§13](https://bradvoth.github.io/lid-rs/spec/bootstrap.html) (the checklist this command performs).
+- README [§7](https://bradvoth.github.io/lid-rs/spec/configuration.html) (configuration), [§11.1](https://bradvoth.github.io/lid-rs/spec/layout.html) (the colocated layout the scaffold is in), [§11.3](https://bradvoth.github.io/lid-rs/spec/layout.html) (brownfield adoption), [§13](https://bradvoth.github.io/lid-rs/spec/bootstrap.html) (the checklist this command performs).
 - [`cargo add`](https://doc.rust-lang.org/cargo/commands/cargo-add.html) — the manifest editor relied on.
 - `docs/intent/publish/lld.md` — why nothing outside a package root can be `include_str!`'d.
+- `cargo-lid-rs/src/layout/lld.md` — the four shapes a slice's directory has, and the doors (`slice_dir`, `lld_path`, `spec_file`) the scaffold must resolve through.
+- `cargo-lid-rs/src/lld_review/lld.md` — the checks the scaffolded `src/lld.md` must pass.
