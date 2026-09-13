@@ -83,6 +83,20 @@
 //! report's rule number is the ordering claim's, where a body failing two rules
 //! is the fixture that can falsify it.
 //!
+//! **The owner is one claim over three kinds, not three claims.** The document
+//! says a signature carries whose function it is — the `impl` block's self type
+//! as written, the `trait`'s name, or none for a free function — and that
+//! "those three kinds are one decision and it stays in that one body",
+//! `functions_of`. A claim per kind would be three validators for one decision
+//! structure, each green while the other two arms were wrong, which is the
+//! shape check 14 is meant to prevent, not produce.
+//! [`ASignaturesOwnerIsTheBlockItWasReadFrom`] names all three so its one
+//! validator has to see all three. It is stated of
+//! [`signatures`](crate::signatures) because the derive requires a link a
+//! reader can follow and `functions_of` is private; the body that decides it is
+//! named in the claim's own text, in backticks, so the implementer to cite is
+//! not in doubt.
+//!
 //! **Four of the five "cannot answer" behaviours are claims; one is not.** A
 //! file `syn` cannot parse, a crate with no `src`, a `#[cfg]`-gated module and a
 //! `#[path]` the pass cannot read from are each a decision the pass makes, and
@@ -112,9 +126,10 @@
 //! dropped for the package cycle, so nothing here claims a second entry point.
 //! The re-measurement itself is a report taken at Phase 7, not shipped code.
 //!
-//! **The controlled language was held by hand.** `lid-rs-shape/src/lib.rs`
-//! declares no `pub mod spec;` yet — the LLD lands that line between this phase
-//! and Phase 3 — so nothing compiles this file and check 13 does not run on it.
+//! **The controlled language is checked on every claim here.**
+//! `lid-rs-shape/src/lib.rs` declares `pub mod spec;`, so the derive compiles
+//! each sentence as it is written and check 13 runs on this file; the first
+//! claims were held by hand before that line landed.
 //! Every verb below is the base lexicon's (`be`, `carry`, `name`, `report`),
 //! which is what a publishable crate is held to whatever a project's file says;
 //! every claim is one sentence with one `shall`, one terminator and its
@@ -259,6 +274,15 @@ pub struct EveryFunctionOfTheCrateHasItsSignatureTokens;
 /// not the `Ok` type alone.
 #[derive(Spec)]
 pub struct TheReturnTokensAreTheWholeWrittenTypeAndNotTheOkTypeAlone;
+
+/// When [`signatures`](crate::signatures) reads a function, the
+/// [`Signature`](crate::Signature) it carries for it shall carry as its owner
+/// the self type of the `impl` block the function was read from as the source
+/// wrote it, the name of the `trait` block it was read from, or none for a free
+/// function, `functions_of` being the one body that knows which of the three
+/// kinds the tokens came from.
+#[derive(Spec)]
+pub struct ASignaturesOwnerIsTheBlockItWasReadFrom;
 
 // ---- What the pass does where it cannot answer ------------------------------
 
