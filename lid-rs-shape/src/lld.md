@@ -363,6 +363,19 @@ stop:
    invoked with this name; **Open Question 1 is the only one left blocking
    Phase 2.**
 
+3. **Open: the join between the two answers is on file and function name,
+   and the owner is the key it lacks.** `check` pairs a `Shape` with a
+   `Signature` by the file and the function's name, so two functions of one
+   name in one file — a trait's bodied `render` and `impl Render for
+   Report`'s `render`, the pair the owner validation reads — are joined to
+   whichever came first, and rule V reads one's tokens for the other's
+   shape. `Signature` now carries the owner that tells them apart;
+   `Shape` does not, and the join does not read it. Adding the owner to
+   `Shape` and to the join is a change to the classification's answer and
+   a Phase 8 of its own; nothing in this workspace declares such a pair
+   outside that one test fixture, so it is recorded here rather than
+   taken.
+
 ### Deferred
 
 1. Changing `cognitive-complexity-threshold`, and
