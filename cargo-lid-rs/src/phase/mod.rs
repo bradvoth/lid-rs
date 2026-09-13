@@ -794,7 +794,7 @@ fn gate(publishing: &[String], extra: &[Vec<String>]) -> Vec<Step> {
         Step::SyncCheck,
         Step::Mutants,
     ];
-    floor.into_iter().chain(extra.iter().map(|entry| -> Step { todo!("carry {entry:?} as Step::Extra after the floor") })).collect()
+    floor.into_iter().chain(extra.iter().cloned().map(Step::Extra)).collect()
 }
 
 /// Runs steps in order against the project; the first failure is the
@@ -850,7 +850,21 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
     spec::AnExtraStepThatExitsNonZeroOrCannotRunFailsTheGateNamingTheEntry,
 )]
 fn extra_step(project: &Project, entry: &[String]) -> Result<(), String> {
-    todo!("run {entry:?} as a program at the workspace root {:?}, through no shell", project.root())
+    let (program, arguments) = entry.split_first().expect("`policy::gate_extra` refuses an empty entry before any step runs");
+    let output = std::process::Command::new(program)
+        .args(arguments)
+        .current_dir(project.root()?)
+        .output()
+        .map_err(|e| format!("running `{}`: {e}", entry.join(" ")))?;
+    output.status.success().then_some(()).ok_or_else(|| {
+        format!(
+            "`{}` exited with {}:\n{}{}",
+            entry.join(" "),
+            output.status,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )
+    })
 }
 
 /// One step's cargo arguments as data, so what a step invokes is assertable

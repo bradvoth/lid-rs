@@ -232,12 +232,9 @@ const GATE_EXTRA_KEY: &str = "gate_extra";
 /// `package_setting_at`: the raw door implements no claim, and the reading
 /// of the node is here.
 ///
-/// The absent arm is the skeleton's answer kept: `check` builds every phase's
-/// plan through here, and every validation outside this change's red set runs
-/// on a project that names no key, so that arm answering the empty list is
-/// what keeps them green. The non-list arm stays `todo!()` rather than the
-/// failure it will be, so the claim it implements is still red at Phase 5 —
-/// written as the failure now, its validation would be green on arrival.
+/// `check` builds every phase's plan through here, so a value the tool cannot
+/// read fails at whichever phase is running, before any step runs; the entries
+/// are read in order and the first entry that cannot be read is the failure.
 #[implements(
     spec::GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest,
     spec::AnAbsentGateExtraIsTheEmptyListSoTheFloorAloneRuns,
@@ -249,7 +246,7 @@ pub fn gate_extra(project: &Project) -> Result<Vec<Vec<String>>, String> {
         None => Ok(Vec::new()),
         Some(Value::Array(entries)) => entries.iter().map(extra_entry).collect(),
         Some(found @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Object(_))) => {
-            todo!("fail the check naming `{GATE_EXTRA_KEY}` and what it found instead of a list: {found}")
+            Err(format!("`{GATE_EXTRA_KEY}` must be a list of steps, each a list of strings; found {found}"))
         }
     }
 }
@@ -264,7 +261,11 @@ pub fn gate_extra(project: &Project) -> Result<Vec<Vec<String>>, String> {
     spec::AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry,
 )]
 fn extra_entry(value: &Value) -> Result<Vec<String>, String> {
-    todo!("read {value} as a non-empty list of strings, or fail naming `{GATE_EXTRA_KEY}` and the entry")
+    value
+        .as_array()
+        .filter(|words| !words.is_empty())
+        .and_then(|words| words.iter().map(|word| word.as_str().map(str::to_string)).collect())
+        .ok_or_else(|| format!("`{GATE_EXTRA_KEY}` holds an entry that is not a non-empty list of strings: {value}"))
 }
 
 /// A crate's `src`: the directory a crate-root slice's code is, and the one
