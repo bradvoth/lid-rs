@@ -67,13 +67,17 @@ pub struct Classification {
     pub shapes: Vec<Shape>,
 }
 
-/// One function's written parameter and return type tokens.
+/// One function's written signature: its parameter and return type tokens,
+/// and the owner it was read under.
 ///
 /// Written, not resolved: the tokens are the ones the source spelled, never
 /// what a `use` or a type alias would turn them into. Both positions are kept
 /// whole — the return is the whole written type and not the `Ok` type dug out
 /// of it — because a consumer that wants the `Ok` type can read it from the
-/// whole, and one that wants the whole cannot recover it from a part.
+/// whole, and one that wants the whole cannot recover it from a part. The
+/// owner is spelled the same way — the `impl` block's self type as the source
+/// wrote it, the `trait`'s name, or none for a free function — so a `Self` in
+/// either type position stays `Self` and the owner is what explains it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature {
     /// The file the function's tokens were read from.
@@ -245,7 +249,9 @@ pub fn classify(crate_root: &Path, allow_macros: &[String]) -> (Classification, 
 /// `crate_root` is the directory a crate's `Cargo.toml` sits in, as it is for
 /// [`classify`], and the functions are the same ones: a reader that joined the
 /// two answers on a file and a name would find one entry here for every
-/// [`Shape`] there.
+/// [`Shape`] there. Each entry also carries the owner of its function — the
+/// `impl` block's self type as written, the `trait`'s name, or none for a free
+/// function — which is what lets a consumer read a written `Self`.
 ///
 /// The breadth is the point. Rule V reads these tokens for the flow functions
 /// alone, but a conformance check reads them for every implementer of a claim,

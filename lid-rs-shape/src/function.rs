@@ -130,20 +130,20 @@ fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
 /// The owner a free function carries.
 #[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
 fn owner_of_free_function() -> Option<String> {
-    todo!("owner of a free function")
+    None
 }
 
 /// The owner a method of an `impl` block carries: the block's self type, as
 /// the source wrote it.
 #[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
 fn owner_of_impl_block(self_ty: &syn::Type) -> Option<String> {
-    todo!("owner of the methods of `impl {}`", self_ty.to_token_stream())
+    Some(self_ty.to_token_stream().to_string())
 }
 
 /// The owner a method of a `trait` block carries: the trait's name.
 #[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
 fn owner_of_trait_block(name: &syn::Ident) -> Option<String> {
-    todo!("owner of the methods of `trait {name}`")
+    Some(name.to_string())
 }
 
 /// One function as the pass carries one, from the pieces a declaration wrote.
