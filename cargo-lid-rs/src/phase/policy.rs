@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
+use serde_json::Value;
 
 use super::Phase;
 use crate::layout;
@@ -220,21 +221,23 @@ const GATE_EXTRA_KEY: &str = "gate_extra";
 /// `Project::setting_node` answers for `gate_extra` — the
 /// `[workspace.metadata.lid_rs]` table's as `cargo metadata` reports it,
 /// falling back to the root package's `[package.metadata.lid_rs]` as
-/// `mutation_scope` is read, and never a manifest the tool parsed. An absent
-/// key is the empty list, so a workspace that configures nothing runs the
-/// floor and only the floor; a value that is not a list fails the check
-/// naming `gate_extra` and what it found; an entry that is not a non-empty
-/// list of strings fails the check naming `gate_extra` and the entry it could
-/// not read. The same two-sided shape `companion` has over
+/// `mutation_scope` is read, and never a manifest the tool parsed. One
+/// decision over the shape of that answer: an absent key is the empty list,
+/// so a workspace that configures nothing runs the floor and only the floor;
+/// a list is its entries, each read by `extra_entry`, whose failure for an
+/// entry that is not a non-empty list of strings is this one's; and a value
+/// that is not a list at all — null, a boolean, a number, a string, a table —
+/// fails the check naming `gate_extra` and what it found, since it is neither
+/// an absent key nor an entry. The same two-sided shape `companion` has over
 /// `package_setting_at`: the raw door implements no claim, and the reading
 /// of the node is here.
 ///
-/// This is the skeleton's body, not the leaf's: the node is read and every
-/// answer is the empty list. That is the one wrong answer that compiles —
-/// `check` builds every phase's plan through here, so a `todo!()` would
-/// redden validations that are not this change's — and it is wrong for a
-/// configured key and for a malformed one, which is what leaves those claims
-/// red until the parse is written.
+/// The absent arm is the skeleton's answer kept: `check` builds every phase's
+/// plan through here, and every validation outside this change's red set runs
+/// on a project that names no key, so that arm answering the empty list is
+/// what keeps them green. The non-list arm stays `todo!()` rather than the
+/// failure it will be, so the claim it implements is still red at Phase 5 —
+/// written as the failure now, its validation would be green on arrival.
 #[implements(
     spec::GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest,
     spec::AnAbsentGateExtraIsTheEmptyListSoTheFloorAloneRuns,
@@ -242,8 +245,26 @@ const GATE_EXTRA_KEY: &str = "gate_extra";
     spec::AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry,
 )]
 pub fn gate_extra(project: &Project) -> Result<Vec<Vec<String>>, String> {
-    let _node = project.setting_node(GATE_EXTRA_KEY);
-    Ok(Vec::new())
+    match project.setting_node(GATE_EXTRA_KEY) {
+        None => Ok(Vec::new()),
+        Some(Value::Array(entries)) => entries.iter().map(extra_entry).collect(),
+        Some(found @ (Value::Null | Value::Bool(_) | Value::Number(_) | Value::String(_) | Value::Object(_))) => {
+            todo!("fail the check naming `{GATE_EXTRA_KEY}` and what it found instead of a list: {found}")
+        }
+    }
+}
+
+/// One entry of a configured `gate_extra` as the words of a command — a
+/// non-empty list of strings, the first the program and the rest its
+/// arguments — or the failure naming `gate_extra` and the entry it could not
+/// read: an empty list, a bare string, a number among the words. A gate step
+/// that cannot be read is never a gate step silently skipped.
+#[implements(
+    spec::GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest,
+    spec::AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry,
+)]
+fn extra_entry(value: &Value) -> Result<Vec<String>, String> {
+    todo!("read {value} as a non-empty list of strings, or fail naming `{GATE_EXTRA_KEY}` and the entry")
 }
 
 /// A crate's `src`: the directory a crate-root slice's code is, and the one
