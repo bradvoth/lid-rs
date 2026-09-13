@@ -38,12 +38,16 @@ pub const READER: &str = ".claude/agents/lid-rs-lld-review.md";
 /// The tools an advisory reader may declare: it observes, and cannot act.
 const OBSERVATION_TOOLS: [&str; 3] = ["Read", "Grep", "Glob"];
 
-/// Every check, in the order the LLD's table states them: the four over the
-/// document, then the two over the project's synced artifacts.
-const EVERY_CHECK: [Check; 6] = [
+/// Every check, in the order the LLD's table states them: the seven over the
+/// document — five of its text alone, two reading beside it — then the two
+/// over the project's synced artifacts.
+const EVERY_CHECK: [Check; 9] = [
     Check::DecisionsExist,
     Check::Alternatives,
     Check::ShapeRows,
+    Check::ShapeAgrees,
+    Check::SkeletonableReturns,
+    Check::ReuseRowsLinked,
     Check::DeferredNumbered,
     Check::GuidelineNamesEveryCheck,
     Check::ReaderObservesOnly,
@@ -133,6 +137,17 @@ pub enum Check {
     /// Every row of a `## Shape` table names at least one backticked
     /// identifier and gives a non-empty role.
     ShapeRows,
+    /// Where a `## Shape` row's first cell writes a signature fragment for a
+    /// function the slice's own source declares, the fragment's argument count
+    /// is that function's parameter count, and a return it writes is the
+    /// source's.
+    ShapeAgrees,
+    /// A `## Shape` row's return fragment is a type a layer-0 skeleton can be
+    /// written for: not an `impl Trait` return, and not a bare `dyn Trait` one.
+    SkeletonableReturns,
+    /// A first cell's fragment that names another slice's item in the same
+    /// crate is written as an intra-doc link, whose resolution is rustdoc's.
+    ReuseRowsLinked,
     /// Every item under `### Deferred` is a numbered list item.
     DeferredNumbered,
     /// The guideline's checklist names every variant of [`Check`].
@@ -174,6 +189,19 @@ fn artifact_failure(check: Check, path: &Path, line: usize, found: &str) -> Fail
     Failure { check, path: path.to_path_buf(), line, message: format!("{found}: {}", rule(check)) }
 }
 
+/// A failure over a shape row the source disagrees with — the one shape a
+/// source-reading failure takes, beside [`failure`] and [`artifact_failure`]:
+/// the check, the document's path and the row's line as every failure carries
+/// them, and a message naming the item's file, what the row said and what the
+/// source said, in that order, before the sentence the skill states the rule
+/// in. The row is what a human is about to fix and the source is the evidence
+/// they fix it against; the two are in different files and a failure carries
+/// one path, so the document's is the path and the source's is in the sentence.
+#[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+fn agreement_failure(check: Check, path: &Path, line: usize, item_file: &Path, row: &str, source: &str) -> Failure {
+    todo!("agreement_failure({check:?}, {}, {line}, {}, {row}, {source})", path.display(), item_file.display())
+}
+
 /// The sentence the skill states a check's rule in, which its failure quotes.
 #[implements(spec::AFailureNamesItsCheckItsFileItsLineAndItsRule)]
 fn rule(check: Check) -> &'static str {
@@ -182,6 +210,15 @@ fn rule(check: Check) -> &'static str {
         Check::Alternatives => "every row of that table has four non-empty cells",
         Check::ShapeRows => {
             "where a `## Shape` table exists, every row names at least one backticked identifier and gives a non-empty role"
+        }
+        Check::ShapeAgrees => {
+            "where a `## Shape` row's first cell writes a signature fragment for a function the slice's own source declares, the fragment's argument count is that function's parameter count, and a return it writes is the one the source wrote"
+        }
+        Check::SkeletonableReturns => {
+            "a `## Shape` row's return fragment is not an `impl Trait` return and not a bare `dyn Trait` one"
+        }
+        Check::ReuseRowsLinked => {
+            "a first cell's fragment that names another slice's item in the same crate — a lowercase-module-qualified path that is not the slice's own, a sibling's, or a crate's — is written as an intra-doc link"
         }
         Check::DeferredNumbered => "every item under `### Deferred` is a numbered list item",
         Check::GuidelineNamesEveryCheck => "the guideline's checklist names every check the tool knows",
@@ -264,20 +301,30 @@ pub fn rendered(failures: &[Failure]) -> String {
         .join("\n")
 }
 
-/// Every check over one document, in the table's order: the four document
-/// checks against `lld`, then the two artifact checks, which read the
-/// project's synced copies and so run whatever slice was named. Every failure
-/// is collected — no check is skipped because an earlier one failed. The
-/// project is a parameter beside the document because the artifact checks are
-/// about files the document does not name; the error is reserved for a project
-/// whose root cannot be located, an unreadable artifact being a [`Failure`]
-/// like any other.
-#[implements(spec::EveryFailureIsReportedNotOnlyTheFirst, spec::TheArtifactChecksRunWhateverSliceIsNamed)]
+/// Every check over one document, in the table's order — which is the order
+/// [`Check`] declares its variants: the seven document checks against `lld`,
+/// two of which read beside it (the slice's own source, and the listing of its
+/// directory), then the two artifact checks, which read the project's synced
+/// copies and so run whatever slice was named. Every failure is collected — no
+/// check is skipped because an earlier one failed. The project is a parameter
+/// beside the document because the artifact checks are about files the
+/// document does not name, and the source-reading checks about a crate it does
+/// not name; the error is reserved for a project whose root cannot be located
+/// — an unreadable artifact is a [`Failure`] like any other, and a slice whose
+/// crate cannot be located declares nothing and lists nothing.
+#[implements(
+    spec::EveryFailureIsReportedNotOnlyTheFirst,
+    spec::TheArtifactChecksRunWhateverSliceIsNamed,
+    spec::TheChecksRunInTheOrderTheTableStatesThem,
+)]
 pub fn check_all(project: &Project, lld: &Lld) -> Result<Vec<Failure>, String> {
     Ok([
         decisions_exist(lld),
         alternatives(lld),
         shape_rows(lld),
+        shape_agrees(project, lld),
+        shape_returns(lld),
+        reuse_rows_linked(project, lld),
         deferred_numbered(lld),
         guideline_names_every_check(project)?,
         reader_observes_only(project)?,
@@ -322,8 +369,17 @@ fn fills_four_cells(row: &Row) -> bool {
 /// instead.
 #[implements(spec::ADocumentWithNoShapeTableHoldsThatCheck)]
 pub fn shape_rows(lld: &Lld) -> Vec<Failure> {
+    rows_without_identifier_or_role(lld, &shape_table_rows(lld))
+}
+
+/// The rows of the `## Shape` table, and none when the document has no such
+/// table — the one place that decision is made. Four checks read the shape
+/// rows, and a document that names its shape in prose instead holds every one
+/// of them for this reason and no other.
+#[implements(spec::ADocumentWithNoShapeTableHoldsThatCheck)]
+fn shape_table_rows(lld: &Lld) -> Vec<Row> {
     match table_at(lld, SHAPE_HEADING) {
-        Some(table) => rows_without_identifier_or_role(lld, &table),
+        Some(table) => table.rows,
         None => vec![],
     }
 }
@@ -331,10 +387,8 @@ pub fn shape_rows(lld: &Lld) -> Vec<Failure> {
 /// The shape rows that name no identifier or give no role, each failing on its
 /// own line.
 #[implements(spec::EveryShapeRowNamesAnIdentifierAndARole)]
-fn rows_without_identifier_or_role(lld: &Lld, table: &Table) -> Vec<Failure> {
-    table
-        .rows
-        .iter()
+fn rows_without_identifier_or_role(lld: &Lld, rows: &[Row]) -> Vec<Failure> {
+    rows.iter()
         .filter(|row| !names_identifier_and_role(row))
         .map(|row| failure(Check::ShapeRows, &lld.path, row.line))
         .collect()
@@ -560,6 +614,212 @@ fn cells(line: &str) -> Vec<String> {
 #[implements(spec::EveryShapeRowNamesAnIdentifierAndARole)]
 pub fn identifiers(cell: &str) -> Vec<String> {
     cell.split('`').skip(1).step_by(2).map(str::to_string).collect()
+}
+
+/// One function the slice's own source declares, as the shape pass read it:
+/// the tokens the source wrote, never what a `use` or an alias would turn them
+/// into. Data, so no claim is cited here: the claims about this shape are
+/// [`declared`]'s, which answers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Declared {
+    /// The function's name, as the source wrote it.
+    pub name: String,
+    /// For a method, the self type of the `impl` block it was read from; none
+    /// for a free function, whose `Self` then stands for nothing.
+    pub owner: Option<String>,
+    /// The parameters the reading answered, as type tokens, less a first one
+    /// whose tokens are the receiver's — `Self`, `&Self`, `&mut Self` or
+    /// `Box<Self>` — so that every count taken from this list is a count of
+    /// arguments.
+    pub parameters: Vec<String>,
+    /// The return tokens as the source wrote them, whole; none for a function
+    /// declared with no `->` at all.
+    pub returns: Option<String>,
+    /// The file the function's tokens were read from.
+    pub file: PathBuf,
+}
+
+/// One signature fragment a first cell writes: `name(a, b, c)` or
+/// `Owner::name(a, b, c)`, with an optional `-> Type`, or a bare type name.
+/// Data, so no claim is cited here: the claims about this shape are
+/// [`fragments`]'s, which answers it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fragment {
+    /// The `::`-separated segments of the identifier, in order.
+    pub path: Vec<String>,
+    /// The arguments between the parentheses when the fragment writes them,
+    /// less a first one written `self`, `&self` or `&mut self`; none when it
+    /// writes no parentheses, which names a type rather than a function.
+    pub arguments: Option<Vec<String>>,
+    /// The type after an ASCII `->` when the fragment writes one; a Unicode `→`
+    /// writes no return.
+    pub returns: Option<String>,
+    /// Whether the cell wrapped the backtick span in a markdown link — the span
+    /// immediately preceded by `[` and immediately followed by `](`.
+    pub linked: bool,
+}
+
+/// The functions the slice's own source declares, read through
+/// [`lid_rs_shape::signatures`] over the slice's own crate,
+/// [`layout::own_crate`](crate::layout::own_crate), and kept where the file is
+/// under [`layout::slice_dir`](crate::layout::slice_dir) or is the
+/// `src/<module>.rs` file module beside it — the `<module>` being the slice's
+/// name as [`layout::module_of`](crate::layout::module_of) spells it, the only
+/// conversion a path ever gets. Each is carried with its receiver, if any,
+/// dropped from its parameters. No `Result`: a slice no workspace member holds
+/// a crate for declares nothing, and a file the reading cannot parse
+/// contributes nothing, and neither is a failure.
+#[implements(
+    spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory,
+    spec::ASliceNoCrateHoldsDeclaresNoFunction,
+    spec::ADeclaredMethodsReceiverIsNotAmongItsParameters,
+)]
+pub fn declared(project: &Project, slice: &str) -> Vec<Declared> {
+    todo!("declared({project:?}, {slice})")
+}
+
+/// Every signature fragment one cell writes, one per backticked identifier and
+/// as many as the cell holds: the identifier's `::`-separated segments; the
+/// arguments between its parentheses when it writes them, less a first one
+/// written `self`, `&self` or `&mut self`, and none at all when it writes no
+/// parentheses; the type after an ASCII `->` when it writes one, a Unicode `→`
+/// writing no return; and whether the cell wrapped the span in a markdown link
+/// — immediately preceded by `[` and immediately followed by `](` — since any
+/// other neighbour means bare.
+#[implements(
+    spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment,
+    spec::AReturnIsWrittenWithTheAsciiArrowAlone,
+    spec::AFirstArgumentWrittenAsAReceiverIsNotAFragmentsArgument,
+    spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink,
+)]
+pub fn fragments(cell: &str) -> Vec<Fragment> {
+    todo!("fragments({cell})")
+}
+
+/// The first cells whose fragment names a function the slice declares and
+/// agrees with none of the declarations it names, each failing on its own
+/// row's line. A fragment writing no parentheses names a type and is compared
+/// to nothing; a fragment naming no declared function is compared to none and
+/// holds — at Phase 1 nothing is declared yet, at Phase 3 half of it is, and a
+/// reuse row names an item another slice owns — which is why the check needs
+/// no phase told to it. A document with no `## Shape` table has no row to
+/// compare, as `shape_table_rows` decides.
+#[implements(
+    spec::AFragmentWithoutParenthesesIsComparedToNothing,
+    spec::AFragmentNamingNoDeclaredFunctionIsComparedToNone,
+    spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds,
+)]
+pub fn shape_agrees(project: &Project, lld: &Lld) -> Vec<Failure> {
+    todo!("shape_agrees({project:?}, {lld:?})")
+}
+
+/// Whether a fragment names one declared function at all: their names are
+/// equal and, where the fragment's first segment starts with an uppercase
+/// letter — a type — that segment is the declaration's owner. A lowercase
+/// first segment is a module, which the reading carries no function under, so
+/// it narrows nothing and the fragment is matched by name alone.
+#[implements(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
+pub fn matches(fragment: &Fragment, declared: &Declared) -> bool {
+    todo!("matches({fragment:?}, {declared:?})")
+}
+
+/// One fragment against one declaration it names: the fragment's argument
+/// count is the declaration's parameter count — the fragment's own `self`
+/// already dropped where the cell was read, the declaration's receiver already
+/// dropped where the source was read, so a row writing `&mut self` and a row
+/// leaving it out both agree with a method — and the fragment's return, where
+/// it writes one, is the source's as [`same_type`] compares them.
+#[implements(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
+pub fn agrees(fragment: &Fragment, declared: &Declared) -> bool {
+    todo!("agrees({fragment:?}, {declared:?})")
+}
+
+/// The row's return type against the source's, compared as a reader compares
+/// them: whitespace stripped from both sides, lifetime arguments and lifetime
+/// annotations erased from both, and `Self` substituted on both with `owner`
+/// — the declaration's, never the fragment's own qualifier, and none for a
+/// free function, whose `Self` then stands for no type and the two disagree.
+#[implements(
+    spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared,
+    spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared,
+    spec::SelfIsTheDeclarationsOwnerOnBothSides,
+)]
+pub fn same_type(row_return: &str, source_return: &str, owner: Option<&str>) -> bool {
+    todo!("same_type({row_return}, {source_return}, {owner:?})")
+}
+
+/// The rows whose first cell names another slice's item as a bare identifier
+/// rather than an intra-doc link, each failing on its own line; the link's
+/// resolution is rustdoc's, at the doc step Phase 1 already runs. Which rows
+/// those are is [`is_reuse`]'s decision, over the slice's own name, its
+/// [`siblings`] and the workspace's [`crate_names`]. A document with no
+/// `## Shape` table has no row to ask, as `shape_table_rows` decides.
+#[implements(spec::AReuseRowNamesItsItemAsAnIntraDocLink)]
+pub fn reuse_rows_linked(project: &Project, lld: &Lld) -> Vec<Failure> {
+    todo!("reuse_rows_linked({project:?}, {lld:?})")
+}
+
+/// The module names one level inside the slice's directory — the directory
+/// [`layout::slice_dir`](crate::layout::slice_dir) answers: a file's stem
+/// without its extension, `mod.rs` left out since it names the slice itself,
+/// and a directory's own name. A listing, which resolves nothing: a name is a
+/// name there whether or not a `mod` declaration mentions it. Empty for a slice
+/// with no directory to read, whether no crate holds it, its code is the one
+/// file `src/<module>.rs`, or the directory cannot be read.
+#[implements(
+    spec::ASiblingIsAFileStemOrADirectoryNameOneLevelInsideTheSlice,
+    spec::ASliceWithNoDirectoryToReadListsNoSibling,
+)]
+pub fn siblings(project: &Project, slice: &str) -> Vec<String> {
+    todo!("siblings({project:?}, {slice})")
+}
+
+/// The workspace members' names as a path spells them:
+/// [`Project::member_manifest_dirs`] for the members, [`Project::package_at`]
+/// for each one's package name, hyphens read as underscores — `lid-rs-shape`
+/// is the package's name and `lid_rs_shape` is the path's.
+#[implements(spec::ACrateNameIsAMembersPackageNameWithHyphensAsUnderscores)]
+pub fn crate_names(project: &Project) -> Vec<String> {
+    todo!("crate_names({project:?})")
+}
+
+/// One decision over one fragment: whether it names another slice's item in
+/// the same crate. It does when its path has two or more segments, its first
+/// segment starts with a lowercase letter, and that segment is none of the
+/// slice's own name in module form, the siblings listed for it, or the crate
+/// names — a bare name names nothing elsewhere, an uppercase first segment is a
+/// type the role cell introduces, a name inside the slice's directory is the
+/// slice's own, and a crate name is a path into a crate rather than a sibling
+/// module.
+#[implements(
+    spec::AModuleQualifiedPathOutsideTheSlicesDirectoryIsAReuseRow,
+    spec::APathThatIsNotModuleQualifiedIsNotAReuseRow,
+    spec::APathIntoTheSlicesOwnModulesIsNotAReuseRow,
+    spec::APathQualifiedByAWorkspaceMembersCrateNameIsNotAReuseRow,
+)]
+pub fn is_reuse(fragment: &Fragment, slice: &str, siblings: &[String], crates: &[String]) -> bool {
+    todo!("is_reuse({fragment:?}, {slice}, {siblings:?}, {crates:?})")
+}
+
+/// One decision over a return fragment: whether a signature written with it
+/// and a `todo!()` body compiles. False for an `impl Trait` return, whose
+/// hidden type a `todo!()` body infers as `!`, which implements nothing, and
+/// for a bare `dyn Trait` one, which is unsized in return position; true for
+/// every type that merely contains them, since the test is over the return's
+/// outermost form and nothing deeper.
+#[implements(spec::AnImplTraitOrBareDynTraitReturnIsNotSkeletonable, spec::AReturnThatMerelyContainsAnImplOrDynTypeIsSkeletonable)]
+pub fn skeletonable(returns: &str) -> bool {
+    todo!("skeletonable({returns})")
+}
+
+/// The rows whose return fragment cannot be skeletonised, as [`skeletonable`]
+/// decides, each failing on its own line — refused at Phase 1, where the
+/// document is committed and the human who wrote it is present, rather than at
+/// Phase 3, where a worker meets a row it cannot write. A document with no
+/// `## Shape` table has no row to refuse, as `shape_table_rows` decides.
+#[implements(spec::ARowWhoseReturnCannotBeSkeletonisedFailsOnItsLine)]
+pub fn shape_returns(lld: &Lld) -> Vec<Failure> {
+    todo!("shape_returns({lld:?})")
 }
 
 #[cfg(test)]
