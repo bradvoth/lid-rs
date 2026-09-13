@@ -56,8 +56,9 @@ first commit onward. Phases 2–7 of a slice are run by the phase agents
 (`cargo lid-rs phase-check N`; the full list below at `phase 7:`) and makes
 the commit — the hook, not an agent, gates every phase commit. The main
 session commits only Phase 1 and documentation, and runs the check by hand
-for those. `phase-check 7` is the floor; `mdbook build book` is this
-workspace's extra step, run by hand. The hooks run the installed
+for those. `phase-check 7` is the floor, and `mdbook build book` is this
+workspace's own step after it, declared as `gate_extra` in the root
+manifest's `[workspace.metadata.lid_rs]` and run by the same check. The hooks run the installed
 `cargo-lid-rs`, not the working tree (refresh it with `cargo install --path
 cargo-lid-rs --locked` after merging): a worker here edits the hook's own
 source.
@@ -71,7 +72,7 @@ cargo test --lib
 cargo package -p lid-rs -p lid-rs-macros -p cargo-lid-rs -p lid-rs-shape --allow-dirty   # tarballs build standalone
 cargo run -p cargo-lid-rs -- sync --check   # .claude/{skills,workflows,agents} == lid-rs/{skill,workflow,agent} (canonical; edit those)
 cargo run -p cargo-lid-rs -- mutants   # check 12 from source (consumers: `cargo lid-rs mutants`)
-mdbook build book                    # the site is assembled by inclusion; breaks on drift
+mdbook build book                    # the site is assembled by inclusion; breaks on drift (the `gate_extra` step; phase-check 7 runs it after mutants)
 ```
 
 ## Tenets (order wins on conflict; full statements in the HLD)

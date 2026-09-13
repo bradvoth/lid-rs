@@ -41,6 +41,8 @@ missing_docs_in_private_items = "warn"
 
 [workspace.metadata.lid_rs]
 mutation_scope = "diff"
+# The workspace's own gate step, run by `phase-check 7` after the floor.
+gate_extra = [["mdbook", "build", "book"]]
 
 # README §4.3: inlining must not erase a mutation site.
 [profile.test]
