@@ -38,6 +38,16 @@ pub const READER: &str = ".claude/agents/lid-rs-lld-review.md";
 /// The tools an advisory reader may declare: it observes, and cannot act.
 const OBSERVATION_TOOLS: [&str; 3] = ["Read", "Grep", "Glob"];
 
+/// The type tokens a receiver stands for in the reading of a declaration: the
+/// four shapes a `self` parameter is answered as, since the reading says what
+/// type each parameter is and never which of them was written `self`.
+const RECEIVER_TOKENS: [&str; 4] = ["Self", "&Self", "&mut Self", "Box<Self>"];
+
+/// The spellings a shape row writes a receiver as, which are not arguments:
+/// the tables use both conventions — a row that writes the receiver and a row
+/// that leaves it out — and neither is wrong.
+const WRITTEN_RECEIVERS: [&str; 3] = ["self", "&self", "&mut self"];
+
 /// Every check, in the order the LLD's table states them: the seven over the
 /// document — five of its text alone, two reading beside it — then the two
 /// over the project's synced artifacts.
@@ -63,6 +73,10 @@ const CELL_DELIMITER: char = '|';
 /// The character a markdown heading starts with, which is what ends the
 /// section above it.
 const HEADING_MARK: char = '#';
+
+/// The character a markdown span of code is delimited by, which is how a cell
+/// says that what lies between two of them is an identifier.
+const BACKTICK: char = '`';
 
 /// The markers a markdown list item carries when it carries no number.
 const BULLETS: [&str; 3] = ["- ", "* ", "+ "];
@@ -610,10 +624,35 @@ fn cells(line: &str) -> Vec<String> {
         .collect()
 }
 
-/// The backticked identifiers a cell names.
+/// The backticked identifiers a cell names: the text of each of its [`spans`],
+/// in the order the cell writes them.
 #[implements(spec::EveryShapeRowNamesAnIdentifierAndARole)]
 pub fn identifiers(cell: &str) -> Vec<String> {
-    cell.split('`').skip(1).step_by(2).map(str::to_string).collect()
+    spans(cell).into_iter().map(|span| cell[span].to_string()).collect()
+}
+
+/// The backtick spans of a cell, in document order: the text between the first
+/// backtick and the second, the third and the fourth, and so on, as ranges into
+/// the cell — a span never closed running to the cell's end.
+///
+/// The one reading of a cell's backticks. [`identifiers`] answers what is
+/// inside them and [`linked`] answers what surrounds them, so the nth
+/// identifier and the nth span are the same span rather than two readings
+/// agreeing by luck.
+#[implements(
+    spec::EveryShapeRowNamesAnIdentifierAndARole,
+    spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink,
+)]
+fn spans(cell: &str) -> Vec<Range<usize>> {
+    cell.split(BACKTICK)
+        .scan(0, |start, part| {
+            let span = *start..*start + part.len();
+            *start += part.len() + BACKTICK.len_utf8();
+            Some(span)
+        })
+        .skip(1)
+        .step_by(2)
+        .collect()
 }
 
 /// One function the slice's own source declares, as the shape pass read it:
@@ -624,8 +663,9 @@ pub fn identifiers(cell: &str) -> Vec<String> {
 pub struct Declared {
     /// The function's name, as the source wrote it.
     pub name: String,
-    /// For a method, the self type of the `impl` block it was read from; none
-    /// for a free function, whose `Self` then stands for nothing.
+    /// For a method, the block it was read from — the self type of an `impl`,
+    /// or the name of the `trait` that gave the method a body; none for a free
+    /// function, whose `Self` then stands for nothing.
     pub owner: Option<String>,
     /// The parameters the reading answered, as type tokens, less a first one
     /// whose tokens are the receiver's — `Self`, `&Self`, `&mut Self` or
@@ -669,13 +709,89 @@ pub struct Fragment {
 /// dropped from its parameters. No `Result`: a slice no workspace member holds
 /// a crate for declares nothing, and a file the reading cannot parse
 /// contributes nothing, and neither is a failure.
+///
+/// The two doors refuse together, which is why one answer stands for both: each
+/// is [`Form::of_slice`](crate::layout::Form::of_slice)'s, that shape is
+/// documented never to be `Companion` — the one shape with a directory and no
+/// crate of its own — and the `NoCrate` it answers for a slice no member holds
+/// a document for is exactly the shape with neither. So a refusal here is
+/// always *this slice has no crate*, never half an answer.
 #[implements(
     spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory,
     spec::ASliceNoCrateHoldsDeclaresNoFunction,
     spec::ADeclaredMethodsReceiverIsNotAmongItsParameters,
 )]
 pub fn declared(project: &Project, slice: &str) -> Vec<Declared> {
-    todo!("declared({project:?}, {slice})")
+    let (Ok(own_crate), Ok(dir)) = (layout::own_crate(project, slice), layout::slice_dir(project, slice)) else {
+        return vec![];
+    };
+    slice_declarations(&own_crate, &dir, &layout::module_of(slice))
+}
+
+/// The functions one crate's reading declares for the slice: every signature
+/// [`lid_rs_shape::signatures`] answers over that crate, kept where its file is
+/// the slice's, each translated into this slice's own [`Declared`]. The
+/// library's type goes no further than [`declared_from`], so no interior
+/// function of this slice takes a `lid_rs_shape::Signature`.
+#[implements(spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory)]
+fn slice_declarations(own_crate: &Path, dir: &Path, module: &str) -> Vec<Declared> {
+    lid_rs_shape::signatures(own_crate)
+        .into_iter()
+        .filter(|signature| in_the_slice(&signature.file, dir, module))
+        .map(declared_from)
+        .collect()
+}
+
+/// Whether a declaration's file is the slice's own: under the slice's
+/// directory, read through, or the `src/<module>.rs` file module beside it,
+/// since a slice whose code is one file keeps it there and the directory may
+/// not exist at all.
+#[implements(spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory)]
+fn in_the_slice(file: &Path, dir: &Path, module: &str) -> bool {
+    todo!("in_the_slice({}, {}, {module})", file.display(), dir.display())
+}
+
+/// One signature the shape pass read, as the [`Declared`] this slice carries:
+/// the reading's own name, owner, return tokens and file, and its parameters
+/// less a first one whose type tokens are the receiver's, so that every count
+/// taken from them afterwards is a count of arguments. The one place a
+/// `lid_rs_shape::Signature` is turned into this slice's own data, which is
+/// what keeps the library at the boundary.
+#[implements(spec::ADeclaredMethodsReceiverIsNotAmongItsParameters)]
+fn declared_from(signature: lid_rs_shape::Signature) -> Declared {
+    Declared {
+        name: signature.function,
+        owner: signature.owner,
+        parameters: less_receiver(&signature.parameters),
+        returns: signature.returns,
+        file: signature.file,
+    }
+}
+
+/// A declaration's parameters as this slice counts them: the reading's own,
+/// less a first one that is a receiver. The reading says what type each
+/// parameter stands for and never which of them was written `self`, so the
+/// first parameter's tokens are the whole of the evidence.
+#[implements(spec::ADeclaredMethodsReceiverIsNotAmongItsParameters)]
+fn less_receiver(parameters: &[String]) -> Vec<String> {
+    match parameters.first() {
+        Some(first) if is_receiver(first) => parameters[1..].to_vec(),
+        Some(_) | None => parameters.to_vec(),
+    }
+}
+
+/// Whether a parameter's type tokens are a receiver's: one of the
+/// [`RECEIVER_TOKENS`], both sides [`stripped`] as every comparison of tokens
+/// here is — the reading renders them with the spacing its printer chose, and
+/// the constant is written the way a human writes them.
+///
+/// The lifetime half of that reading is not decoration: a receiver written
+/// `&'a self` is answered as the type it stands for, `& 'a Self`, and comparing
+/// that with whitespace alone taken out would leave a method's receiver counted
+/// as one of its arguments.
+#[implements(spec::ADeclaredMethodsReceiverIsNotAmongItsParameters)]
+fn is_receiver(parameter: &str) -> bool {
+    RECEIVER_TOKENS.iter().any(|receiver| stripped(receiver) == stripped(parameter))
 }
 
 /// Every signature fragment one cell writes, one per backticked identifier and
@@ -693,7 +809,81 @@ pub fn declared(project: &Project, slice: &str) -> Vec<Declared> {
     spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink,
 )]
 pub fn fragments(cell: &str) -> Vec<Fragment> {
-    todo!("fragments({cell})")
+    identifiers(cell).iter().enumerate().map(|(nth, identifier)| fragment_of(cell, nth, identifier)).collect()
+}
+
+/// One backticked identifier as the fragment it writes, carrying the cell and
+/// which span of it the identifier came from, because the link test is about
+/// that span's neighbours rather than about the identifier's text.
+#[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
+fn fragment_of(cell: &str, nth: usize, identifier: &str) -> Fragment {
+    Fragment {
+        path: path_segments(identifier),
+        arguments: arguments(identifier),
+        returns: written_return(identifier),
+        linked: linked(cell, nth),
+    }
+}
+
+/// The `::`-separated segments of an identifier's name: what it writes before
+/// its parentheses, or the whole of it where it writes none.
+#[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
+fn path_segments(identifier: &str) -> Vec<String> {
+    todo!("path_segments({identifier})")
+}
+
+/// The arguments an identifier writes: those between its parentheses, less a
+/// first one written as a receiver, and none at all where it writes no
+/// parentheses, since such an identifier names a type rather than a function.
+#[implements(spec::AFirstArgumentWrittenAsAReceiverIsNotAFragmentsArgument)]
+fn arguments(identifier: &str) -> Option<Vec<String>> {
+    Some(without_receiver(&argument_list(identifier)?))
+}
+
+/// The comma-separated arguments between an identifier's parentheses, each
+/// trimmed, and none at all where it writes no parentheses. Empty parentheses
+/// hold an empty list and not an absent one: `run()` is a function of no
+/// arguments, which agrees with a declaration that takes none, where a
+/// fragment that writes no parentheses at all names a type and is compared to
+/// nothing.
+#[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
+fn argument_list(identifier: &str) -> Option<Vec<String>> {
+    todo!("argument_list({identifier})")
+}
+
+/// An argument list less a first argument written as a receiver — one of the
+/// [`WRITTEN_RECEIVERS`] — so that what is left is a list of arguments however
+/// the row's author spelled the method.
+#[implements(spec::AFirstArgumentWrittenAsAReceiverIsNotAFragmentsArgument)]
+fn without_receiver(written: &[String]) -> Vec<String> {
+    match written.first() {
+        Some(first) if WRITTEN_RECEIVERS.contains(&first.as_str()) => written[1..].to_vec(),
+        Some(_) | None => written.to_vec(),
+    }
+}
+
+/// The return an identifier writes: the type after an ASCII `->`, and none at
+/// all where it writes no such arrow — which is what makes a Unicode `→` a row
+/// with no return rather than a row with a return spelled another way.
+#[implements(spec::AReturnIsWrittenWithTheAsciiArrowAlone)]
+fn written_return(identifier: &str) -> Option<String> {
+    todo!("written_return({identifier})")
+}
+
+/// Whether the cell wrapped one of its backtick spans in a markdown link: the
+/// nth of the cell's [`spans`], immediately preceded by `[` and immediately
+/// followed by `](`, any other neighbour meaning bare. The span is taken by
+/// position and never by searching the cell for the identifier's text, so a
+/// cell that writes one identifier twice — once as a link and once bare —
+/// answers for each fragment where that fragment is, and a span that is not
+/// there at all is not linked.
+///
+/// A span can end at the cell's last byte — [`spans`] runs an unclosed one to
+/// the end — so the byte after it is a byte that may not exist, and the
+/// neighbour after the span is asked for rather than indexed.
+#[implements(spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink)]
+fn linked(cell: &str, nth: usize) -> bool {
+    todo!("linked({cell}, {nth})")
 }
 
 /// The first cells whose fragment names a function the slice declares and
@@ -710,7 +900,108 @@ pub fn fragments(cell: &str) -> Vec<Fragment> {
     spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds,
 )]
 pub fn shape_agrees(project: &Project, lld: &Lld) -> Vec<Failure> {
-    todo!("shape_agrees({project:?}, {lld:?})")
+    let declarations = declared(project, &lld.slice);
+    shape_table_rows(lld).iter().flat_map(|row| row_disagreements(lld, row, &declarations)).collect()
+}
+
+/// The first cell of a row, and the empty cell for a row with none: the cell
+/// every check of a `## Shape` row reads, since a row is about what its first
+/// cell names and its role cell legitimately names anything, including the
+/// crate that does the reading.
+#[implements(
+    spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds,
+    spec::AReuseRowNamesItsItemAsAnIntraDocLink,
+    spec::ARowWhoseReturnCannotBeSkeletonisedFailsOnItsLine,
+)]
+fn first_cell(row: &Row) -> &str {
+    row.cells.first().map_or("", String::as_str)
+}
+
+/// One row's first cell as the pairs an agreement failure needs: each
+/// backticked identifier as the cell wrote it, beside the [`Fragment`] read
+/// from it — [`fragments`] answers one per identifier in the order the cell
+/// holds them, which is the order [`identifiers`] reads them in, so the two
+/// readings pair off.
+#[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+fn written_fragments(row: &Row) -> Vec<(String, Fragment)> {
+    let cell = first_cell(row);
+    identifiers(cell).into_iter().zip(fragments(cell)).collect()
+}
+
+/// The failures one row earns: each fragment of its first cell that names a
+/// declared function and agrees with none of the declarations it names, as the
+/// failure on that row's line naming the item's file, what the row said and
+/// what the source said.
+#[implements(
+    spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds,
+    spec::AnAgreementFailureNamesTheItemsFileAndBothReadings,
+)]
+fn row_disagreements(lld: &Lld, row: &Row, declarations: &[Declared]) -> Vec<Failure> {
+    written_fragments(row)
+        .iter()
+        .filter_map(|(written, fragment)| disagreement(fragment, declarations).map(|source| (written, source)))
+        .map(|(written, source)| agreement_failure(Check::ShapeAgrees, &lld.path, row.line, &source.file, written, &source_wrote(source)))
+        .collect()
+}
+
+/// The declaration one fragment disagrees with, and none where it has nothing
+/// to disagree with: a fragment agreeing with any of the declarations it names
+/// holds, and one naming no declaration at all is compared to none, which is
+/// the same answer read off the same list. Where it names several and agrees
+/// with none, the first is the one a failure quotes: a name the crate declares
+/// twice is not thereby wrong, and choosing which of them the row meant would
+/// be the resolution this slice does not do.
+#[implements(
+    spec::AFragmentNamingNoDeclaredFunctionIsComparedToNone,
+    spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds,
+)]
+fn disagreement<'a>(fragment: &Fragment, declarations: &'a [Declared]) -> Option<&'a Declared> {
+    let named = compared(fragment, declarations);
+    if named.iter().any(|declaration| agrees(fragment, declaration)) { None } else { named.first().copied() }
+}
+
+/// The declarations one fragment is compared to: those it [`matches`], and
+/// none at all where it writes no parentheses, since a fragment without them
+/// names a type rather than a function. Both ways of being compared to nothing
+/// are this answer being empty — the fragment that names no declared function
+/// as much as the one that names no function at all.
+#[implements(
+    spec::AFragmentWithoutParenthesesIsComparedToNothing,
+    spec::AFragmentNamingNoDeclaredFunctionIsComparedToNone,
+)]
+fn compared<'a>(fragment: &Fragment, declarations: &'a [Declared]) -> Vec<&'a Declared> {
+    match fragment.arguments {
+        Some(_) => declarations.iter().filter(|declaration| matches(fragment, declaration)).collect(),
+        None => vec![],
+    }
+}
+
+/// One declaration spelled back as the source wrote it, which is the evidence
+/// half of an agreement failure — what a human fixes the row against. The name,
+/// qualified by the owner where it has one; the parameter type tokens the
+/// reading answered, between parentheses and comma-separated, the receiver
+/// already gone; and the return after an ASCII `->` where the source declared
+/// one, nothing at all where it did not. It is evidence and not a grammar: a
+/// reader is meant to recognise the item in it, so what a message about it must
+/// hold is these three parts, not this spelling of them.
+#[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+fn source_wrote(declaration: &Declared) -> String {
+    format!("{}({}){}", qualified(declaration), declaration.parameters.join(", "), returning(declaration.returns.as_deref()))
+}
+
+/// A declaration's name as the source qualifies it: `Owner::name` where the
+/// function was read from an `impl` or a `trait` block, and the bare name for a
+/// free function.
+#[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+fn qualified(declaration: &Declared) -> String {
+    todo!("qualified({declaration:?})")
+}
+
+/// A return as a signature writes it: `-> Type` where the source declared one,
+/// and nothing at all where it did not.
+#[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+fn returning(returns: Option<&str>) -> String {
+    todo!("returning({returns:?})")
 }
 
 /// Whether a fragment names one declared function at all: their names are
@@ -718,6 +1009,12 @@ pub fn shape_agrees(project: &Project, lld: &Lld) -> Vec<Failure> {
 /// letter — a type — that segment is the declaration's owner. A lowercase
 /// first segment is a module, which the reading carries no function under, so
 /// it narrows nothing and the fragment is matched by name alone.
+///
+/// The qualifier and the owner are compared [`stripped`], as every comparison
+/// of tokens here is: the reading prints the self type of an `impl<'_> Fields<'_>`
+/// as `Fields < '_ >`, and a row's qualifier `Fields` would otherwise match no
+/// declaration at all, so every row about a method of a generic type would be
+/// compared to nothing and the check would quietly stop checking.
 #[implements(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
 pub fn matches(fragment: &Fragment, declared: &Declared) -> bool {
     todo!("matches({fragment:?}, {declared:?})")
@@ -731,7 +1028,34 @@ pub fn matches(fragment: &Fragment, declared: &Declared) -> bool {
 /// it writes one, is the source's as [`same_type`] compares them.
 #[implements(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
 pub fn agrees(fragment: &Fragment, declared: &Declared) -> bool {
-    todo!("agrees({fragment:?}, {declared:?})")
+    same_arity(fragment, declared) && same_return(fragment.returns.as_deref(), declared)
+}
+
+/// Whether a fragment writes as many arguments as the declaration takes
+/// parameters. Each side's receiver is already gone — the fragment's where the
+/// cell was read, the declaration's where the source was read — so this is a
+/// count of arguments against a count of arguments. A fragment that writes no
+/// parentheses never reaches here, [`compared`] having left it out, so the
+/// arguments it writes are the arguments it has.
+#[implements(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
+fn same_arity(fragment: &Fragment, declared: &Declared) -> bool {
+    todo!("same_arity({fragment:?}, {declared:?})")
+}
+
+/// Whether the return a row writes is the one the source wrote. A row that
+/// writes none is agreeing about arguments alone and holds whatever the source
+/// returns, since the check is stated over the return a row writes. A row that
+/// writes one against a declaration the source gave no `->` at all disagrees:
+/// the row's return must be the source's, and the source's is nothing. Where
+/// both write one, [`same_type`] compares them under the declaration's owner,
+/// which is the only thing a `Self` on either side can stand for.
+#[implements(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
+fn same_return(row_return: Option<&str>, declared: &Declared) -> bool {
+    match (row_return, declared.returns.as_deref()) {
+        (None, _) => true,
+        (Some(_), None) => false,
+        (Some(row), Some(source)) => same_type(row, source, declared.owner.as_deref()),
+    }
 }
 
 /// The row's return type against the source's, compared as a reader compares
@@ -739,13 +1063,229 @@ pub fn agrees(fragment: &Fragment, declared: &Declared) -> bool {
 /// annotations erased from both, and `Self` substituted on both with `owner`
 /// — the declaration's, never the fragment's own qualifier, and none for a
 /// free function, whose `Self` then stands for no type and the two disagree.
+/// The owner is read the same way the two sides are before it stands anywhere,
+/// since it is tokens the same printer wrote.
 #[implements(
     spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared,
     spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared,
     spec::SelfIsTheDeclarationsOwnerOnBothSides,
 )]
 pub fn same_type(row_return: &str, source_return: &str, owner: Option<&str>) -> bool {
-    todo!("same_type({row_return}, {source_return}, {owner:?})")
+    match (as_compared(row_return, owner), as_compared(source_return, owner)) {
+        (Some(row), Some(source)) => row == source,
+        (None, _) | (_, None) => false,
+    }
+}
+
+/// One type as the comparison reads it: [`stripped`], and then its `Self`
+/// standing for the declaration's owner — the owner `stripped` the same way,
+/// since it is tokens the reading printed like any other and nothing else in
+/// this slice normalises it. Without that, the owner of an `impl<'a> Returned<'a>`
+/// arrives as `Returned < 'a >` and substituting it into a row's `Self` refuses
+/// a document that wrote `Returned` correctly.
+///
+/// `Self` is substituted last because it is the only step that reads the owner,
+/// and the owner has to be read before it can be put anywhere.
+#[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
+fn as_compared(type_tokens: &str, owner: Option<&str>) -> Option<String> {
+    let written = stripped(type_tokens);
+    match owner {
+        Some(owner) => Some(self_substituted(&written, &stripped(owner))),
+        None => ownerless(written),
+    }
+}
+
+/// One type's tokens as every side of every comparison here is read: its
+/// lifetimes erased, and then its whitespace stripped. A row's return, the
+/// source's return, and the owner a `Self` stands for all pass through this and
+/// through nothing else, which is what "read the same way" means.
+///
+/// The order is forced. Lifetimes go first because the space after one is what
+/// ends it: strip the whitespace out of `& 'static str` first and `'staticstr`
+/// is one word no erasure can take a lifetime out of, so the row's `&str` could
+/// never be the same shape as the source's `&'static str`, which is the case
+/// the rule exists for.
+#[implements(
+    spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared,
+    spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared,
+)]
+fn stripped(type_tokens: &str) -> String {
+    without_whitespace(&without_lifetimes(type_tokens))
+}
+
+/// A type about a free function, as the comparison reads it: itself where it
+/// writes no `Self`, and nothing at all where it writes one — a `Self` with no
+/// owner stands for no type, so a type that writes one is the same as nothing,
+/// not even as another `Self`.
+#[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
+fn ownerless(written: String) -> Option<String> {
+    (!names_self(&written)).then_some(written)
+}
+
+/// A type's tokens with every whitespace character removed, which is how one
+/// side's printing is kept from being the difference: the reading renders the
+/// source's `Result<Lld, String>` as `Result < Lld , String >`, and a row types
+/// it as a reader types it.
+#[implements(spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared)]
+fn without_whitespace(type_tokens: &str) -> String {
+    todo!("without_whitespace({type_tokens})")
+}
+
+/// A type's tokens with its lifetime arguments and lifetime annotations
+/// erased: `Section<'a>` and `Section` are the same shape, `&'static str` and
+/// `&str` are the same shape, and a document that spells the lifetime is not
+/// more correct than one that does not.
+///
+/// What an erased lifetime takes with it is not a character but an argument.
+/// Where the tokens hold a top-level generic argument list —
+/// [`type_argument_list`] finds it — [`without_lifetimes_around_list`] treats
+/// its three pieces differently, because only two of them are guaranteed to
+/// hold no list of their own: the head, which is exactly the text before the
+/// first top-level `<` and so can never hold one, is
+/// [`without_lifetime_tokens`]'s to erase directly, and the list itself is
+/// [`rewritten_argument_list`]'s to rewrite; but the tail can still hold a
+/// sibling top-level list — a tuple return such as `(Vec<u8>, Section<'a>)`
+/// has two, side by side — so the tail is read through this same function
+/// again rather than through [`without_lifetime_tokens`], which would erase
+/// its lifetime in place and leave exactly the `Section<>` the list-rewriting
+/// rule forbids. Tokens with no top-level list at all — `&'static str`, a
+/// bare `'a` an argument's whole text once split out of one — have only a
+/// lifetime token to erase, which [`without_lifetime_tokens`] does directly.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn without_lifetimes(type_tokens: &str) -> String {
+    match type_argument_list(type_tokens) {
+        Some((head, list, tail)) => without_lifetimes_around_list(&head, &list, &tail),
+        None => without_lifetime_tokens(type_tokens),
+    }
+}
+
+/// The head, the contents, and the tail of a type's own outermost generic
+/// argument list: the text before its first top-level `<`, the text between
+/// that `<` and its matching `>`, and whatever follows. None where the tokens
+/// hold no top-level `<` at all, and the same none where they hold one that is
+/// never closed — a human writes one side of every comparison here, and
+/// `Result<Lld, String` is reachable — since an unclosed list is not a list to
+/// rewrite: inventing the missing `>` would read `Vec<T` and `Vec<T>` as the
+/// same shape, which they are not. "Top-level" is tracked by depth, so the
+/// inner list of `Result < Cow < 'a , str > , String >` closes on its own `>`
+/// and does not end the outer one early: the head is `Result `, the contents
+/// are ` Cow < 'a , str > , String `, and the tail is empty.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn type_argument_list(type_tokens: &str) -> Option<(String, String, String)> {
+    todo!("type_argument_list({type_tokens})")
+}
+
+/// The text around a type's own outermost generic argument list: the head,
+/// which can never hold a list of its own since it is exactly the text before
+/// the first top-level `<`, is [`without_lifetime_tokens`]'s to erase
+/// directly; the list itself is [`rewritten_argument_list`]'s to rewrite; and
+/// the tail, which can still hold a sibling top-level list of its own — the
+/// tuple return `(Vec<u8>, Section<'a>)` splits into a head of `(Vec`, a first
+/// list of `u8`, and a tail of `, Section<'a>)` that has a second list in it
+/// — is read through [`without_lifetimes`] again rather than through
+/// [`without_lifetime_tokens`], which would erase that second list's lifetime
+/// in place and leave the `Section<>` the list-rewriting rule forbids.
+/// Recursing on the tail terminates because the tail excludes the `<...>`
+/// this call just consumed and so is always strictly shorter than the tokens
+/// read to find it.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn without_lifetimes_around_list(head: &str, list: &str, tail: &str) -> String {
+    format!("{}{}{}", without_lifetime_tokens(head), rewritten_argument_list(list), without_lifetimes(tail))
+}
+
+/// A run of tokens guaranteed to hold no top-level generic argument list of
+/// its own — the head [`type_argument_list`] split off, which can never hold
+/// one because it is exactly the text before the first top-level `<`, or the
+/// whole of a type with no top-level `<` at all — with every lifetime token
+/// in it removed and nothing else touched: an argument `'a`, an annotation
+/// `'static` in `&'static str`, an elided `'_` — each token taken out
+/// outright, the punctuation around it left exactly where it was. A tail is
+/// never handed here, because a tail can hold a sibling list of its own;
+/// [`without_lifetimes_around_list`] hands that back to
+/// [`without_lifetimes`] instead. This is the only place a lifetime token is
+/// ever erased; what becomes of an argument that was nothing but one is
+/// [`argument_survives`]'s question, never this function's.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn without_lifetime_tokens(type_tokens: &str) -> String {
+    todo!("without_lifetime_tokens({type_tokens})")
+}
+
+/// One generic argument list's contents, written afresh from whichever of its
+/// own arguments still have something in them: split by
+/// [`top_level_arguments`], the survivors [`surviving_arguments`] answers are
+/// joined back into the list — or the list is left out entirely, brackets
+/// included — by [`argument_list_written`], the one place that decision is
+/// made.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn rewritten_argument_list(list_contents: &str) -> String {
+    argument_list_written(&surviving_arguments(list_contents))
+}
+
+/// A list's contents split into its own top-level arguments — by a comma at
+/// this list's own depth, so a nested list's comma never splits it: the two
+/// arguments of ` Cow < 'a , str > , String ` are ` Cow < 'a , str > ` and
+/// ` String `, not three.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn top_level_arguments(list_contents: &str) -> Vec<String> {
+    todo!("top_level_arguments({list_contents})")
+}
+
+/// [`top_level_arguments`]'s split, each argument read through
+/// [`without_lifetimes`] again — since an argument may hold a generic argument
+/// list of its own, as `Cow<'a, str>` does inside
+/// `Result<Cow<'a, str>, String>` — less whichever of them
+/// [`argument_survives`] says an erased lifetime left holding nothing: a bare
+/// `'a` or `'b` erases to nothing and does not survive; `K`, and `Cow<'a,
+/// str>` once rewritten to `Cow<str>`, do.
+#[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+fn surviving_arguments(list_contents: &str) -> Vec<String> {
+    top_level_arguments(list_contents).iter().map(|argument| without_lifetimes(argument)).filter(|rewritten| argument_survives(rewritten)).collect()
+}
+
+/// Whether an argument had anything left in it once its own lifetimes were
+/// erased: a bare lifetime erases to nothing but whitespace and does not
+/// survive to be joined back into the list it came from. This is what decides
+/// whether a list is left holding no argument at all, so a wrong answer here
+/// is the direct route to the `Section<>` that decision forbids.
+#[implements(
+    spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared,
+    spec::AnArgumentListLeftWithNoArgumentIsNotWrittenAtAll,
+)]
+fn argument_survives(rewritten: &str) -> bool {
+    !rewritten.trim().is_empty()
+}
+
+/// The one decision an erased lifetime forces on the list it stood in: a list
+/// with nothing left in it is written with no brackets at all, and a list
+/// with something left is written afresh from what survived, joined by
+/// commas, inside its brackets — a list of one, a list of three, and a list of
+/// none are all written the same way, never edited in place. `Section<'a>`
+/// keeps no argument and is written `Section`, never `Section<>`; `Map<'a,
+/// 'b, K>` keeps one of three and is written `Map<K>`, with nothing further to
+/// say about the second lifetime erased.
+#[implements(
+    spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared,
+    spec::AnArgumentListLeftWithNoArgumentIsNotWrittenAtAll,
+)]
+fn argument_list_written(surviving: &[String]) -> String {
+    if surviving.is_empty() { String::new() } else { format!("<{}>", surviving.join(",")) }
+}
+
+/// A type's tokens with `Self` standing for the owner it was declared under —
+/// the self type of the `impl`, or the name of the `trait` that gave the method
+/// a body — which is the substitution both sides get. Both arguments arrive
+/// [`stripped`], the owner as much as the type, so this puts one read form
+/// inside another and never a printer's spacing inside a stripped type.
+#[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
+fn self_substituted(type_tokens: &str, owner: &str) -> String {
+    todo!("self_substituted({type_tokens}, {owner})")
+}
+
+/// Whether a type's tokens write `Self` at all, which is the only thing an
+/// ownerless declaration needs to know about them.
+#[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
+fn names_self(type_tokens: &str) -> bool {
+    todo!("names_self({type_tokens})")
 }
 
 /// The rows whose first cell names another slice's item as a bare identifier
@@ -756,7 +1296,21 @@ pub fn same_type(row_return: &str, source_return: &str, owner: Option<&str>) -> 
 /// `## Shape` table has no row to ask, as `shape_table_rows` decides.
 #[implements(spec::AReuseRowNamesItsItemAsAnIntraDocLink)]
 pub fn reuse_rows_linked(project: &Project, lld: &Lld) -> Vec<Failure> {
-    todo!("reuse_rows_linked({project:?}, {lld:?})")
+    let inside = siblings(project, &lld.slice);
+    let crates = crate_names(project);
+    shape_table_rows(lld).iter().filter_map(|row| unlinked_reuse(lld, row, &inside, &crates)).collect()
+}
+
+/// The failure one row earns when its first cell names another slice's item as
+/// a bare identifier rather than an intra-doc link — one failure for the row
+/// however many of its fragments are unlinked, since a second would be the
+/// same check quoting the same rule on the same line.
+#[implements(spec::AReuseRowNamesItsItemAsAnIntraDocLink)]
+fn unlinked_reuse(lld: &Lld, row: &Row, inside: &[String], crates: &[String]) -> Option<Failure> {
+    fragments(first_cell(row))
+        .iter()
+        .any(|fragment| is_reuse(fragment, &lld.slice, inside, crates) && !fragment.linked)
+        .then(|| failure(Check::ReuseRowsLinked, &lld.path, row.line))
 }
 
 /// The module names one level inside the slice's directory — the directory
@@ -771,13 +1325,39 @@ pub fn reuse_rows_linked(project: &Project, lld: &Lld) -> Vec<Failure> {
     spec::ASliceWithNoDirectoryToReadListsNoSibling,
 )]
 pub fn siblings(project: &Project, slice: &str) -> Vec<String> {
-    todo!("siblings({project:?}, {slice})")
+    let Ok(dir) = layout::slice_dir(project, slice) else {
+        return vec![];
+    };
+    entries(&dir).iter().filter_map(|entry| module_name(entry)).collect()
+}
+
+/// The paths one level inside a directory — one level and no deeper, a
+/// subdirectory being a module name rather than a tree to walk — and none at
+/// all for a directory that cannot be read, which is the same answer as an
+/// empty one, since a listing nobody can take is a listing with nothing in it
+/// and never a failure.
+#[implements(
+    spec::ASiblingIsAFileStemOrADirectoryNameOneLevelInsideTheSlice,
+    spec::ASliceWithNoDirectoryToReadListsNoSibling,
+)]
+fn entries(dir: &Path) -> Vec<PathBuf> {
+    todo!("entries({})", dir.display())
+}
+
+/// The module name one entry carries: a directory's own name, a file's stem
+/// without its extension, and none for `mod.rs`, which names the slice itself
+/// rather than anything under it.
+#[implements(spec::ASiblingIsAFileStemOrADirectoryNameOneLevelInsideTheSlice)]
+fn module_name(entry: &Path) -> Option<String> {
+    todo!("module_name({})", entry.display())
 }
 
 /// The workspace members' names as a path spells them:
 /// [`Project::member_manifest_dirs`] for the members, [`Project::package_at`]
 /// for each one's package name, hyphens read as underscores — `lid-rs-shape`
-/// is the package's name and `lid_rs_shape` is the path's.
+/// is the package's name and `lid_rs_shape` is the path's. The first answers
+/// directories and the second is asked about a manifest, so the `Cargo.toml`
+/// join is this function's and no caller's.
 #[implements(spec::ACrateNameIsAMembersPackageNameWithHyphensAsUnderscores)]
 pub fn crate_names(project: &Project) -> Vec<String> {
     todo!("crate_names({project:?})")
@@ -819,7 +1399,21 @@ pub fn skeletonable(returns: &str) -> bool {
 /// `## Shape` table has no row to refuse, as `shape_table_rows` decides.
 #[implements(spec::ARowWhoseReturnCannotBeSkeletonisedFailsOnItsLine)]
 pub fn shape_returns(lld: &Lld) -> Vec<Failure> {
-    todo!("shape_returns({lld:?})")
+    shape_table_rows(lld).iter().filter_map(|row| unskeletonable_return(lld, row)).collect()
+}
+
+/// The failure one row earns when a return its first cell writes is one
+/// [`skeletonable`] refuses — one failure for the row however many of its
+/// fragments write such a return, since a second would be the same check
+/// quoting the same rule on the same line. A fragment writing no return has
+/// none to refuse.
+#[implements(spec::ARowWhoseReturnCannotBeSkeletonisedFailsOnItsLine)]
+fn unskeletonable_return(lld: &Lld, row: &Row) -> Option<Failure> {
+    fragments(first_cell(row))
+        .iter()
+        .filter_map(|fragment| fragment.returns.as_deref())
+        .any(|returns| !skeletonable(returns))
+        .then(|| failure(Check::SkeletonableReturns, &lld.path, row.line))
 }
 
 #[cfg(test)]
