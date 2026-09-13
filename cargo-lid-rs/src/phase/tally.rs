@@ -141,12 +141,14 @@ pub fn from_trailers(body: &str) -> Result<Tally, String> {
 
 /// The tally the commit about to be made carries, over whether anything was
 /// replaced: this agent's own when nothing was — and equally when the
-/// replaced commit's agents already name this agent, since a resumed worker
+/// replaced commit's agents already name `agent`, since a resumed worker
 /// keeps its id and its tally already counted the rejected attempt —
 /// otherwise the replaced commit's counts, read back from its trailers,
 /// added count for count to this agent's, a fresh worker's tally having
 /// started at zero. The two cases that answer this agent's tally are one arm
-/// and not two, so the decision this holds is the one the claims name.
+/// and not two, so the decision this holds is the one the claims name. The id
+/// is a parameter because the decision is about *which* agent and the counts
+/// carry none, as `agents` takes it for the same reason.
 ///
 /// At this layer the answer is that arm, for every input: it is right for
 /// every first attempt and for every resumed one, and wrong for a
@@ -155,8 +157,8 @@ pub fn from_trailers(body: &str) -> Result<Tally, String> {
     spec::AResumedAgentsCountsAreNotAddedToTheCommitThatAlreadyCoversThem,
     spec::AFreshAgentsCountsAreAddedToTheReplacedCommits,
 )]
-pub fn merged(replaced: Option<&Replaced>, this: &Tally) -> Tally {
-    let _ = replaced;
+pub fn merged(replaced: Option<&Replaced>, this: &Tally, agent: &str) -> Tally {
+    let _ = (replaced, agent);
     *this
 }
 
@@ -209,12 +211,96 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::TheTallyIsWrittenAsTrailers)]
-    fn the_tally_is_written_as_trailers() {
-        let tally = Tally { edits: 14, observations: 9, commands: 0, post_edit_checks: 14, stop_checks: 1, policy_refusals: 1, stop_refusals: 0 };
+    #[validates(spec::APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks)]
+    fn a_phase_commit_ends_with_the_six_trailers_naming_every_agent_and_the_reworks() {
+        // Driven through a stop rather than asserted of the renderer: the
+        // renderer is written whole and answers whatever it is handed, so only
+        // a commit the hook actually made shows what it was handed. This one
+        // replaces the attempt a first agent left, so its `Lid-Rs-Agent` names
+        // both and its `Lid-Rs-Reworks` is one.
+        let (dir, project) = fixture::copy("trailers-of-a-rework");
+        fixture::commit_with_body(&dir, "phase 3: skeleton for hello", &fixture::trailer_block(3, "first", 0));
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n")
+            .expect("write");
+        // Tool calls of this agent's own, as the pre-tool hook counts them, so
+        // that the counts the trailers carry are a sum neither operand equals:
+        // an agent with an empty tally would render the attempt's counts
+        // unchanged and pin nothing.
+        for event in [Event::Tool(ToolKind::Edit), Event::Tool(ToolKind::Observation), Event::Tool(ToolKind::Observation)] {
+            record(&project, "second", event).expect("record");
+        }
+        let stop = fixture::stop_input("second", "```commit\nphase 3: skeleton for hello\n```\n");
+        let verdict = crate::phase::hook_stop(&project, Phase::Three, &stop).expect("hook");
+        assert_eq!(verdict, crate::phase::HookVerdict::Allow, "the stop commits the phase: {verdict:?}");
+        let message = fixture::message(&dir);
+        let block = message.split_once("\n\n").expect("a body after the subject").1;
+        let keys: Vec<&str> = block.lines().map(|line| line.split_once(':').expect("a trailer line").0).collect();
         assert_eq!(
-            trailers(&tally, Phase::Seven, &["canopy:3f0c1c9a".to_string()], 0),
-            "Lid-Rs-Phase: 7\nLid-Rs-Agent: canopy:3f0c1c9a\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\nLid-Rs-Reworks: 0\n"
+            keys,
+            ["Lid-Rs-Phase", "Lid-Rs-Agent", "Lid-Rs-Tools", "Lid-Rs-Checks", "Lid-Rs-Refusals", "Lid-Rs-Reworks"],
+            "the six, in order, ending the message: {message}"
         );
+        assert!(block.contains("Lid-Rs-Phase: 3\nLid-Rs-Agent: first, second\n"), "every agent whose work the commit carries, separated by `, `: {message}");
+        assert!(block.ends_with("Lid-Rs-Reworks: 1"), "the number of commits this one replaced: {message}");
+        // And the counts rendered are the merged tally's: this fresh agent's
+        // own, added to what the attempt's trailers carried.
+        let counts = load(&project, "second").expect("this agent's tally");
+        assert_eq!((counts.edits, counts.observations), (1, 2), "this agent's own calls, so the line below is a sum neither operand equals");
+        let tools = format!(
+            "Lid-Rs-Tools: {} edits, {} observations, {} commands\n",
+            counts.edits + fixture::TIP_TALLY.edits,
+            counts.observations + fixture::TIP_TALLY.observations,
+            counts.commands + fixture::TIP_TALLY.commands
+        );
+        assert!(block.contains(&tools), "the tally the commit carries is both rounds': {message}");
+    }
+
+    #[test]
+    #[validates(spec::AFreshAgentsCountsAreAddedToTheReplacedCommits, spec::AResumedAgentsCountsAreNotAddedToTheCommitThatAlreadyCoversThem)]
+    fn a_fresh_agents_counts_are_added_to_the_replaced_commits() {
+        // This agent is `second`, and the tally filed under that id is what
+        // `merged` is handed beside the record and the id itself.
+        let mine = Tally { edits: 3, observations: 4, commands: 0, post_edit_checks: 3, stop_checks: 1, policy_refusals: 0, stop_refusals: 0 };
+        assert_eq!(merged(None, &mine, "second"), mine, "a first attempt has nothing to carry forward");
+        // A resumed worker keeps its id, so the tally filed under it already
+        // counts the rejected attempt: adding the replaced commit's counts
+        // would count every call of the first round twice.
+        let resumed = fixture::replaced("c0ffee", 3, "phase 3: skeleton for hello", &["second"], 0);
+        assert_eq!(merged(Some(&resumed), &mine, "second"), mine, "a record whose agents already name this one takes none of its counts");
+        // A fresh worker — what the unattended workflow spawns for a rework —
+        // started at zero, and the replaced commit is the durable record of
+        // the round before it, so the two are added count for count. The id is
+        // the whole difference between the two cases: the records differ only
+        // in the agents they name.
+        let fresh = fixture::replaced("c0ffee", 3, "phase 3: skeleton for hello", &["first"], 0);
+        let both = Tally { edits: 8, observations: 11, commands: 0, post_edit_checks: 8, stop_checks: 2, policy_refusals: 0, stop_refusals: 0 };
+        assert_eq!(merged(Some(&fresh), &mine, "second"), both, "the replaced commit's counts added to this agent's");
+    }
+
+    #[test]
+    #[validates(spec::LidRsAgentNamesEveryAgentThatMadeTheCommitInOrderNoneTwice)]
+    fn lid_rs_agent_names_every_agent_that_made_the_commit_in_order_none_twice() {
+        assert_eq!(agents(None, "solo"), ["solo"], "a first attempt is one agent's");
+        let first_round = fixture::replaced("c0ffee", 3, "phase 3: skeleton for hello", &["first"], 0);
+        assert_eq!(agents(Some(&first_round), "second"), ["first", "second"], "the replaced commit's agents, then this one, in the order they worked");
+        assert_eq!(agents(Some(&first_round), "first"), ["first"], "a resumed worker is named once, not twice");
+        let two_rounds = fixture::replaced("c0ffee", 3, "phase 3: skeleton for hello", &["first", "second"], 1);
+        assert_eq!(agents(Some(&two_rounds), "third"), ["first", "second", "third"], "every agent whose work the commit carries");
+    }
+
+    #[test]
+    #[validates(spec::ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine)]
+    fn a_trailer_line_the_renderer_could_not_have_written_fails_naming_the_line() {
+        let block = fixture::trailer_block(3, "first", 0);
+        assert_eq!(from_trailers(&block).expect("the counts the block carries"), fixture::TIP_TALLY, "read back from the lines the renderer wrote");
+        assert_eq!(from_trailers(&format!("A phase's body.\n\n{block}")).expect("the counts"), fixture::TIP_TALLY, "whatever body precedes the block");
+        for missing in ["Lid-Rs-Agent", "Lid-Rs-Tools", "Lid-Rs-Checks", "Lid-Rs-Refusals"] {
+            let without: String = block.lines().filter(|line| !line.starts_with(missing)).map(|line| format!("{line}\n")).collect();
+            let err = from_trailers(&without).expect_err("a line the renderer could not have left out");
+            assert!(err.contains(missing), "names the line it could not read: {err}");
+        }
+        let not_a_number = block.replace("5 edits", "many edits");
+        let err = from_trailers(&not_a_number).expect_err("a count that is not a number");
+        assert!(err.contains("Lid-Rs-Tools"), "names the line, and never reads it as zero: {err}");
     }
 }

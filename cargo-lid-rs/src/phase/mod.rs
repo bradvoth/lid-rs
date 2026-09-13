@@ -902,7 +902,7 @@ fn checkout_command() -> std::process::Command {
 /// before it is handed here, so this holds no decision about whether anything
 /// was replaced.
 fn commit_now(project: &Project, phase: Phase, input: &HookInput, message: &str, changed: &[PathBuf], replaced: Option<&Replaced>) -> Result<String, String> {
-    let merged = tally::merged(replaced, &tally::load(project, &input.agent_id)?);
+    let merged = tally::merged(replaced, &tally::load(project, &input.agent_id)?, &input.agent_id);
     let trailers = tally::trailers(&merged, phase, &tally::agents(replaced, &input.agent_id), Replaced::next_reworks(replaced));
     let paths: Vec<&Path> = changed.iter().map(PathBuf::as_path).collect();
     stage_and_commit(project, &paths, message, &trailers)
@@ -1402,6 +1402,7 @@ pub(crate) mod fixture {
     use std::path::{Path, PathBuf};
     use std::sync::OnceLock;
 
+    use super::tally::Tally;
     use crate::init::{LidRsSource, Options, init_in};
     use crate::project::Project;
 
@@ -1560,6 +1561,60 @@ pub(crate) mod fixture {
     /// A hook input for a stop with this final message.
     pub fn stop_input(agent: &str, message: &str) -> super::HookInput {
         super::HookInput { agent_id: agent.to_string(), last_message: message.to_string(), ..Default::default() }
+    }
+
+    /// The counts `trailer_block` writes — what `tally::from_trailers` reads
+    /// back out of a tip's trailers, and what a replaced commit carries
+    /// forward.
+    pub const TIP_TALLY: Tally =
+        Tally { edits: 5, observations: 7, commands: 0, post_edit_checks: 5, stop_checks: 1, policy_refusals: 0, stop_refusals: 0 };
+
+    /// The six `Lid-Rs-*` trailers a phase commit ends with, for the phase,
+    /// the agents and the reworks named — spelled out here rather than
+    /// rendered through `tally::trailers`, so a fixture's tip does not depend
+    /// on the renderer this slice's validations judge. The counts are
+    /// `TIP_TALLY`'s.
+    pub fn trailer_block(phase: u8, agents: &str, reworks: u32) -> String {
+        format!(
+            "Lid-Rs-Phase: {phase}\nLid-Rs-Agent: {agents}\nLid-Rs-Tools: 5 edits, 7 observations, 0 commands\n\
+             Lid-Rs-Checks: 5 post-edit, 1 stop\nLid-Rs-Refusals: 0 policy, 0 stop\nLid-Rs-Reworks: {reworks}\n"
+        )
+    }
+
+    /// Commits the tree under `subject` with `body` after it — the shape the
+    /// stop hook's own commit has, a tip a rework may find; the new `HEAD`.
+    pub fn commit_with_body(dir: &Path, subject: &str, body: &str) -> String {
+        git(dir, &["add", "-A"]);
+        git(dir, &["commit", "-q", "--allow-empty", "-m", subject, "-m", body]);
+        head(dir)
+    }
+
+    /// The branch tip's whole message: its subject, and the body the trailers
+    /// are in.
+    pub fn message(dir: &Path) -> String {
+        let out = std::process::Command::new("git").args(["log", "-1", "--format=%B"]).current_dir(dir).output().expect("git");
+        String::from_utf8_lossy(&out.stdout).trim_end().to_string()
+    }
+
+    /// How many commits the branch holds — one more after a stop that stacks,
+    /// and the same after one that replaces.
+    pub fn commits(dir: &Path) -> usize {
+        let out = std::process::Command::new("git").args(["rev-list", "--count", "HEAD"]).current_dir(dir).output().expect("git");
+        String::from_utf8_lossy(&out.stdout).trim().parse().expect("a commit count")
+    }
+
+    /// The record of a replaced commit, as `Replaced::of` will read one from
+    /// a tip: the commit, the agents its `Lid-Rs-Agent` names in the order
+    /// they worked, the counts its trailers carry (`TIP_TALLY`), and how many
+    /// commits it already replaced. Built here because `Replaced::of` is the
+    /// skeleton's `todo!()`.
+    pub fn replaced(hash: &str, phase: u8, subject: &str, agents: &[&str], reworks: u32) -> super::Replaced {
+        super::Replaced {
+            commit: super::Tip { hash: hash.to_string(), subject: subject.to_string(), body: trailer_block(phase, &agents.join(", "), reworks) },
+            agents: agents.iter().map(|agent| (*agent).to_string()).collect(),
+            tally: TIP_TALLY,
+            reworks,
+        }
     }
 
     /// A hook input for a tool call on a path.
@@ -2674,6 +2729,11 @@ version = \"0.2.8\"
     fn phase_sevens_stop_bumps_the_patch_version_from_the_manifest_at_head() {
         let (dir, project) = fixture::versioned("bump-at-the-stop");
         let before = fixture::head(&dir);
+        // An edit the editing set admits, so the stop passes the
+        // nothing-to-commit test — which is asked ahead of the bump — and
+        // reaches the bump this asks about.
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n")
+            .expect("write");
         // A subject naming the wrong version is refused after the bump and
         // before the check, so the stop is observed at the bump alone.
         let stop = fixture::stop_input("b", "```commit\nphase 7: 9.9.9: warmth\n```\n");
@@ -2718,6 +2778,206 @@ version = \"0.2.8\"
         let tally = tally::load(&project, "v").expect("tally");
         assert_eq!((tally.stop_checks, tally.stop_refusals), (0, 2), "refused before a gate was spent on either");
         assert_eq!(fixture::head(&dir), before, "nothing was committed");
+    }
+
+    /// The tree object a revision records — what a restore that names
+    /// `<hash>^{tree}` writes, and what one built from the index does not.
+    fn tree_of(dir: &Path, revision: &str) -> String {
+        let out = std::process::Command::new("git").args(["rev-parse", &format!("{revision}^{{tree}}")]).current_dir(dir).output().expect("git");
+        String::from_utf8_lossy(&out.stdout).trim().to_string()
+    }
+
+    /// A Phase 3 stop that must commit: an edit the editing set admits —
+    /// `greet` returning `note` — and then the stop, whose verdict allows.
+    /// The fixture's Phase 3 check is `cargo check`, which the edit passes.
+    fn phase_three_commit(project: &Project, dir: &Path, agent: &str, note: &str) {
+        std::fs::write(dir.join("src/hello.rs"), format!("//! The hello slice.\n\n/// Greets.\npub fn greet() -> &'static str {{\n    \"{note}\"\n}}\n"))
+            .expect("write");
+        let verdict = hook_stop(project, Phase::Three, &fixture::stop_input(agent, "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert_eq!(verdict, HookVerdict::Allow, "the stop commits the phase");
+    }
+
+    #[test]
+    #[validates(spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond)]
+    fn a_reworked_phase_replaces_its_commit_rather_than_stacking_a_second() {
+        let (dir, project) = fixture::copy("rework-replaces");
+        let before = fixture::commits(&dir);
+        // A first attempt: the tip below it is nothing of this phase's, so the
+        // commit is made on top of it and the branch grows by one.
+        phase_three_commit(&project, &dir, "first", "hello there");
+        assert_eq!(fixture::commits(&dir), before + 1, "a first attempt commits on top of the tip it found");
+        // The rework: the reviewer's findings answered, a second round of
+        // work, and a stop over the attempt the reviewer rejected. The branch
+        // does not grow, and the commit that stands carries both rounds.
+        std::fs::create_dir_all(dir.join("src/hello")).expect("dir");
+        std::fs::write(dir.join("src/hello/part.rs"), "//! What the findings asked for.\n").expect("write");
+        phase_three_commit(&project, &dir, "first", "hello, friend");
+        assert_eq!(fixture::commits(&dir), before + 1, "the rejected attempt is replaced, not followed by a second commit");
+        let show = crate::project::capture(project.git().expect("git").args(["show", "--stat", "--format=%s", "HEAD"])).expect("git show");
+        assert!(show.contains("src/hello.rs") && show.contains("src/hello/part.rs"), "both rounds' work is carried whole:\n{show}");
+    }
+
+    #[test]
+    #[validates(spec::AReplacedTipsSubjectTagNamesThisPhase)]
+    fn a_replaced_tips_subject_tag_names_this_phase() {
+        let (dir, project) = fixture::copy("rework-tag");
+        // A tip carrying this phase's `Lid-Rs-Phase` trailer under another
+        // phase's tag: the trailer condition holds, so the subject's tag is
+        // the one condition deciding, and it fails.
+        fixture::commit_with_body(&dir, "phase 2: claims for hello", &fixture::trailer_block(3, "first", 0));
+        let before = fixture::commits(&dir);
+        phase_three_commit(&project, &dir, "second", "hello there");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip tagged for another phase is committed on top of");
+        // And the tip that stop made carries this phase's tag beside the same
+        // trailer: the next stop replaces it.
+        phase_three_commit(&project, &dir, "second", "hello, friend");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip this phase tagged is this phase's attempt, replaced");
+    }
+
+    #[test]
+    #[validates(spec::AReplacedTipCarriesTheHooksPhaseTrailerForThisPhase)]
+    fn a_replaced_tip_carries_the_hooks_phase_trailer_for_this_phase() {
+        let (dir, project) = fixture::copy("rework-trailer");
+        // A tip under this phase's tag whose trailer names another phase: the
+        // trailer's *value* is the condition, not the line's presence, and an
+        // implementation asking only whether the line is there answers this
+        // one wrongly. Read at leaf level, since a stop would cost a check to
+        // observe what `replaced_tip` already says.
+        fixture::commit_with_body(&dir, "phase 3: skeleton for hello", &fixture::trailer_block(2, "first", 0));
+        assert_eq!(replaced_tip(&project, Phase::Three).expect("git"), None, "a trailer naming another phase is not this phase's signature");
+        // The commit a human made when the watchdog killed the gate: this
+        // phase's tag, and no `Lid-Rs-Phase` trailer, since no agent holds the
+        // git to write one.
+        fixture::commit_with_body(&dir, "phase 3: skeleton for hello", "Made by hand after the watchdog killed the run.\n");
+        let before = fixture::commits(&dir);
+        phase_three_commit(&project, &dir, "second", "hello there");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip carrying no trailer of the hook's is never swallowed");
+        // The tip that stop made carries the trailer: the next stop replaces it.
+        phase_three_commit(&project, &dir, "second", "hello, friend");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip carrying the hook's trailer for this phase is replaced");
+    }
+
+    #[test]
+    #[validates(spec::ATipReachableFromMainIsNeverReplaced)]
+    fn a_tip_reachable_from_main_is_never_replaced() {
+        let (dir, project) = fixture::copy("rework-on-main");
+        // A tip of this phase's making that the trunk holds — tag, trailer,
+        // and reachable from `main`: an accepted phase that landed, never this
+        // branch's to replace.
+        fixture::git(&dir, &["checkout", "-q", "main"]);
+        let landed = fixture::commit_with_body(&dir, "phase 3: skeleton for hello", &fixture::trailer_block(3, "first", 0));
+        fixture::git(&dir, &["checkout", "-q", "lld/hello"]);
+        fixture::git(&dir, &["merge", "-q", "--ff-only", "main"]);
+        assert_eq!(fixture::head(&dir), landed, "the branch tip is the commit the trunk holds");
+        let before = fixture::commits(&dir);
+        phase_three_commit(&project, &dir, "second", "hello there");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip the trunk reaches is committed on top of, whatever it carries");
+        // The commit that stop made is off the trunk, and otherwise identical:
+        // the next stop replaces it.
+        phase_three_commit(&project, &dir, "second", "hello, friend");
+        assert_eq!(fixture::commits(&dir), before + 1, "a tip `main` does not reach is this branch's own attempt");
+    }
+
+    #[test]
+    #[validates(spec::TheReplacedTipIsUndoneBeforeTheBumpAndTheCheck)]
+    fn the_replaced_tip_is_undone_before_the_bump_and_the_check() {
+        let (dir, project) = fixture::versioned("rework-undo-order");
+        // The release a reviewer rejected: the bump's own output, committed
+        // under the version it produced and the hook's trailers.
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1");
+        let rejected = fixture::commit_with_body(&dir, "phase 7: 0.1.1: hello gated", &fixture::trailer_block(7, "first", 0));
+        let message = fixture::message(&dir);
+        let before = fixture::commits(&dir);
+        // A second round of work, and a stop whose subject names a version the
+        // bump cannot have produced — refused after the bump and before the
+        // check, so the order of the undo and the bump is observed on its own.
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, reworked.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
+        let verdict = hook_stop(&project, Phase::Seven, &fixture::stop_input("second", "```commit\nphase 7: 9.9.9: warmth\n```\n")).expect("hook");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "the manifest at the HEAD the undo left is the one below the release, so the bump writes 0.1.1 again — not 0.1.2");
+        assert!(refuses(&verdict, "0.1.1"), "and the subject is held to that version: {verdict:?}");
+        // The undo ran before all of it: the attempt is back under a new hash,
+        // carrying the subject and trailers it had.
+        assert_eq!(fixture::commits(&dir), before, "the branch is neither shorter nor longer");
+        assert_ne!(fixture::head(&dir), rejected, "the tip was undone and put back, which an undo placed after the bump never touches");
+        assert_eq!(fixture::message(&dir), message, "with the record it carried");
+    }
+
+    #[test]
+    #[validates(spec::AReworkedGateDiffsAgainstTheGateBelowTheReplacedCommit)]
+    fn a_reworked_gate_diffs_against_the_gate_below_the_replaced_commit() {
+        let root = scratch_repo("rework-mutation-base");
+        let project = project_in_repo(&root);
+        commit_all(&root, "phase 1: LLD for a");
+        let below = commit_all(&root, "phase 7: 0.1.0: a gated");
+        commit_all(&root, "phase 2: claims for a (Phase 8 edit)");
+        let attempt = commit_all(&root, "phase 7: 0.2.0: a gated again");
+        assert_eq!(mutation_base(&project).expect("git"), attempt, "the gate the reviewer is about to reject is the newest");
+        // Undone, the base is the gate below it — the base the rejected
+        // attempt itself ran against — so the reworked gate is a whole gate
+        // and not the difference between two attempts at one phase.
+        undo_tip(&project, Some(&fixture::replaced(&attempt, 7, "phase 7: 0.2.0: a gated again", &["first"], 0))).expect("the undo");
+        assert_eq!(mutation_base(&project).expect("git"), below, "not the attempt {attempt}");
+    }
+
+    #[test]
+    #[validates(spec::AReworkedPhaseSevenBumpsToTheVersionTheReplacedCommitCarried)]
+    fn a_reworked_phase_seven_bumps_to_the_version_the_replaced_commit_carried() {
+        let (dir, project) = fixture::versioned("rework-bump");
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1");
+        let rejected = fixture::commit_with_body(&dir, "phase 7: 0.1.1: hello gated", &fixture::trailer_block(7, "first", 0));
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.2", "over the release, the next patch level is spent");
+        // Undone, the manifest at `HEAD` is the one below the release again,
+        // so the rework writes the version the replaced commit carried and a
+        // rejection spends no version number.
+        undo_tip(&project, Some(&fixture::replaced(&rejected, 7, "phase 7: 0.1.1: hello gated", &["first"], 0))).expect("the undo");
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1", "the replaced commit's own version");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "and the tree holds it");
+    }
+
+    #[test]
+    #[validates(spec::ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree)]
+    fn a_refused_stop_restores_the_undone_attempt_from_the_replaced_commits_tree() {
+        let (dir, project) = fixture::copy("rework-restore");
+        let rejected = fixture::commit_with_body(&dir, "phase 3: skeleton for hello", &fixture::trailer_block(3, "first", 0));
+        let (message, attempt_tree, before) = (fixture::message(&dir), tree_of(&dir, &rejected), fixture::commits(&dir));
+        // A second round of work, staged: the undo leaves the index equal to
+        // the replaced commit's tree, so an index this round has already
+        // written to is what tells a restore that names `<hash>^{tree}` from
+        // one that commits the index — the second folds this edit into the
+        // attempt and calls the result the attempt.
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, reworked.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
+        fixture::git(&dir, &["add", "src/hello.rs"]);
+        // And something the integrity pass right after the undo refuses — the
+        // cheapest failure that follows an undo, and one the claim names
+        // beside a failing check. The staging rule never fires here: the
+        // refusal is the synced artifacts', and the stop's own `git add` is
+        // never reached.
+        let skill = dir.join(".claude/skills/lid-rs/SKILL.md");
+        let synced = std::fs::read_to_string(&skill).expect("skill");
+        std::fs::write(&skill, format!("{synced}\ntampered\n")).expect("write");
+        let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("second", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(refuses(&verdict, "SKILL.md"), "{verdict:?}");
+        assert_eq!(fixture::commits(&dir), before, "the branch is no shorter than the refusal found it");
+        assert_ne!(fixture::head(&dir), rejected, "the attempt is the same tree and the same record under a new hash");
+        assert_eq!(fixture::message(&dir), message, "its subject and its trailers unchanged");
+        assert_eq!(tree_of(&dir, "HEAD"), attempt_tree, "the bytes the replaced commit recorded, whatever the index holds");
+        let carried = std::fs::read_to_string(dir.join("src/hello.rs")).expect("the slice's module");
+        assert!(carried.contains("reworked"), "this round's edits stay where the failure left them, and never fold into the attempt");
+    }
+
+    #[test]
+    #[validates(spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced)]
+    fn lid_rs_reworks_is_one_more_than_the_replaced_commits_value_and_zero_when_nothing_is_replaced() {
+        assert_eq!(Replaced::next_reworks(None), 0, "a first attempt replaces nothing");
+        let third_attempt = fixture::replaced("c0ffee", 3, "phase 3: skeleton for hello", &["first", "second"], 1);
+        assert_eq!(Replaced::next_reworks(Some(&third_attempt)), 2, "one more than the value the replaced commit carries");
+        // A phase commit made before the trailer existed carries no
+        // `Lid-Rs-Reworks` line, and `Replaced::of` reads that absence as
+        // zero — which is what lets those commits be reworked at all.
+        let of_its_day = fixture::trailer_block(3, "first", 0).replace("Lid-Rs-Reworks: 0\n", "");
+        let tip = Tip { hash: "decaf0".to_string(), subject: "phase 3: skeleton for hello".to_string(), body: of_its_day };
+        let record = Replaced::of(tip).expect("the record of a commit of its day");
+        assert_eq!((record.reworks, Replaced::next_reworks(Some(&record))), (0, 1), "an absent line is zero, and the commit replacing it is the first rework");
     }
 
     #[test]

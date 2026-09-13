@@ -169,20 +169,33 @@ mod tests {
         let (dir, project) = fixture::versioned("integrity-within");
         let crates = SliceCrates { slice: "hello".to_string(), own: dir.clone(), companion: None };
         let editing = workspace_paths(&project, Phase::Seven, &crates).expect("the editing set");
+        let staged = staged_paths(&project, Phase::Seven, &crates).expect("the staged set");
         assert_eq!(editing, paths(&["src/hello.rs", "src/hello"]));
         assert!(changed_within(&project, &editing).expect("status").is_empty());
-        // A Phase 7 stop whose agent changed nothing: the bump lands — the
-        // wrong subject stops it there, before the check — and dirties the two
-        // root files, which are the staged set's and not the editing set's.
+        // The tip a rejected Phase 7 left: its subject and its trailers are
+        // what makes it replaceable, and what it carried in its tree is
+        // nothing this asks about.
+        let attempt = fixture::commit_with_body(&dir, "phase 7: 0.1.1: hello gated", &fixture::trailer_block(7, "first", 0));
+        // A Phase 7 stop whose agent changed nothing is refused for having
+        // nothing to commit — read from the editing set, and asked before the
+        // undo and before the bump, so the rejected attempt is still the
+        // branch tip afterwards and the two root files are as they were.
+        let verdict = crate::phase::hook_stop(&project, Phase::Seven, &fixture::stop_input("n", "```commit\nphase 7: 9.9.9: nothing\n```\n")).expect("hook");
+        assert!(matches!(&verdict, crate::phase::HookVerdict::Refuse(reason) if reason.contains("nothing to commit")), "{verdict:?}");
+        assert_eq!(fixture::head(&dir), attempt, "the tip it did not replace is still standing");
+        assert!(changed_within(&project, &staged).expect("status").is_empty(), "and the bump never ran");
+        // With an edit the editing set admits, the same stop reaches the bump —
+        // the wrong subject stops it there, before the check — and the two root
+        // files it writes are the staged set's and not the editing set's.
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n").expect("write");
         crate::phase::hook_stop(&project, Phase::Seven, &fixture::stop_input("n", "```commit\nphase 7: 9.9.9: nothing\n```\n")).expect("hook");
-        let staged = staged_paths(&project, Phase::Seven, &crates).expect("the staged set");
-        assert_eq!(changed_within(&project, &staged).expect("status"), paths(&["Cargo.lock", "Cargo.toml"]), "what the bump wrote");
-        assert!(changed_within(&project, &editing).expect("status").is_empty(), "nothing the agent could have written changed: nothing to commit");
-        // What the agent writes is read from the editing set; a change elsewhere is not.
+        assert_eq!(changed_within(&project, &staged).expect("status"), paths(&["Cargo.lock", "Cargo.toml", "src/hello.rs"]), "what the bump wrote, beside the edit");
+        assert_eq!(changed_within(&project, &editing).expect("status"), paths(&["src/hello.rs"]), "and what the agent could have written is the edit alone");
+        // A change elsewhere is no part of either answer.
         std::fs::create_dir_all(dir.join("src/hello")).expect("dir");
         std::fs::write(dir.join("src/hello/part.rs"), "").expect("write");
         std::fs::write(dir.join("README.md"), "x").expect("write");
-        assert_eq!(changed_within(&project, &editing).expect("status"), paths(&["src/hello/part.rs"]));
+        assert_eq!(changed_within(&project, &editing).expect("status"), paths(&["src/hello.rs", "src/hello/part.rs"]));
     }
 
     #[test]
