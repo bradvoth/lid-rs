@@ -12,9 +12,9 @@ repository = "https://github.com/bradvoth/lid-rs"
 homepage = "https://bradvoth.github.io/lid-rs/"
 
 [workspace.dependencies]
-lid-rs = { path = "lid-rs", version = "0.3.3" }
-lid-rs-macros = { path = "lid-rs-macros", version = "0.3.3" }
-lid-rs-shape = { path = "lid-rs-shape", version = "0.3.3" }
+lid-rs = { path = "lid-rs", version = "0.3.4" }
+lid-rs-macros = { path = "lid-rs-macros", version = "0.3.4" }
+lid-rs-shape = { path = "lid-rs-shape", version = "0.3.4" }
 linkme = "0.3"
 proc-macro2 = "1"
 quote = "1"
