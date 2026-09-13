@@ -365,6 +365,7 @@ Lid-Rs-Agent: canopy:3f0c1c9a-6f6e-4f0b-9a15-2b6a3f1c77de
 Lid-Rs-Tools: 14 edits, 9 observations, 0 commands
 Lid-Rs-Checks: 14 post-edit, 1 stop
 Lid-Rs-Refusals: 1 policy, 0 stop
+Lid-Rs-Reworks: 0
 ```
 
 The session id is the join to the sealed log: every read, every edit,
@@ -451,7 +452,7 @@ What changes is confidentiality, and it changes materially:
 | `Review::{Approved, Rejected(findings)}`, `review_of(text) -> Result<Review, String>` | The review block, parsed |
 | `agent_body(project, name) -> Result<String, String>` | A synced agent file with its frontmatter removed |
 | [`phase::hook_pre_tool`](crate::phase::hook_pre_tool), `hook_post_edit`, `hook_stop` (phase slice, made `pub`) | The three verdicts this host calls with a `HookInput` it builds; `agent_id` is `canopy:<session>` |
-| [`tally::trailers(tally, phase, agent_id)`](crate::phase::tally::trailers) (phase slice, gains the agent id) | Renders `Lid-Rs-Agent` between the phase and the tools |
+| [`tally::trailers(tally, phase, agents, reworks)`](crate::phase::tally::trailers) (phase slice, gains the agent id) | Renders `Lid-Rs-Agent` between the phase and the tools |
 
 ## Decisions & Alternatives
 
@@ -482,9 +483,9 @@ What changes is confidentiality, and it changes materially:
 Into the phase slice, as a Phase 8 edit whose LLD line is one sentence —
 "the three hooks are hosted by Claude Code's hook events or by the canopy
 client" — with these consequences: `hook_pre_tool`, `hook_post_edit`, and
-`hook_stop` become `pub`; `tally::trailers` takes the agent id and writes
-`Lid-Rs-Agent`; the phase LLD's "What the commit body carries" shows the
-new line. No claim changes meaning.
+`hook_stop` become `pub`; `tally::trailers` gains the agent id, one among
+the agents it renders, and writes `Lid-Rs-Agent`; the phase LLD's "What the
+commit body carries" shows the new line. No claim changes meaning.
 
 Into the coach slice, which is gated above this one: it passes a narrator
 that prints, and is why the parameter exists. Nothing this host asserts

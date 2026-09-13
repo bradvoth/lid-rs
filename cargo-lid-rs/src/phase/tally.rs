@@ -46,6 +46,15 @@ pub struct Tally {
     pub stop_refusals: u32,
 }
 
+impl Tally {
+    /// The seven counts in trailer order, so a caller that must combine every
+    /// field — `merged`'s replacement arm — does the arithmetic once over the
+    /// array rather than once per field by name.
+    fn as_array(self) -> [u32; 7] {
+        [self.edits, self.observations, self.commands, self.post_edit_checks, self.stop_checks, self.policy_refusals, self.stop_refusals]
+    }
+}
+
 /// Where an agent's tally lives: `<target>/lid-rs/agents/<agent_id>.json`.
 fn path(project: &Project, agent_id: &str) -> Result<PathBuf, String> {
     Ok(project.target_directory()?.join("lid-rs/agents").join(format!("{agent_id}.json")))
@@ -136,7 +145,35 @@ pub fn trailers(tally: &Tally, phase: Phase, agents: &[String], reworks: u32) ->
 /// a zero: the replaced commit's work is not filed under counts nobody kept.
 #[implements(spec::ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine)]
 pub fn from_trailers(body: &str) -> Result<Tally, String> {
-    todo!("the counts the trailer block of {body:?} carries")
+    required_trailer(body, "Lid-Rs-Agent")?;
+    let tools = required_trailer(body, "Lid-Rs-Tools")?;
+    let checks = required_trailer(body, "Lid-Rs-Checks")?;
+    let refusals = required_trailer(body, "Lid-Rs-Refusals")?;
+    Ok(Tally {
+        edits: count_at(&tools, 0, "Lid-Rs-Tools")?,
+        observations: count_at(&tools, 1, "Lid-Rs-Tools")?,
+        commands: count_at(&tools, 2, "Lid-Rs-Tools")?,
+        post_edit_checks: count_at(&checks, 0, "Lid-Rs-Checks")?,
+        stop_checks: count_at(&checks, 1, "Lid-Rs-Checks")?,
+        policy_refusals: count_at(&refusals, 0, "Lid-Rs-Refusals")?,
+        stop_refusals: count_at(&refusals, 1, "Lid-Rs-Refusals")?,
+    })
+}
+
+/// A trailer the renderer always writes; its absence is a failure naming the
+/// key, never a default.
+fn required_trailer(body: &str, key: &str) -> Result<String, String> {
+    super::trailer_of(body, key).ok_or_else(|| format!("no `{key}` trailer in a commit the hook must have written: {body:?}"))
+}
+
+/// The `index`-th comma-separated count on `line`, its label discarded; a
+/// count that is not a number is a failure naming `key` and the line.
+fn count_at(line: &str, index: usize, key: &str) -> Result<u32, String> {
+    line.split(", ")
+        .nth(index)
+        .and_then(|part| part.split_whitespace().next())
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| format!("`{key}` does not carry the counts the renderer writes: {line:?}"))
 }
 
 /// The tally the commit about to be made carries, over whether anything was
@@ -149,30 +186,39 @@ pub fn from_trailers(body: &str) -> Result<Tally, String> {
 /// and not two, so the decision this holds is the one the claims name. The id
 /// is a parameter because the decision is about *which* agent and the counts
 /// carry none, as `agents` takes it for the same reason.
-///
-/// At this layer the answer is that arm, for every input: it is right for
-/// every first attempt and for every resumed one, and wrong for a
-/// replacement by a fresh agent, which is where its validation drives it.
 #[implements(
     spec::AResumedAgentsCountsAreNotAddedToTheCommitThatAlreadyCoversThem,
     spec::AFreshAgentsCountsAreAddedToTheReplacedCommits,
 )]
 pub fn merged(replaced: Option<&Replaced>, this: &Tally, agent: &str) -> Tally {
-    let _ = (replaced, agent);
-    *this
+    match replaced {
+        None => *this,
+        Some(replaced) if replaced.agents.iter().any(|named| named == agent) => *this,
+        Some(replaced) => {
+            let (left, right) = (replaced.tally.as_array(), this.as_array());
+            let [edits, observations, commands, post_edit_checks, stop_checks, policy_refusals, stop_refusals] =
+                std::array::from_fn(|i| left[i] + right[i]);
+            Tally { edits, observations, commands, post_edit_checks, stop_checks, policy_refusals, stop_refusals }
+        }
+    }
 }
 
 /// The agents whose work the commit about to be made carries, in the order
 /// they worked and none of them twice: the replaced commit's agents with
 /// this one appended when it is not already among them, and this agent alone
 /// when nothing was replaced — the `Lid-Rs-Agent` line `trailers` renders.
-///
-/// At this layer the answer is the first attempt's, which is wrong for a
-/// replacement made by a second agent.
 #[implements(spec::LidRsAgentNamesEveryAgentThatMadeTheCommitInOrderNoneTwice)]
 pub fn agents(replaced: Option<&Replaced>, this: &str) -> Vec<String> {
-    let _ = replaced;
-    vec![this.to_string()]
+    match replaced {
+        None => vec![this.to_string()],
+        Some(replaced) => {
+            let mut agents = replaced.agents.clone();
+            if !agents.iter().any(|named| named == this) {
+                agents.push(this.to_string());
+            }
+            agents
+        }
+    }
 }
 
 #[cfg(test)]

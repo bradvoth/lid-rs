@@ -578,7 +578,20 @@ pub struct Tip {
     spec::ATipReachableFromMainIsNeverReplaced,
 )]
 pub fn tip(project: &Project) -> Result<Option<Tip>, String> {
-    todo!("the branch tip of the repository at {:?}, from one `git log -1`", project.root())
+    let output = project
+        .git()?
+        .args(["log", "-1", "--format=%H%x00%s%x00%b"])
+        .output()
+        .map_err(|e| format!("running git log: {e}"))?;
+    if !output.status.success() {
+        return Ok(None);
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let mut fields = text.splitn(3, '\0');
+    let hash = fields.next().unwrap_or_default().to_string();
+    let subject = fields.next().unwrap_or_default().to_string();
+    let body = fields.next().unwrap_or_default().trim_end().to_string();
+    Ok(Some(Tip { hash, subject, body }))
 }
 
 /// One trailer's value in a commit body: the last line beginning `<key>: `,
@@ -589,7 +602,8 @@ pub fn tip(project: &Project) -> Result<Option<Tip>, String> {
     spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced,
 )]
 pub fn trailer_of(body: &str, key: &str) -> Option<String> {
-    todo!("the `{key}` trailer of the body {body:?}")
+    let prefix = format!("{key}: ");
+    body.lines().rev().find_map(|line| line.strip_prefix(prefix.as_str())).map(|value| value.trim().to_string())
 }
 
 /// Whether a commit is reachable from `main`: `git merge-base --is-ancestor
@@ -598,7 +612,12 @@ pub fn trailer_of(body: &str, key: &str) -> Option<String> {
 /// reaching nothing, and the two trailer conditions carry the decision there.
 #[implements(spec::ATipReachableFromMainIsNeverReplaced)]
 pub fn on_the_trunk(project: &Project, commit: &str) -> Result<bool, String> {
-    todo!("whether {commit} is reachable from `main` in {:?}", project.root())
+    let output = project
+        .git()?
+        .args(["merge-base", "--is-ancestor", commit, "main"])
+        .output()
+        .map_err(|e| format!("running git merge-base --is-ancestor: {e}"))?;
+    Ok(output.status.success())
 }
 
 /// What a stop replacing the branch tip needs from it.
@@ -629,20 +648,26 @@ impl Replaced {
         spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced,
     )]
     pub fn of(tip: Tip) -> Result<Self, String> {
-        todo!("the replacement record of {tip:?}")
+        let tally = tally::from_trailers(&tip.body)?;
+        let agents = trailer_of(&tip.body, "Lid-Rs-Agent")
+            .ok_or_else(|| format!("no `Lid-Rs-Agent` trailer in the commit it must carry: {:?}", tip.body))?
+            .split(", ")
+            .map(str::to_string)
+            .collect();
+        let reworks = match trailer_of(&tip.body, "Lid-Rs-Reworks") {
+            None => 0,
+            Some(value) => value.parse().map_err(|_| format!("`Lid-Rs-Reworks` is not a number: {value:?}"))?,
+        };
+        Ok(Self { commit: tip, agents, tally, reworks })
     }
 
     /// The `Lid-Rs-Reworks` the commit about to be made carries: one more
     /// than the replaced commit's own value, and zero when nothing is
     /// replaced. The trailer's whole arithmetic in one place, so
     /// `tally::trailers` is handed the number rather than the record.
-    ///
-    /// At this layer the answer is `0`, which is right for every first
-    /// attempt and wrong for every replacement.
     #[implements(spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced)]
     pub fn next_reworks(replaced: Option<&Self>) -> u32 {
-        let _ = replaced;
-        0
+        replaced.map_or(0, |replaced| replaced.reworks + 1)
     }
 }
 
@@ -657,12 +682,6 @@ impl Replaced {
 /// is left where it is and the stop commits on top of it, as a first
 /// attempt's stop does. The slice is the branch's, so no subject field is
 /// parsed for it.
-///
-/// At this layer the answer is `Ok(None)` — never replace — so the branch
-/// stacks exactly as it did before this change and the stops that are driven
-/// past the nothing-to-commit test reach the chain they already expect. It is
-/// wrong observably rather than by panicking: a stop over a tip this phase
-/// made leaves two commits where one is claimed.
 #[implements(
     spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond,
     spec::AReplacedTipsSubjectTagNamesThisPhase,
@@ -670,8 +689,14 @@ impl Replaced {
     spec::ATipReachableFromMainIsNeverReplaced,
 )]
 pub fn replaced_tip(project: &Project, phase: Phase) -> Result<Option<Replaced>, String> {
-    let _ = (project, phase);
-    Ok(None)
+    let Some(tip) = tip(project)? else { return Ok(None) };
+    let tagged = matches!(tag_of(&tip.subject), Tag::Checked(tagged) if tagged == phase);
+    let phase_trailer = trailer_of(&tip.body, "Lid-Rs-Phase");
+    let trailered = phase_trailer.as_deref() == Some(policy::number_of(phase).to_string().as_str());
+    if !tagged || !trailered || on_the_trunk(project, &tip.hash)? {
+        return Ok(None);
+    }
+    Replaced::of(tip).map(Some)
 }
 
 /// The undo: nothing when nothing is replaceable — which is where the "was
@@ -689,7 +714,7 @@ pub fn replaced_tip(project: &Project, phase: Phase) -> Result<Option<Replaced>,
 pub fn undo_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(), String> {
     match replaced {
         None => Ok(()),
-        Some(replaced) => todo!("`git reset --soft HEAD~1` over {} in {:?}", replaced.commit.hash, project.root()),
+        Some(_) => crate::project::capture(project.git()?.args(["reset", "--soft", "HEAD~1"])).map(|_| ()),
     }
 }
 
@@ -707,7 +732,18 @@ pub fn undo_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(), St
 pub fn restore_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(), String> {
     match replaced {
         None => Ok(()),
-        Some(replaced) => todo!("re-commit {} from its own tree object in {:?}", replaced.commit.hash, project.root()),
+        Some(replaced) => {
+            let hash = &replaced.commit.hash;
+            let message = format!("{}\n\n{}", replaced.commit.subject, replaced.commit.body);
+            let file = project.target_directory()?.join("lid-rs/restore-message");
+            let parent = file.parent().ok_or("no target directory")?;
+            std::fs::create_dir_all(parent).map_err(|e| format!("creating {}: {e}", parent.display()))?;
+            std::fs::write(&file, &message).map_err(|e| format!("writing {}: {e}", file.display()))?;
+            let restored = crate::project::capture(
+                project.git()?.args(["commit-tree", &format!("{hash}^{{tree}}"), "-p", &format!("{hash}^"), "-F"]).arg(&file),
+            )?;
+            crate::project::capture(project.git()?.args(["update-ref", "HEAD", restored.trim()])).map(|_| ())
+        }
     }
 }
 
