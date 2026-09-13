@@ -16,7 +16,7 @@ pub mod sync;
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <commit-msg <file> | subagent-start | subagent-stop>>";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <pre-tool | post-edit | stop>>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
