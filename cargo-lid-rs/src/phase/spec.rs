@@ -669,13 +669,173 @@ pub struct TheBumpUpdatesTheLockForTheMembersAloneOffline;
 #[derive(Spec)]
 pub struct APhaseSevenSubjectMustCarryTheBumpedVersion;
 
-/// When a phase commit is made, its message shall end with the
-/// `Lid-Rs-Phase`, `Lid-Rs-Agent`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, and
-/// `Lid-Rs-Refusals` trailers rendered from the agent's tally, the agent
-/// being the id the tally was kept under.
+// The claim below is the sixth rewording this file records — a rename with the
+// retired name kept beside it as a `#[deprecated]` alias, by the rule the
+// earlier five follow. The old sentence named five trailers where the block
+// now has six, and "the agent" where a replacement's `Lid-Rs-Agent` may name
+// two. Its one validator is named for it, so no mark is needed; the sentence
+// is written in the controlled language. Its validation is stop-driven, since
+// the renderer decides nothing and would satisfy any assertion made of it
+// alone: a stop that replaces a tip and reads `Lid-Rs-Reworks: 1` off the
+// commit that comes out is what makes it red.
+
+/// When [`hook_stop`](crate::phase::hook_stop) commits a phase, its message
+/// shall end with the six trailers `tally::trailers` renders — `Lid-Rs-Phase`,
+/// `Lid-Rs-Agent`, `Lid-Rs-Tools`, `Lid-Rs-Checks`, `Lid-Rs-Refusals`, and
+/// `Lid-Rs-Reworks` — `Lid-Rs-Agent` naming every agent whose work the commit
+/// carries with two or more separated by `", "`, and `Lid-Rs-Reworks` the
+/// number of commits this one replaced, so a phase made twice still names the
+/// whole record of how it was made.
 #[derive(Spec)]
-#[lid(free)]
-pub struct TheTallyIsWrittenAsTrailers;
+pub struct APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks;
+
+/// The name [`APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks`]
+/// carried while the block had five trailers and one agent. The alias
+/// registers no claim, so the graph sees only the claim it points at; every
+/// citation of this name warns with its replacement, and those citations are
+/// the later phases' work list.
+#[deprecated = "replaced by APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks"]
+pub type TheTallyIsWrittenAsTrailers = APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks;
+
+// ---- hook stop: a rework replaces its phase's commit ----------------------------
+//
+// A phase has one commit, whatever it took to make it: a stop over a tip this
+// phase made and a reviewer rejected replaces that tip rather than following
+// it. `tip` reads the branch tip once and `Replaced::of` turns the reading into
+// the record a replacement needs; `replaced_tip` holds the decision alone, over
+// three conditions; `undo_tip` runs before the bump and the check, so every
+// reading after it sees the commit below the replaced one without being told a
+// rework is in flight; `restore_tip` puts the attempt back when anything after
+// the undo refuses; and the three tally leaves merge the two rounds' record.
+// The three conditions are three claims and not one, because they fail
+// independently — a `phase 7:` commit a human made when the watchdog killed a
+// gate carries the tag and no trailer, and swallowing it is the worst thing
+// this decision could do. "After the nothing-to-commit test" is no claim of
+// its own: it is observed through `NothingChangedInTheEditingSetIsARefusal`,
+// whose validation asserts the refusal leaves the replaceable tip standing.
+// Every claim here is written in the controlled language and carries no mark.
+
+/// When [`gate_commit`](crate::phase::gate_commit) runs over a branch tip that
+/// `replaced_tip` answers as replaceable, the commit the stop makes shall be
+/// that tip's replacement and not a second commit stacked after it — the
+/// rejected attempt gone from the branch and its work carried whole — so the
+/// branch holds one commit for the phase whatever it took to make it.
+#[derive(Spec)]
+pub struct AReworkedPhaseReplacesItsCommitRatherThanStackingASecond;
+
+/// When [`gate_commit`](crate::phase::gate_commit) asks `replaced_tip` whether
+/// the branch tip is this phase's attempt to replace, the tip it answers with
+/// shall carry this phase's `phase <n>:` tag in its subject — `tag_of`
+/// answering `Tag::Checked` of this phase — a tip tagged for another phase
+/// being none, left where it is and committed on top of as a first attempt's
+/// tip is.
+#[derive(Spec)]
+pub struct AReplacedTipsSubjectTagNamesThisPhase;
+
+/// When [`gate_commit`](crate::phase::gate_commit) asks `replaced_tip` whether
+/// the branch tip is this phase's attempt to replace, the tip it answers with
+/// shall carry a `Lid-Rs-Phase` trailer naming this phase — `trailer_of`'s
+/// answer for the body, the hook's own signature that no agent holds the git
+/// to write — so a commit made by hand under the tag and carrying no trailer
+/// is left standing and never swallowed.
+#[derive(Spec)]
+pub struct AReplacedTipCarriesTheHooksPhaseTrailerForThisPhase;
+
+/// When [`gate_commit`](crate::phase::gate_commit) asks `replaced_tip` about a
+/// branch tip that `on_the_trunk` finds reachable from `main`, the answer
+/// shall be none whatever tag and trailer the tip carries — a commit the trunk
+/// holds is never this branch's to replace — while a repository with no
+/// `main` reaches nothing from it and leaves the first two conditions to
+/// decide.
+#[derive(Spec)]
+pub struct ATipReachableFromMainIsNeverReplaced;
+
+/// When [`gate_commit`](crate::phase::gate_commit) holds a replaceable tip, it
+/// shall run `undo_tip` — `git reset --soft HEAD~1`, the commit gone and every
+/// change it carried kept in the index — before the Phase 7 bump and before
+/// the check, so the bump and every reading after it see the commit below the
+/// one being replaced without being told a rework is in flight.
+#[derive(Spec)]
+pub struct TheReplacedTipIsUndoneBeforeTheBumpAndTheCheck;
+
+/// When `undo_tip` has undone a replaceable `phase 7:` tip and
+/// [`mutation_base`](crate::phase::mutation_base) is asked for the gate's diff
+/// base, the base it answers with shall be the newest gate commit reachable
+/// from the `HEAD` that remains — the gate below the one being replaced, the
+/// base the rejected attempt ran against — so a reworked gate's mutation step
+/// covers everything the slice changed and not the difference between two
+/// attempts at one phase.
+#[derive(Spec)]
+pub struct AReworkedGateDiffsAgainstTheGateBelowTheReplacedCommit;
+
+/// When `undo_tip` has undone a replaceable `phase 7:` tip and
+/// [`bump_workspace_version`](crate::phase::bump_workspace_version) then runs,
+/// the version it writes shall be the one the replaced commit carried — one
+/// patch level above the manifest at the `HEAD` that remains, which is the
+/// commit below the release — so a rejection spends no version number and the
+/// subject the agent writes is the same across attempts.
+#[derive(Spec)]
+pub struct AReworkedPhaseSevenBumpsToTheVersionTheReplacedCommitCarried;
+
+/// When `tally::merged` is handed a replaced commit whose `Lid-Rs-Agent`
+/// already names this agent and this agent's own
+/// [`Tally`](crate::phase::tally::Tally), the tally it answers with shall be
+/// this agent's alone — a resumed worker keeps its id and its tally counted
+/// the rejected attempt too — so none of the replaced commit's counts is added
+/// to a record that already covers it and no call is counted twice.
+#[derive(Spec)]
+pub struct AResumedAgentsCountsAreNotAddedToTheCommitThatAlreadyCoversThem;
+
+/// When `tally::merged` is handed a replaced commit whose `Lid-Rs-Agent` does
+/// not name this agent and this agent's own
+/// [`Tally`](crate::phase::tally::Tally), the tally it answers with shall be
+/// the replaced commit's counts — read back from its trailers by
+/// `tally::from_trailers` — added count for count to this agent's, since a
+/// fresh worker's tally started at zero and the commit is the durable record
+/// of the attempt before it.
+#[derive(Spec)]
+pub struct AFreshAgentsCountsAreAddedToTheReplacedCommits;
+
+/// When `tally::agents` is asked which agents the commit
+/// [`gate_commit`](crate::phase::gate_commit) is about to make carries, the
+/// list it answers with shall be the replaced commit's agents in the order
+/// they worked with this agent appended when it is not already among them —
+/// every agent whose work the commit carries, in order, none of them twice,
+/// and this agent alone when nothing was replaced — which is the
+/// `Lid-Rs-Agent` line the trailers render.
+#[derive(Spec)]
+pub struct LidRsAgentNamesEveryAgentThatMadeTheCommitInOrderNoneTwice;
+
+/// When `Replaced::next_reworks` is asked for the `Lid-Rs-Reworks` the commit
+/// [`gate_commit`](crate::phase::gate_commit) is about to make carries, the
+/// number it answers with shall be one more than the replaced commit's own
+/// value — which `Replaced::of` reads as zero when that commit carries no such
+/// line, as every phase commit made before the trailer existed does — and zero
+/// when nothing is replaced, so a phase that took four tries never reads like
+/// one that took one.
+#[derive(Spec)]
+pub struct LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced;
+
+/// When a failure after the undo turns the stop
+/// [`gate_commit`](crate::phase::gate_commit) is making into a refusal, it
+/// shall run `restore_tip` before the refusal returns — for a failing check, a
+/// failing integrity pass, and a staging that refuses alike — re-creating the
+/// undone attempt from the replaced commit's own tree object with the subject
+/// and body the `Tip` holds, `git commit-tree <hash>^{tree} -p <hash>^ -F
+/// <message>` then `git update-ref HEAD <new>`, so the branch tip is the same
+/// tree and the same record under a new hash, this round's edits stay where
+/// the failure left them, and the next stop finds the attempt replaceable
+/// rather than stacking after all.
+#[derive(Spec)]
+pub struct ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree;
+
+/// When `tally::from_trailers` reads a commit body holding a trailer line
+/// [`tally::trailers`](crate::phase::tally::trailers) could not have written,
+/// it shall fail naming that line — an absent `Lid-Rs-Agent` or count line, a
+/// count that is not a number — and never read it as zero, so the replaced
+/// commit's work is never filed under counts nobody kept.
+#[derive(Spec)]
+pub struct ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine;
 
 // ---- execution class -----------------------------------------------------------
 
