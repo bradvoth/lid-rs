@@ -73,14 +73,25 @@ the human makes.
 There is one doc step, and Phases 1 and 7 share it, so the flag that lets
 rustdoc read private items is on at Phase 1 too: an LLD whose links resolve
 only into the crate's public surface is not an LLD whose links resolve.
-Every cargo invocation a check makes passes `--locked`. No phase may edit a
-manifest, so no phase can need the lock updated; a step that would have to
-update it is a step working against a tree the policy says cannot exist, and
-failing there is more useful than rewriting the lock on the way past. The
+Each of the gate's six cargo steps passes `--locked`, through `args_of`. No
+phase may edit a manifest, so no phase can need the lock updated; a step that
+would have to update it is a step working against a tree the policy says
+cannot exist, and failing there is more useful than rewriting the lock on the
+way past. The
 same flag refuses a workspace with no `Cargo.lock` at all, at the first
 step: a package that never committed its lock fails Phase 7 at `cargo check
 --locked`, which is the flag doing its job — a gate that claims a tree
-builds reproducibly needs the lock that makes it so, and `init` commits one.
+builds reproducibly needs the lock that makes it so. A lock is written the
+first time cargo resolves the graph, which `cargo metadata` does and which
+`init` runs, so an initialised package holds one; committing it is the
+package owner's act and not the tool's.
+Phase 5's red run is outside the rule rather than an exception to it: the
+per-validation `cargo test` and the registry dump it reads carry no `--locked`,
+because the red run is not a gate step and its arguments are not `args_of`'s. Nothing is lost by it. At Phase 5
+the workspace root's `Cargo.toml` and `Cargo.lock` are outside the phase's
+staged set — the hook writes them at Phase 7 and at no other phase — so a run
+that rewrote the lock would be a change outside the staged set, which the
+integrity check refuses by name rather than committing.
 
 A step's arguments are data, and `args_of` is where they live: one function
 from a `Step` to the argument list `cargo_step` will run. Every rule about
@@ -175,9 +186,10 @@ three crates that the per-crate form could not. The catalog slice designed
 that repair and named this module as the only place that can apply it; this is
 the change it was the precondition for. The README's list stays canonical
 (§4.5: "every copy of the list a project keeps must match"); this is one
-more copy, held to the same rule. Steps a workspace appends after the floor
-(this one's `mdbook build book`) are outside the tool's knowledge and stay
-in the project's CI (see Deferred).
+more copy, held to the same rule. Steps a workspace appends after the floor —
+this one's `mdbook build book` — are the workspace's to declare and the tool's
+to run; see *The floor is the tool's, and the steps after it are the
+workspace's* below.
 
 **The doc step documents private items.** The gate's rustdoc step is `cargo
 doc --no-deps --document-private-items`, with `RUSTDOCFLAGS` denying
@@ -215,6 +227,110 @@ as the human gives it — and this project's CI keeps `--diff-base
 origin/main`. The three ask different questions and deserve different
 answers: a phase asks what this phase changed, a human asks what they are
 looking at, a release asks what the branch changed against the trunk.
+
+**The floor is the tool's, and the steps after it are the workspace's.**
+README §4.5's list is where the gate starts and not where it ends: "This list
+is the floor; a workspace appends build-integrity steps of its own after it,
+and every copy of the list a project keeps must match." A workspace declares
+its own steps in its root manifest, each one a command:
+
+```toml
+[workspace.metadata.lid_rs]
+gate_extra = [["mdbook", "build", "book"]]
+```
+
+An entry is a program and its arguments. [`plan`](crate::phase::plan) appends
+one `Step::Extra` per entry, in the order
+configured, after [`Step::Mutants`](crate::phase::Step::Mutants) — so the
+cheapest and most specific steps still fail first, and the workspace's own
+steps run last, against a tree the floor has already accepted. `phase-check 7`
+runs them, which is to say the stop hook runs them: a `phase 7:` commit is
+made only when the workspace's steps pass too, and a step a project keeps by
+hand becomes one line of configuration instead of a line in a runbook.
+
+An entry runs at the workspace root, as a program and not through a shell. The
+first word is the program and the rest are its arguments, so no quoting
+grammar, word splitting, or variable expansion stands between the manifest and
+the process — the same reason a step's cargo arguments are a list and not a
+string. Failure is the gate's failure, naming the entry and carrying its
+output: the program exiting non-zero and the program not being on the machine
+at all are the same answer, because a step that could not run is not a step
+that passed. The argument list is the entry's own and
+[`args_of`](crate::phase::args_of) answers nothing for such a step: `--locked`
+is a rule about what *cargo* is invoked with, and an extra step invokes
+whatever the workspace named.
+
+`gate_extra` is read from what `cargo metadata` reports and never by parsing
+a manifest: the `[workspace.metadata.lid_rs]` table of the metadata document,
+falling back to the `[package.metadata.lid_rs]` table of the package whose
+manifest is the workspace root's when the workspace table does not name the
+key — the two-step reading `mutation_scope` already has. The fallback is what
+makes the key available to a project that is one package and no workspace,
+which is what `init` scaffolds and what this slice's fixtures are: such a
+project has no `[workspace]` table for the workspace form to sit under, so
+its key is the root package's, exactly as `mutation_scope` is there.
+
+The reading is split the way `companion`'s is, and for the same reason.
+`Project::setting_node` is the raw door — one key's JSON node from the
+metadata document, or none — and it implements no claim, because "which node
+the metadata holds" has no wrong answer for a validation to catch.
+`policy::gate_extra` is where that node becomes a plan's worth of steps, and
+the three rules about the value are its: an absent key is the empty list, so a
+workspace that configures nothing runs the floor and only the floor, and no
+consumer's gate changes by upgrading; a value that is not a list at all — a
+string, a table — fails the check naming `gate_extra` and what it found
+instead, since it is neither an absent key nor an entry; and an entry that is
+not a non-empty list of strings fails the check naming `gate_extra` and the
+entry it could not read. A gate step that cannot be read is not a gate step
+that is silently skipped (constraint 3). The split is not tidiness: a claim
+whose only implementer is a hand-landed door in `src/project.rs` has no Phase
+3 to leave it `todo!()` and therefore no Phase 5 that can make it red, so the
+parse belongs in the slice, where every phase of the walk reaches it.
+
+[`check`](crate::phase::check) builds its plan from that answer —
+`plan(phase, publishing, policy::gate_extra(project)?)` — which is the one
+place the value is read, so a `gate_extra` the tool cannot read stops the
+check where the plan is built, at whichever phase is running, rather than
+surviving five phases and stopping the gate.
+
+Two hand commits carry this, and their moments differ. `Project::setting_node`
+lands in `src/project.rs` between Phase 2 and Phase 3 — the slot this
+workspace already uses for landing `pub mod spec;` by hand and for
+`package_setting_at` before it — because Phase 3's skeleton calls it, and the
+callers that call it cite claims that do not exist until Phase 2 has written
+them. The workspace root manifest's `gate_extra = [["mdbook", "build",
+"book"]]` lands *after* this change's own Phase 7, once the installed
+`cargo-lid-rs` has been refreshed from the merged tree, in the same
+documentation commit that changes CLAUDE.md's gate block from `mdbook build
+book` "run by hand" to a configured step. The order is forced by the hooks
+running the installed binary rather than the working tree: a key added earlier
+is a key the old binary does not read, so it would not make `mdbook build
+book` run in this change's own gate, and it would sit in the manifest naming a
+step nothing runs. Phase 5's fixture takes the same road as `init`'s scaffold:
+its key joins the `[package.metadata.lid_rs]` table `init` already wrote to
+the `app` package's manifest (beside `mutation_scope`), since a lone package
+has no `[workspace]` header the workspace form could sit under, and a second
+`[package.metadata.lid_rs]` header would be a table redefinition `cargo
+metadata` refuses. That fixture is also what exercises the fallback: a
+validation of the read-from-metadata claim takes the package form, so the
+door's second step is not left unobserved.
+
+**An extra step may not write into the tree.** The stop hook's integrity pass
+reads `git status --porcelain` against `HEAD` and filters it by the staged
+set, refusing the stop when anything at all outside that set has changed, and
+an extra step runs inside the check — so a step whose output lands on a
+tracked or untracked path makes the phase's commit impossible, naming that
+path. A step whose output goes under the target directory, or to a path the
+project ignores, is unaffected, because `git status` never offers it. (`mdbook
+build book` writes `book/book`, which this workspace ignores.)
+
+Two costs stay the workspace's to weigh. The steps run inside the stop hook,
+so their time is added to the gate's, against the watchdog Deferred 6 records.
+And a step's program is resolved on the machine's `PATH`, so a gate configured
+with a tool the machine lacks fails there and passes elsewhere — which is what
+an extensible floor means: the tool answers for the floor, and the project
+answers for the rest. An extra step is the project's, not the pipeline's, so
+it carries no catalog name and `cargo lid-rs catalog` does not list it.
 
 ### The phase agents
 
@@ -309,13 +425,13 @@ What it trades away: a non-Rust asset under a slice's module — a fixture, an
 included template — becomes unwritable by Phases 3–7. No crate here has one
 today; the day one is wanted it is an LLD edit and a claim.
 
-**Staging is the open half of this.** `OnlyThePoliciesPathsAreStaged` has the
-stop hook stage the allowed set with `git add -- <paths>`, which cannot express
-"everything under this directory except these" without a pathspec exclusion. If
-the hook stages the directory as it does now, a human's in-flight edit to a
-colocated `lld.md` is swept into a phase commit and the integrity check that
-should have named it passes. The refusal and the staging must narrow together,
-and only the refusal has.
+**Staging is the open half of this.** `TheStopStagesExactlyTheStagedSet` has
+the stop hook stage the allowed set with `git add -- <paths>`, which cannot
+express "everything under this directory except these" without a pathspec
+exclusion. If the hook stages the directory as it does now, a human's
+in-flight edit to a colocated `lld.md` is swept into a phase commit and the
+integrity check that should have named it passes. The refusal and the staging
+must narrow together, and only the refusal has.
 
 These four contain none of the strings a path sweep looks for — no
 `src/spec/`, no `docs/intent/` — because they name a *directory* that will come
@@ -545,15 +661,19 @@ take `version.workspace = true`, and the `[workspace.dependencies]` path
 entries state a caret requirement that a patch bump still satisfies —
 verified 2026-09-12 by bumping the workspace and resolving it.
 
-**Every cargo step is `--locked`.** Each cargo invocation the check makes —
+**Every cargo step is `--locked`.** Each of the gate's six cargo steps —
 `check`, `clippy`, `doc`, `test --doc`, `test --lib`, `package` — passes
 `--locked`, so the gate proves the workspace builds from the lock file the
 commit carries rather than from one cargo silently rewrote while proving it.
 A step that would have to update the lock fails instead, naming it (verified
 2026-09-12: cargo refuses with "cannot update the lock file … because
 --locked was passed"). The bump's own `cargo update --workspace --offline` is
-the single exception and the reason there is one: writing the lock is its
-purpose.
+the one gate-side cargo call the stop hook makes without the flag, and the
+reason there is one: writing the lock is its purpose. Phase 5's red run is outside the rule
+rather than an exception to it — its per-validation `cargo test` and the
+registry dump it reads are not gate steps and their arguments are not
+`args_of`'s — and the paragraph on the check's `--locked` says why nothing is
+lost by that.
 
 `--locked` does not make `package` offline, and the version it packages is one
 no registry holds, so the two facts meet at the step this slice already
@@ -781,15 +901,18 @@ document does not imply it.
 | `phase::hook(args)` | One `match` over the hook kind: `pre-tool <n>`, `post-edit <n>`, `stop <n>`; each reads Claude Code's JSON from stdin |
 | `Phase` | Closed set `One`–`Five`, `Seven`; `TryFrom<u8>` refuses 0, 6, 8+ |
 | `Step` | Closed set: the gate's steps, phase 2's lint, and the red run |
-| `plan(phase, publishing) -> Vec<Step>` | A phase's steps as data |
+| `check(project, phase, slice) -> Result<(), String>` | One phase's check: the plan, built as `plan(phase, publishing, policy::gate_extra(project)?)`, executed in order. The one place `gate_extra` is read, so a value the tool cannot read fails here — at whichever phase is running, not only at phase 7 |
+| `plan(phase, publishing: &[String], extra: &[Vec<String>]) -> Vec<Step>` | A phase's steps as data; `publishing` names what one `cargo package` runs for and `extra` the workspace's own steps, which follow the floor in the order configured |
 | `execute`, `execute_with`, `run_step` | Runs steps in order; the first failure is the result |
-| `args_of(step: &Step) -> Vec<String>` | One step's cargo arguments as data — `--locked` on every one, `--document-private-items` on the doc step, `package`'s member list and `--allow-dirty` — so what a step invokes is assertable without invoking it |
+| `args_of(step: &Step) -> Vec<String>` | One step's cargo arguments as data — `--locked` on every one, `--document-private-items` on the doc step, `package`'s member list and `--allow-dirty` — so what a step invokes is assertable without invoking it; a step that invokes no cargo, an extra step included, answers with nothing |
 | `cargo_step(project, args, env)` | One cargo invocation of `args_of`'s list, its output captured into the failure |
 | `Step::Mutants` | The one step whose argument is not data: `run_step` passes `mutation_base(project)?` into `mutants::run(&["--diff-base", base])` when the step runs |
+| `Step::Extra(Vec<String>)` | One entry of the workspace's `gate_extra`: the program and its arguments, carried as data on the variant. `args_of` answers nothing for it, so no rule about a cargo invocation is asserted of a step that invokes no cargo |
+| `extra_step(project, entry: &[String]) -> Result<(), String>` | One extra entry run: the entry's first word as a program, the rest as its arguments, at the workspace root and through no shell; a non-zero exit or a program that cannot be run is the failure, naming the entry and carrying its output. A malformed entry never reaches it: `policy::gate_extra` fails the check naming `gate_extra` and the entry it could not read before any step runs |
 | `mutation_base(project) -> Result<String, String>` | The gate's diff base: one decision between the gate commit and the merge base |
 | `merge_base_with_main(project) -> Result<String, String>` | `git merge-base main HEAD` — where the branch was cut from; a failure names the ref when there is no common ancestor |
 | `check_red`, `slice_claims`, `claim_validations`, `run_test`, `unvalidated`, `red_verdict` | The phase 5 red run over the registry dump |
-| `gate_base(project) -> Option<String>`, `red_set(project, crate_root, slice, claims) -> Vec<String>` | The newest `phase 7:` commit reachable from `HEAD` — the red set's base, and check 12's through `mutation_base`; the slice's claims whose `struct <Name>` line the diff since it added |
+| `gate_base(project) -> Result<Option<String>, String>`, `red_set(project, crate_root, spec_file, claims) -> Result<Vec<String>, String>` | The newest `phase 7:` commit reachable from `HEAD` — the red set's base, and check 12's through `mutation_base`; the slice's claims whose `struct <Name>` line the diff since it added |
 | `slice_of_branch`, `resolve_slice`, `current_branch` | The slice from `lld/<slice>` or `lld/<slice>--<change>`; a detached `HEAD` names none |
 | `HookInput` | The boundary type over the hook JSON: `agent_id`, `tool_name`, `tool_input` path, `last_assistant_message`, `stop_hook_active` |
 | `policy::allowed(phase, crates, claims, own, target) -> Verdict` | The path tables, over the slice's crate and its companion if any; `Verdict::Refused(reason)` carries the discipline row. `claims` and `code` are the layout's answers, resolved by the caller because the policy holds no `Project` where it judges a path |
@@ -810,18 +933,20 @@ document does not imply it.
 | `integrity::bumped_files_untouched(project, version_files)` | The other half of the post-check integrity pass: each of the two root files must still equal, byte for byte, what the bump wrote |
 | `policy::slice_crate(project, slice) -> PathBuf` | The package holding the slice's document, in either layout — asked of `layout::own_crate`, which is where the four shapes are told apart |
 | `policy::companion(project, crate_root) -> Result<Option<PathBuf>, Refusal>` | The package `[package.metadata.lid_rs] companion` names, from `cargo metadata`; none for an ordinary crate; a refusal naming the key for a proc-macro crate without one, or one whose companion is a proc-macro crate or not a member |
+| `policy::gate_extra(project) -> Result<Vec<Vec<String>>, String>` | The workspace's configured steps, parsed from `Project::setting_node("gate_extra")` — the same two-sided shape `companion` has over `package_setting_at`. An absent key is the empty list; a value that is not a list fails the check naming `gate_extra` and what it found; an entry that is not a non-empty list of strings fails the check naming `gate_extra` and the entry it could not read. The four metadata claims — the reading with its fallback, the absent key, the non-list value, the malformed entry — are cited here and not on the raw door, so Phase 3 leaves this a `todo!()` and Phase 5 can redden them |
 | `Project::package_setting_at(dir, key)`, `Project::member_dir_named(name)` | What `companion` reads: a package's `[package.metadata.lid_rs]` setting, and a member's manifest directory by package name — both from the metadata document `Project` already holds, in `src/project.rs`, which this slice's phases may not write and the human adds by hand |
+| `Project::setting_node(key) -> Option<serde_json::Value>` | One `metadata.lid_rs` key's raw JSON node from the metadata document `Project` already holds: the `[workspace.metadata.lid_rs]` table's, falling back to that of the package whose manifest is the workspace root's, as `configured_scope` reads `mutation_scope` through `setting_in`. It implements no claim — a raw node has no wrong answer — and it lives in `src/project.rs`, which this slice's phases may not write and the human adds by hand between Phases 2 and 3 |
 | `SliceCrates { slice, own, companion }`, `SliceCrates::resolve`, `claims_crate()` | The crates a phase may write, resolved once per hook call; the crate that holds the slice's claims, where the red run diffs and tests |
 | `Tally`, `tally::record(agent_id, kind)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
-| `hook_pre_tool(phase, input)` | Policy verdict for editing tools, tally for every tool |
+| `hook_pre_tool(project, phase, input)` | Policy verdict for editing tools, tally for every tool |
 | `hook_post_edit(project, input)` | Clippy, rendered as `additionalContext` |
 | `hook_stop(project, phase, input) -> HookVerdict` | Parse the message; `commit` → sync → bump (Phase 7) → subject version → check → integrity (sync, staged set, bumped files) → stage → commit → allow; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crates)` | `git status --porcelain` filtered against `staged_paths`; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
-| `compile_time_accepted(crate_root, slice)` | Whether the slice's `compile-time-accepted` intent file exists — `layout::intent_file`'s answer |
+| `compile_time_accepted(project, slice)` | Whether the slice's `compile-time-accepted` intent file exists — `layout::intent_file`'s answer |
 | `Ending::{Commit(message), Stop(decisions)}`, `ending_of(message)` | The stop protocol, parsed from the final message |
-| `refusal_for(step_output) -> String` | Output + `gates.md` row for the check that fired + what the phase permits |
+| `refusal_for(project, phase, crates, output) -> String` | Output + `gates.md` row for the check that fired + what the phase permits |
 | `check_of_lint(name) -> Option<Check>` | The lint → check mapping |
 | `stage_and_commit(project, paths, message, trailers)` | `git add -- <paths>`; `git commit -F` |
 | `sync::artifacts()` | The mirror table: `skill/`, `workflow/`, `agent/` |
@@ -850,8 +975,8 @@ document does not imply it.
 | Staging | The phase's allowed paths of both seats, plus — at Phase 7 only — the two workspace-root files the hook's own bump wrote | `git add -A`; the agent names files; widening Phase 7's editing policy to `Cargo.toml` and `Cargo.lock` so one set still serves both | The set that bounds edits bounds the commit; anything else the agent could not have written — and the two exceptions are exactly the files the agent did *not* write, because the hook did. Widening the editing policy to keep one set would hand the agent the manifest the policy exists to keep it out of, and would make the refusal message offer `Cargo.toml` as somewhere to fix a failing gate. Two sets that differ by what the hook writes is the honest shape; the editing verdict and `permitted_moves` keep reading the narrower one. **Claims:** `OnlyThePoliciesPathsAreStaged` and `TheStopStagesBothCratesAllowedPaths` are reworded to the staged set; `ChangesOutsideThePolicyRefuseTheStop` and `IntegrityFiltersAgainstBothCratesAllowedPaths` are reworded to filter against the staged set; `NothingToCommitIsARefusal` is reworded to say the test reads the *editing* set, so a Phase 7 whose agent changed nothing is refused though the bump dirtied two files; one new claim puts `Cargo.toml` and `Cargo.lock` in the staged set at Phase 7 and no other phase; one new claim requires each of those two to still equal the bump's own output after the check, refusing by name when it does not. |
 | Check 12's diff base under the gate | The newest `phase 7:` commit reachable from `HEAD`; `git merge-base main HEAD` when the history holds none | Keep `main`; a `[workspace.metadata.lid_rs] mutation_base` setting; hand the gate to a detached runner and refuse until it reports | Measured here 2026-09-11: `main` as the base offered 1,390 mutants and about seventeen minutes, past the 600 s a subagent is allowed between stream events, so Phase 7 was committed by hand; the newest gate commit offered six. `main` also answers the wrong question — it is what the *branch* changed, and a phase is judged on what the phase changed. A configured base is a value whose wrong setting is a vacuous gate, and it reaches the hook from a file a phase could be argued into rewriting. A detached runner keeps the seventeen minutes, adds a process whose failure the hook cannot see, and leaves the commit waiting on it; making the run proportionate removes the reason for it. The `mutants` subcommand and CI keep their own bases, because a human and a release ask different questions. **Claims:** one new claim gives the gate's mutation step a `--diff-base` of `gate_base`'s commit — a *sibling* of `TheBaseIsTheNewestGateCommitReachableFromHead`, not a sharer of it: that claim is the red run's rule about which commit `gate_base` answers with, and this one is the gate's rule about what the mutation step does with the answer, so either could change without the other. One new claim makes the base `git merge-base main HEAD` when the history holds no gate commit, and one more fails the step naming the ref when no merge base exists. |
 | The version bump at Phase 7 | The stop hook raises `[workspace.package] version` one patch level from the manifest at `HEAD`, by a line patch, and regenerates `Cargo.lock`; every cargo step is `--locked` | The `toml` crate; `cargo set-version` from cargo-edit; leave the bump to the human, as it was | Eight hand commits on the record branch were version or lock repairs, and two of them were the same publish trap twice: a `phase 7:` commit that keeps the released version packages a version a registry already holds, and the gate that would have said so is the gate the commit claims to have passed. A TOML dependency is the one the `cargo-lid-rs` slice already rejected ("JSON / metadata parsing"), and one line of one file is not the evidence that overturns it. `cargo set-version` is a third-party binary the hook would have to require installed in every consumer, to edit the same line. Leaving it to the human is what was measured, and it is what failed. **Claims:** one new claim has the Phase 7 stop raise the workspace version one patch level from the manifest at `HEAD` before the check, which is also its idempotence; one for the line patch's target — the first `version = "` line between `[workspace.package]` and the next line beginning `[`, the rule that keeps a later table's `version` safe; one for its failures, naming what was looked for when the header, the line, or three numbers are missing; one for the lock being brought into agreement with `cargo update --workspace --offline`; one for `args_of` putting `--locked` on every cargo step; and one for the subject-version refusal, which is a sibling of `ACommitSubjectMustCarryThisPhasesTag` — that claim is about the tag and says nothing about a version. |
-| The gate's doc step | `cargo doc --no-deps --document-private-items` | Keep the weaker `cargo doc --no-deps` | Without the flag rustdoc never visits a private item, so a broken link there is not an error but an item rustdoc did not read — and a LID slice is mostly private items. The weaker form hid a real rustdoc error until it was found by hand (record branch `d3f9040`). README §4.5, CLAUDE.md and the catalog's `doc` command all carry the flag; this copy was the only one that did not, which is the drift §4.5's "every copy of the list a project keeps must match" forbids. **Claims:** one new claim gives `args_of`'s doc step `--document-private-items`. `PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce` and `PhaseOneChecksTheDocs` say only "doc" and "rustdoc" — they name the step's place in the order, not its arguments — so neither is reworded, and the flag is a claim of its own that both orders' doc step satisfies. |
-| The companion seat's claims file | `seat_claims`: the layout's answer for the own seat, the companion module directory's `spec.rs` for the companion seat | Give `layout` a companion door (`companion_spec_file`) and ask it; move a crate-root proc-macro slice's claims to the companion's `src/spec.rs`; leave the own crate's relative answer in place | Measured 2026-09-12 on `lid-rs-macros`, the first crate-root proc-macro slice under a companion: Phase 2 was admitted only `lid-rs/src/spec.rs`, while the LLD, the six existing claims and their `macro_edge!` lines all live in `lid-rs/src/lid_rs_macros/spec.rs`, so the phase could not commit. Which directory a companion is, the layout already answers (`Form::Companion` is `module_dir`); which file in it holds claims is the colocation rule (`spec.rs` beside the module), not a second reading — so the policy joins the two answers it already holds rather than opening a door for a fact with one possible value. Moving the claims would split a slice's claims across the companion's crate root and its module against README §11.1. **Claims:** add `TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec`. |
+| The gate's doc step | `cargo doc --no-deps --document-private-items` | Keep the weaker `cargo doc --no-deps` | Without the flag rustdoc never visits a private item, so a broken link there is not an error but an item rustdoc did not read — and a LID slice is mostly private items. The weaker form hid a real rustdoc error until it was found by hand (record branch `d3f9040`). README §4.5, CLAUDE.md and the catalog's `doc` command carried the flag; the skill's `references/phase-7.md` and `.github/workflows/gate.yml` did not, and neither did this copy — all three were corrected together when the hook's copy was fixed, which is the drift §4.5's "every copy of the list a project keeps must match" forbids. **Claims:** one new claim gives `args_of`'s doc step `--document-private-items`. `PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce` and `PhaseOneChecksTheDocs` say only "doc" and "rustdoc" — they name the step's place in the order, not its arguments — so neither is reworded, and the flag is a claim of its own that both orders' doc step satisfies. |
+| The companion seat's claims file | `seat_claims`: the layout's answer for the own seat, the companion module directory's `spec.rs` for the companion seat | Give `layout` a companion door (`companion_spec_file`) and ask it; move a crate-root proc-macro slice's claims to the companion's `src/spec.rs`; leave the own crate's relative answer in place | Measured 2026-09-12 on `lid-rs-macros`, the first crate-root proc-macro slice under a companion: Phase 2 was admitted only `lid-rs/src/spec.rs`, while the LLD, the six existing claims and their `macro_edge!` lines all live in `lid-rs/src/lid_rs_macros/spec.rs`, so the phase could not commit. Which directory a companion is, the layout already answers (`Form::Companion` is `module_dir`); which file in it holds claims is the colocation rule (`spec.rs` beside the module), not a second reading — so the policy joins the two answers it already holds rather than opening a door for a fact with one possible value. Moving the claims would split a slice's claims across the companion's crate root and its module against README §11.1. **Claims:** add `TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec`, and correct `PhaseTwoMayWriteOnlyTheCompanionsSpecFiles` in place, whose "the same answer the layout gives for the slice, placed in the companion" is the reading this row replaces and now contradicts the new claim. In place, not by the rename-and-alias rule this document states for a reworded claim: that rule exists so a changed behaviour is a new `struct` line the red run diffs and Phase 5 reddens, and here the behaviour is already delivered and gated under the new claim — a renamed claim would enter the red set with a validator that is green on arrival, which the red check refuses and no phase could make red. A claim whose text is corrected to match behaviour another claim already gates is a documentation defect (tenet 1) and keeps its name. Corrected, Phase 2's companion row is the companion's module directory's `spec.rs`, and its validator reaches that row through `workspace_paths`/`allowed`, which resolve the seat's claims file, rather than by calling `allowed_paths` with a raw claims path of the validation's own choosing — a validation that chose the path would assert the layout's own-crate answer the claim exists to refuse; rewriting that validator is Phase 5's, as work on a claim outside the red set that must stay green. |
 | Stop-refusal budget | Refuse while the check fails, up to Claude Code's cap of eight | One refusal then allow (the first design); refuse forever | A failing check is not a reason to let the phase end; eight rounds of clippy output is more than a fixable phase needs, and the cap leaves a dirty, uncommitted tree the next precondition refuses. A `stop` block is always allowed, so an honest stop is never blocked. |
 | Trusted binary in the tool's own workspace | Hooks name the installed `cargo-lid-rs` directly, refreshed from `main` after merge; no synced script | A synced `hooks/run` script preferring `cargo run -p cargo-lid-rs` here (the first design); a separate worktree build | A worker in this repository edits the hook's own source; running it from the tree means the policy is whatever the worker last wrote. Enforcing only landed policy is the price of the tool being its own consumer. |
 | Instrumentation | A per-agent tally kept by the hooks, written as commit trailers | Parse `agent_transcript_path`; no instrumentation until the design settles | The hooks see every call and refusal; the transcript format is undocumented. Trailers put the measurement where the review already happens, from the first phase this design runs. |
@@ -861,6 +986,11 @@ document does not imply it.
 | Phase 5 test execution | One `cargo test … --exact` run per validation, exit status as verdict | One `cargo test --lib` run with libtest output parsed; `--format json` | One process per test costs seconds on a slice-sized set and needs no parsing of libtest's human-oriented output; JSON output is nightly-only. |
 | Phase 5 slice identity | `SPEC` records by source file, which `layout::spec_file` answers for either layout; slice from the branch name | Parse `src/spec/` for the module; a `--claims` list | The registry already carries the file; the branch convention already carries the slice; constraint 2 forbids the parse. |
 | Phase 7's list | The tool holds README §4.5 verbatim, in order, as one more copy the README's rule binds | Make `cargo lid-rs gate` canonical and reduce the README to a pointer | Keeping the list canonical in prose is deliberate for now: the spec stays readable without the tool. Promoting the tool is a README change with its own slice. |
+| Where a workspace's own gate steps are declared | `[workspace.metadata.lid_rs] gate_extra`, falling back to the root package's `[package.metadata.lid_rs]` as `mutation_scope` does — a list of commands, each a list of strings, read from `cargo metadata` | A shell string per step; a `gate_extra.sh` the tool runs; leaving them in CI, as they were; a `cargo lid-rs gate` the project wraps | A list of strings is the same shape a step's cargo arguments already have, and it has no quoting grammar, no word splitting, and no expansion for a manifest to get wrong. A shell string adds all three and a shell. A script file is a path the tool would have to trust and a project would have to keep executable, and it hides which steps exist from anything reading the manifest. Leaving them in CI is what was measured: a gate that exists only in CI does not gate the commit that claims to have passed it, and this workspace's `mdbook build book` was run by hand for every slice that shipped. The metadata is already where `mutation_scope` and `companion` are read from, so the reading is one more `metadata.lid_rs` key and no new file, and `mutation_scope`'s fallback to the root package's table comes with it, which is what lets a single-package project — `init`'s scaffold, and this slice's fixtures — carry the key at all. **Claims:** one new claim puts the extra steps after the mutation step in `plan`'s answer for phase 7; one makes an absent key the empty list, so the floor alone is what an unconfigured workspace runs; one has an entry run as a program at the workspace root and through no shell; one makes a failing or unrunnable entry the check's failure, naming the entry; one has the list read from the metadata `cargo metadata` reports rather than from a manifest; one fails the check naming `gate_extra` and the entry it could not read when an entry is not a non-empty list of strings; one fails the check naming `gate_extra` and what it found when the value is not a list at all, which is neither an absent key nor an entry. The three about the value are cited by `policy::gate_extra` and not by `Project::setting_node`: the raw door is a hand commit no phase can write, so a claim implemented only there has no Phase 3 to leave it `todo!()` and no Phase 5 that could make it red. |
+| How `policy::gate_extra` is skeletoned | Wired into `check` at Phase 3 with a body answering the empty list, so `plan` carries no extra step until Phase 7 and the four metadata claims are red by assertion | Declared unwired with a `todo!()` body until Phase 7; wired with a `todo!()` body; `check` reading the value only at Phase 7 | `check` is reached by every validation of a phase's check outside this change's red set, so a wired `todo!()` turns them red for a reason that is not theirs, and Phase 3's own check could not pass; unwired, the item is dead code in a private module and the post-edit lint refuses it. The empty list is the wrong answer that compiles: a configured key answered as empty fails the read-with-fallback validation, a malformed key answered as empty fails the two refusal validations, and an absent key answered as empty is the one case green early, which Phase 5 states. Reading only at Phase 7 would put a phase decision inside `check` that the malformed-key row says it does not have. `extra_step` keeps the ordinary `todo!()`: nothing green reaches it while the list is empty. |
+| Where the extra steps sit in the gate's order | After every step of README §4.5's floor, the mutation step included | Before the mutation step, so the slowest step stays last; interleaved by configuration | The floor's order is cheapest-and-most-specific first, and a workspace's step is neither cheap nor specific to the tool: it is a build-integrity step over a tree the floor has already accepted, so running it before the floor's own steps would spend it on trees the floor rejects. Interleaving by configuration makes the order a value a manifest can get wrong, and README §4.5's list is the order. The cost is that an extra step follows the gate's longest step, so a workspace's step fails late; the alternative is failing the floor's cheap steps late instead. |
+| How an extra step is carried through `plan` | `Step::Extra(Vec<String>)`, one variant per entry, with `plan` taking `extra: &[Vec<String>]` as a parameter beside `publishing` | A single `Step::Extras` that reads the metadata when it runs, as `Step::Mutants` resolves its base; a `GateInputs` struct in place of the two parameters | A step whose arguments are data is a step a validation can assert without running it — the reason `args_of` exists — and the extra steps are configuration, which is exactly the shape `publishing` already has as a parameter. `Step::Mutants` is the documented exception because its base is a git fact resolved when the step runs and is one value; a list of commands read at plan time is neither. A `Step::Extras` could be observed only by running the programs, which for "in this order, after the mutation step" is no observation at all. A struct for two lists is a name for the pair and nothing else today; it becomes worth adding at the third configured input. |
+| When a malformed `gate_extra` fails | At whichever phase's check builds the plan, failing the check naming `gate_extra` and the entry it could not read | Only at phase 7, where the value is used; ignoring an unreadable entry | The value is read where the plan is built — `check`, through `policy::gate_extra` — which is one place, and a configuration a project cannot have meant is a defect whose earliest naming is its cheapest. Deferring it to phase 7 means a typo survives five phases and stops the gate. Ignoring it is the vacuous pass constraint 3 forbids: a gate step that is silently dropped is worse than one that was never configured. |
 | The workflow's input | A branch with a human-approved `phase 1:` commit; no waiver argument | A slice name, with the workflow drafting the LLD; a `--waive` argument | Phase 1 is human-owned; a workflow that drafts it and continues has approved its own LLD. A waiver given once is reused; an argument is a waiver given every time. |
 | Reviewer at each stop | One clean agent per phase, prompted to refute, one rework round | No reviewer; a judge panel per phase | A clean reviewer is also the test that the artifact is context-free — the failure interactive mode cannot see. A panel exceeds the cost a slice warrants; one rework round bounds the run. |
 | Where the artifacts live | `agent/` and `workflow/` beside `skill/` in the `lid-rs` crate, synced under one rule | Inside `skill/`; a separate crate; the plugin | Claude Code reads agents and workflows from `.claude/agents/` and `.claude/workflows/`; the files are version-coupled to the skill they point at, so they ship with it. |
@@ -922,25 +1052,22 @@ The defect blocks **two** of the remaining slices, not one: slice 18
 `lid-rs-pipeline/src/lld.md`. Both are crate-root.
 
 ### Deferred
-1. Workspace-appended gate steps (`mdbook build book` here): a
-   `[workspace.metadata.lid_rs] gate_extra` list `phase-check 7` would run
-   after the floor. Until then those steps live in CI only.
-2. Worktree isolation per phase worker (see Decisions).
-3. The workflow's Phase 8 path: with `lld/<slice>--<change>` settled, the
+1. Worktree isolation per phase worker (see Decisions).
+2. The workflow's Phase 8 path: with `lld/<slice>--<change>` settled, the
    precondition's "first phase without a commit" reading still counts only
    commits made on the branch itself, and a change branch cut from a merged
    `main` needs that reading to start at the branch point.
-4. A documentation phase: the cascade a slice causes in README, CLAUDE.md,
+3. A documentation phase: the cascade a slice causes in README, CLAUDE.md,
    and the skill is no phase agent's to make under the policy; today it is
    the human's, or the main session's outside a LID phase.
-5. A phase with nothing to do: on a Phase 8 edit whose layer 0 is already
+4. A phase with nothing to do: on a Phase 8 edit whose layer 0 is already
    leaves, Phase 4 has no edit to make, and the stop hook's "nothing staged"
    refusal is the right answer to the wrong question. The workflow runs
    every phase; a phase that ends with a stop block saying so is today's
    path, and the session skips it by hand.
-6. `rust-analyzer` in `rust-toolchain.toml`'s components, so the LSP tool
+5. `rust-analyzer` in `rust-toolchain.toml`'s components, so the LSP tool
    works for the reviewer without a manual install.
-7. A gate that outgrows the watchdog again: Claude Code ends a subagent
+6. A gate that outgrows the watchdog again: Claude Code ends a subagent
    that makes no stream progress for 600 s, and the whole of a Phase 7 gate
    runs inside one stop hook with nothing to report until it finishes.
    Scoping check 12 to the phase's own diff brings this workspace's gate
@@ -951,7 +1078,7 @@ The defect blocks **two** of the remaining slices, not one: slice 18
    in the body. What would remove the bound rather than raise it is a hook
    that emits progress while the gate runs, so the watchdog sees a live run
    instead of a silent one.
-8. A Phase 8 edit that subtracts has no red run: the behaviour change
+7. A Phase 8 edit that subtracts has no red run: the behaviour change
    *is* the shape change, so it lands at Phase 3 and every validation of
    it is green before Phase 5 writes one; such a Phase 5 is committed by
    hand with the reason in its body. A reword whose delta is observable
@@ -961,17 +1088,23 @@ The defect blocks **two** of the remaining slices, not one: slice 18
    judged by the companion's table, a `--` name cut at the dash — so a
    validation that observed only what the reword kept is rewritten,
    since a red-set claim with a green validation fails the check.
-9. Running each check under an OS sandbox from the hook — no network,
+8. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.
-10. The join in `gate_commit` between the check and the commit — the
-    nothing-to-commit test over the editing set, then the staged set as what
-    is staged — is observed at the two sets on a stopped tree, not as
-    `hook_stop`'s verdict: a Phase 7 stop that passes the check is the full
-    gate on the fixture, which no unit test carries. A `gate_commit` that read
-    the staged set for both is therefore a mutant no test kills and none
-    cargo-mutants generates. A seam on `checked` would let a test drive the
-    stop past a stubbed check; that is a Shape change, and a later edit's.
+9. The join in `gate_commit` between the check and the commit — the
+   nothing-to-commit test over the editing set, then the staged set as what
+   is staged — is observed at the two sets on a stopped tree, not as
+   `hook_stop`'s verdict: a Phase 7 stop that passes the check is the full
+   gate on the fixture, which no unit test carries. A `gate_commit` that read
+   the staged set for both is therefore a mutant no test kills and none
+   cargo-mutants generates. A seam on `checked` would let a test drive the
+   stop past a stubbed check; that is a Shape change, and a later edit's.
+10. An extra step has no catalog entry and no report. The pipeline's catalog
+    fixes each command's inputs, report, and exit code; a workspace's own step
+    is outside that vocabulary, so `cargo lid-rs catalog` neither names it nor
+    writes a report for it, and its failure reaches a reader only as the
+    check's output. A catalog entry per configured step is the shape that
+    would close this, and it needs a name the project supplies.
 
 ## References
 
