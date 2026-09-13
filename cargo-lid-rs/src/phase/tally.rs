@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use lid_rs::implements;
 
 use super::Phase;
+use super::Replaced;
 use super::policy::ToolKind;
 use crate::project::Project;
 use super::spec;
@@ -106,13 +107,18 @@ pub fn apply(tally: Tally, event: Event) -> Tally {
     next
 }
 
-/// The `Lid-Rs-*` trailers for a phase commit: the phase, the agent the
-/// tally was kept for, then the counts.
-#[implements(spec::TheTallyIsWrittenAsTrailers)]
-pub fn trailers(tally: &Tally, phase: Phase, agent_id: &str) -> String {
+/// The six `Lid-Rs-*` trailers of a phase commit: the phase, every agent
+/// whose work the commit carries — two or more separated by `", "` — the
+/// counts, and how many commits this one replaced. The renderer decides
+/// nothing: the agent list's order and the reworks' arithmetic are answered
+/// before it and handed to it, which is why it is written whole while the
+/// leaves that answer them are not.
+#[implements(spec::APhaseCommitEndsWithTheSixTrailersNamingEveryAgentAndTheReworks)]
+pub fn trailers(tally: &Tally, phase: Phase, agents: &[String], reworks: u32) -> String {
     format!(
-        "Lid-Rs-Phase: {}\nLid-Rs-Agent: {agent_id}\nLid-Rs-Tools: {} edits, {} observations, {} commands\nLid-Rs-Checks: {} post-edit, {} stop\nLid-Rs-Refusals: {} policy, {} stop\n",
+        "Lid-Rs-Phase: {}\nLid-Rs-Agent: {}\nLid-Rs-Tools: {} edits, {} observations, {} commands\nLid-Rs-Checks: {} post-edit, {} stop\nLid-Rs-Refusals: {} policy, {} stop\nLid-Rs-Reworks: {reworks}\n",
         super::policy::number_of(phase),
+        agents.join(", "),
         tally.edits,
         tally.observations,
         tally.commands,
@@ -121,6 +127,50 @@ pub fn trailers(tally: &Tally, phase: Phase, agent_id: &str) -> String {
         tally.policy_refusals,
         tally.stop_refusals
     )
+}
+
+/// The counts a commit's trailer block carries, read back from the lines
+/// `trailers` wrote — the durable record of the attempt a replacement
+/// carries forward. A line that renderer could not have written, a count
+/// that is not a number among them, is a failure naming that line and never
+/// a zero: the replaced commit's work is not filed under counts nobody kept.
+#[implements(spec::ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine)]
+pub fn from_trailers(body: &str) -> Result<Tally, String> {
+    todo!("the counts the trailer block of {body:?} carries")
+}
+
+/// The tally the commit about to be made carries, over whether anything was
+/// replaced: this agent's own when nothing was — and equally when the
+/// replaced commit's agents already name this agent, since a resumed worker
+/// keeps its id and its tally already counted the rejected attempt —
+/// otherwise the replaced commit's counts, read back from its trailers,
+/// added count for count to this agent's, a fresh worker's tally having
+/// started at zero. The two cases that answer this agent's tally are one arm
+/// and not two, so the decision this holds is the one the claims name.
+///
+/// At this layer the answer is that arm, for every input: it is right for
+/// every first attempt and for every resumed one, and wrong for a
+/// replacement by a fresh agent, which is where its validation drives it.
+#[implements(
+    spec::AResumedAgentsCountsAreNotAddedToTheCommitThatAlreadyCoversThem,
+    spec::AFreshAgentsCountsAreAddedToTheReplacedCommits,
+)]
+pub fn merged(replaced: Option<&Replaced>, this: &Tally) -> Tally {
+    let _ = replaced;
+    *this
+}
+
+/// The agents whose work the commit about to be made carries, in the order
+/// they worked and none of them twice: the replaced commit's agents with
+/// this one appended when it is not already among them, and this agent alone
+/// when nothing was replaced — the `Lid-Rs-Agent` line `trailers` renders.
+///
+/// At this layer the answer is the first attempt's, which is wrong for a
+/// replacement made by a second agent.
+#[implements(spec::LidRsAgentNamesEveryAgentThatMadeTheCommitInOrderNoneTwice)]
+pub fn agents(replaced: Option<&Replaced>, this: &str) -> Vec<String> {
+    let _ = replaced;
+    vec![this.to_string()]
 }
 
 #[cfg(test)]
@@ -163,8 +213,8 @@ mod tests {
     fn the_tally_is_written_as_trailers() {
         let tally = Tally { edits: 14, observations: 9, commands: 0, post_edit_checks: 14, stop_checks: 1, policy_refusals: 1, stop_refusals: 0 };
         assert_eq!(
-            trailers(&tally, Phase::Seven, "canopy:3f0c1c9a"),
-            "Lid-Rs-Phase: 7\nLid-Rs-Agent: canopy:3f0c1c9a\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\n"
+            trailers(&tally, Phase::Seven, &["canopy:3f0c1c9a".to_string()], 0),
+            "Lid-Rs-Phase: 7\nLid-Rs-Agent: canopy:3f0c1c9a\nLid-Rs-Tools: 14 edits, 9 observations, 0 commands\nLid-Rs-Checks: 14 post-edit, 1 stop\nLid-Rs-Refusals: 1 policy, 0 stop\nLid-Rs-Reworks: 0\n"
         );
     }
 }

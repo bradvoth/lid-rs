@@ -473,50 +473,242 @@ impl CommitPlan {
     }
 }
 
-/// The commit path of the stop hook: integrity, the check, integrity again,
-/// then staging and committing; each failure is the refusal it names, and
-/// nothing is committed after one.
-#[implements(
-    spec::SyncedArtifactsMustMatchAtTheStop,
-    spec::ChangesOutsideTheStagedSetRefuseTheStop,
-    spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote,
-    spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves,
-)]
+/// The commit path of the stop hook, as one decision: the phase's plan, then
+/// what `gate_commit` answers with — a commit made, which allows the stop, or
+/// the first failure of everything that had to hold, which becomes the
+/// refusal the agent is kept running with. This is where an `Err` becomes a
+/// `HookVerdict::Refuse`, and nothing is committed after one.
+#[implements(spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves)]
 fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &str) -> Result<HookVerdict, String> {
     let plan = CommitPlan::new(project, phase)?;
     match gate_commit(project, phase, input, message, &plan) {
-        Ok(changed) => commit_now(project, phase, input, message, &changed).map(|_| HookVerdict::Allow),
+        Ok(_) => Ok(HookVerdict::Allow),
         Err(reason) => refuse_stop(project, input, reason),
     }
 }
 
-/// Everything that must hold before a phase commits, in order; the first
-/// failure is the refusal. Yields what the commit stages.
+/// Everything that must hold before a phase commits, in order, and then the
+/// commit; the first failure is the refusal.
 ///
-/// The order is the LLD's: the subject's tag, integrity, the hook's own
-/// writes (the Phase 7 bump, and the subject held to its version before a
-/// gate is spent on it), the check, integrity again — everything outside the
-/// staged set unchanged, and the hook's own files still as it wrote them —
-/// then the two sets part: nothing changed within the *editing* set is the
-/// refusal, so a bare bump is never a commit, and what is staged is the
-/// changes within the *staged* set, which at Phase 7 carries the bump.
+/// The order is the LLD's. The subject's tag, since it costs a string
+/// comparison. Then nothing changed within the *editing* set is the refusal —
+/// asked here, ahead of the undo, because the editing set holds only this
+/// round's work while the tip still stands, and after the undo it holds both
+/// rounds, so a rework that changed nothing would pass the question having
+/// already deleted the tip it meant to amend. Then the tip this phase may
+/// replace and the undo that removes it, so that every reading after it — the
+/// manifest at `HEAD`, the gate base, the red set's diff, the staging — sees
+/// the commit below the one being replaced without being told a rework is in
+/// flight. Everything the undo makes safe to ask is `after_undo`'s, and its
+/// `Err` goes to `restore_tip` and comes back unchanged: there is no branch
+/// here on whether anything was replaced, because each of the two halves is
+/// handed the record and does nothing when there is none. A restore that
+/// itself fails is that failure and not the reason it was recovering from —
+/// a stop that cannot put the attempt back must say so.
+#[implements(
+    spec::NothingChangedInTheEditingSetIsARefusal,
+    spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond,
+    spec::TheReplacedTipIsUndoneBeforeTheBumpAndTheCheck,
+    spec::ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree,
+)]
+fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<String, String> {
+    subject_matches(phase, message)?;
+    let edited = changed_within(project, &plan.editing)?;
+    (!edited.is_empty()).then_some(()).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())?;
+    let replaced = replaced_tip(project, phase)?;
+    undo_tip(project, replaced.as_ref())?;
+    after_undo(project, phase, input, message, plan)
+        .and_then(|staged| commit_now(project, phase, input, message, &staged, replaced.as_ref()))
+        .or_else(|reason| restore_tip(project, replaced.as_ref()).and(Err(reason)))
+}
+
+/// Everything the stop does once the tip is undone, as one item: the synced
+/// artifacts, the hook's own writes (the Phase 7 bump, and the subject held
+/// to the version it produced before a gate is spent on it), the check,
+/// integrity whole — the artifacts again, everything outside the staged set
+/// unchanged, and the bump's own two files still as it wrote them — and then
+/// the staged set itself, the changes within what this phase stages, which at
+/// Phase 7 carries the bump the editing set never admits.
+///
+/// It is one item because every failure in it is a failure the undo has
+/// already happened for: `gate_commit` hands this call's `Err` to
+/// `restore_tip`, which is the one place the restore is reached. The
+/// integrity claims are this item's for the same reason the bump's are —
+/// answering with a staged set where `synced_artifacts_match`,
+/// `outside_policy_clean` or `bumped_files_untouched` would have failed is
+/// what would make each of them false, and that answer is made here.
 #[implements(
     spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead,
     spec::APhaseSevenSubjectMustCarryTheBumpedVersion,
-    spec::NothingChangedInTheEditingSetIsARefusal,
     spec::TheStopStagesExactlyTheStagedSet,
+    spec::SyncedArtifactsMustMatchAtTheStop,
+    spec::ChangesOutsideTheStagedSetRefuseTheStop,
+    spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote,
 )]
-fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
-    subject_matches(phase, message)?;
+fn after_undo(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
     synced_artifacts_match(project)?;
     let written = hook_writes(project, phase, message)?;
     checked(project, phase, &plan.crates, &input.agent_id)?;
     synced_artifacts_match(project)?;
     outside_policy_clean(project, phase, &plan.crates)?;
     bumped_files_untouched(project, &written)?;
-    let edited = changed_within(project, &plan.editing)?;
-    (!edited.is_empty()).then_some(()).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())?;
     changed_within(project, &staged_paths(project, phase, &plan.crates)?)
+}
+
+/// The branch tip as it reads, from one `git log -1`: the hash the undo and
+/// the restore name, the subject whose tag `tag_of` reads, and the body the
+/// `Lid-Rs-*` trailers are in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Tip {
+    /// The commit's hash.
+    pub hash: String,
+    /// Its subject line.
+    pub subject: String,
+    /// Its body: everything after the subject, the trailer block included.
+    pub body: String,
+}
+
+/// The branch tip, or none in a repository with no commit. The one read of
+/// the commit, so the decision over it re-reads none of it — `on_the_trunk`
+/// asks git one further question, about the hash and not about the commit's
+/// content.
+#[implements(
+    spec::AReplacedTipsSubjectTagNamesThisPhase,
+    spec::AReplacedTipCarriesTheHooksPhaseTrailerForThisPhase,
+    spec::ATipReachableFromMainIsNeverReplaced,
+)]
+pub fn tip(project: &Project) -> Result<Option<Tip>, String> {
+    todo!("the branch tip of the repository at {:?}, from one `git log -1`", project.root())
+}
+
+/// One trailer's value in a commit body: the last line beginning `<key>: `,
+/// trimmed — the last, because the trailer block ends the body — or none for
+/// a body that carries no such line.
+#[implements(
+    spec::AReplacedTipCarriesTheHooksPhaseTrailerForThisPhase,
+    spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced,
+)]
+pub fn trailer_of(body: &str, key: &str) -> Option<String> {
+    todo!("the `{key}` trailer of the body {body:?}")
+}
+
+/// Whether a commit is reachable from `main`: `git merge-base --is-ancestor
+/// <commit> main`, true on exit 0 and false on anything else — so a
+/// repository with no `main` answers false, a ref that does not exist
+/// reaching nothing, and the two trailer conditions carry the decision there.
+#[implements(spec::ATipReachableFromMainIsNeverReplaced)]
+pub fn on_the_trunk(project: &Project, commit: &str) -> Result<bool, String> {
+    todo!("whether {commit} is reachable from `main` in {:?}", project.root())
+}
+
+/// What a stop replacing the branch tip needs from it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Replaced {
+    /// The commit being replaced, as `tip` read it: its hash for the undo and
+    /// the restore, its subject and body for the message the restore
+    /// re-commits.
+    pub commit: Tip,
+    /// The agents its `Lid-Rs-Agent` names, in the order they worked.
+    pub agents: Vec<String>,
+    /// The counts its trailers carry.
+    pub tally: tally::Tally,
+    /// How many commits it already replaced.
+    pub reworks: u32,
+}
+
+impl Replaced {
+    /// The record a replacement needs, built from one `Tip` through
+    /// `trailer_of` and `tally::from_trailers`, whose failure is this one's.
+    /// An absent `Lid-Rs-Reworks` is zero, because every phase commit made
+    /// before that trailer existed carries none and reading its absence as
+    /// anything else would refuse to rework them; an absent `Lid-Rs-Agent` or
+    /// count line is not, and fails naming the line, since a commit the hook
+    /// wrote carried the lines of its day.
+    #[implements(
+        spec::ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine,
+        spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced,
+    )]
+    pub fn of(tip: Tip) -> Result<Self, String> {
+        todo!("the replacement record of {tip:?}")
+    }
+
+    /// The `Lid-Rs-Reworks` the commit about to be made carries: one more
+    /// than the replaced commit's own value, and zero when nothing is
+    /// replaced. The trailer's whole arithmetic in one place, so
+    /// `tally::trailers` is handed the number rather than the record.
+    ///
+    /// At this layer the answer is `0`, which is right for every first
+    /// attempt and wrong for every replacement.
+    #[implements(spec::LidRsReworksIsOneMoreThanTheReplacedCommitsValueAndZeroWhenNothingIsReplaced)]
+    pub fn next_reworks(replaced: Option<&Self>) -> u32 {
+        let _ = replaced;
+        0
+    }
+}
+
+/// The tip this phase may replace: the branch tip when its subject carries
+/// this phase's tag, when its body carries a `Lid-Rs-Phase` trailer naming
+/// this phase — the hook's own signature, which no agent holds the git to
+/// write — and when `on_the_trunk` finds it unreachable from `main`, a commit
+/// the trunk holds never being this branch's to replace. The three are
+/// separate rules and fail independently: a `phase 7:` commit a human wrote
+/// when the watchdog killed a gate carries the tag and no trailer, and is
+/// exactly the commit that must not be swallowed. A tip failing any of them
+/// is left where it is and the stop commits on top of it, as a first
+/// attempt's stop does. The slice is the branch's, so no subject field is
+/// parsed for it.
+///
+/// At this layer the answer is `Ok(None)` — never replace — so the branch
+/// stacks exactly as it did before this change and the stops that are driven
+/// past the nothing-to-commit test reach the chain they already expect. It is
+/// wrong observably rather than by panicking: a stop over a tip this phase
+/// made leaves two commits where one is claimed.
+#[implements(
+    spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond,
+    spec::AReplacedTipsSubjectTagNamesThisPhase,
+    spec::AReplacedTipCarriesTheHooksPhaseTrailerForThisPhase,
+    spec::ATipReachableFromMainIsNeverReplaced,
+)]
+pub fn replaced_tip(project: &Project, phase: Phase) -> Result<Option<Replaced>, String> {
+    let _ = (project, phase);
+    Ok(None)
+}
+
+/// The undo: nothing when nothing is replaceable — which is where the "was
+/// anything replaced" decision lives, so its caller holds none — otherwise
+/// `git reset --soft HEAD~1`. The commit stops being a commit and every
+/// change it carried stays in the index, so the replacement carries both
+/// rounds, the manifest at `HEAD` is the one below the release, and the gate
+/// base is the gate below the one being replaced.
+#[implements(
+    spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond,
+    spec::TheReplacedTipIsUndoneBeforeTheBumpAndTheCheck,
+    spec::AReworkedGateDiffsAgainstTheGateBelowTheReplacedCommit,
+    spec::AReworkedPhaseSevenBumpsToTheVersionTheReplacedCommitCarried,
+)]
+pub fn undo_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(), String> {
+    match replaced {
+        None => Ok(()),
+        Some(replaced) => todo!("`git reset --soft HEAD~1` over {} in {:?}", replaced.commit.hash, project.root()),
+    }
+}
+
+/// The undo's other half, run when any failure after the undo turns the stop
+/// into a refusal: nothing when nothing was replaced; otherwise the attempt
+/// re-created from the replaced commit's own tree object — `git commit-tree
+/// <hash>^{tree} -p <hash>^ -F <message>` with the subject and body the `Tip`
+/// holds, then `git update-ref HEAD <new>`. Naming the stored tree is what
+/// makes it exact: a commit of the index would fold this round's staged edits
+/// into the attempt and call the result the attempt. The tip comes back as
+/// the same tree and the same record under a new hash, this round's edits
+/// stay where the failure left them, and the next stop finds an attempt to
+/// replace rather than stacking after all.
+#[implements(spec::ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree)]
+pub fn restore_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(), String> {
+    match replaced {
+        None => Ok(()),
+        Some(replaced) => todo!("re-commit {} from its own tree object in {:?}", replaced.commit.hash, project.root()),
+    }
 }
 
 /// What the hook itself writes before the check, each file as it left it:
@@ -704,9 +896,14 @@ fn checkout_command() -> std::process::Command {
     command
 }
 
-/// The commit itself, with the tally's trailers.
-fn commit_now(project: &Project, phase: Phase, input: &HookInput, message: &str, changed: &[PathBuf]) -> Result<String, String> {
-    let trailers = tally::trailers(&tally::load(project, &input.agent_id)?, phase, &input.agent_id);
+/// The commit itself, with the trailers of the tally the commit carries: this
+/// agent's counts merged with the replaced commit's, the agents whose work it
+/// carries, and how many commits it replaces. Each of the three is answered
+/// before it is handed here, so this holds no decision about whether anything
+/// was replaced.
+fn commit_now(project: &Project, phase: Phase, input: &HookInput, message: &str, changed: &[PathBuf], replaced: Option<&Replaced>) -> Result<String, String> {
+    let merged = tally::merged(replaced, &tally::load(project, &input.agent_id)?);
+    let trailers = tally::trailers(&merged, phase, &tally::agents(replaced, &input.agent_id), Replaced::next_reworks(replaced));
     let paths: Vec<&Path> = changed.iter().map(PathBuf::as_path).collect();
     stage_and_commit(project, &paths, message, &trailers)
 }
