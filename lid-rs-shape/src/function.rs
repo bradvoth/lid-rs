@@ -8,6 +8,7 @@
 use std::path::{Path, PathBuf};
 
 use lid_rs::implements;
+use quote::ToTokens;
 
 use crate::spec;
 
@@ -28,6 +29,9 @@ pub(crate) struct Function {
     pub(crate) sig: syn::Signature,
     /// The body the declaration wrote, which is what F1 through F6 read.
     pub(crate) block: syn::Block,
+    /// The block the declaration was read from — an `impl` block's self type
+    /// tokens as written, or a `trait`'s name — and none for a free function.
+    pub(crate) owner: Option<String>,
 }
 
 /// Every function one file's tokens hold, in the order the file wrote them:
@@ -64,9 +68,23 @@ fn functions_among(file: &Path, items: &[syn::Item]) -> Vec<Function> {
 /// body is a signature and not a function, so nothing is answered for it; a
 /// trait's method has no visibility of its own — it is as public as its trait
 /// — so the declaration is read as writing none.
+///
+/// This is also the one body that knows which kind of item a function's
+/// tokens came from, so whose function each one is gets decided here and
+/// nowhere else: the free function has no owner, an `impl` block's method is
+/// owned by the block's self type, and a trait's method by the trait. What
+/// each of those is spelled as is one unit of work apiece, below.
+#[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
 fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
     if let syn::Item::Fn(declared) = item {
-        return vec![function(file, &declared.vis, &declared.attrs, &declared.sig, &declared.block)];
+        return vec![function(
+            file,
+            &declared.vis,
+            &declared.attrs,
+            &declared.sig,
+            &declared.block,
+            owner_of_free_function(),
+        )];
     }
     if let syn::Item::Impl(block) = item {
         return block
@@ -74,7 +92,14 @@ fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
             .iter()
             .filter_map(|member| {
                 let syn::ImplItem::Fn(method) = member else { return None };
-                Some(function(file, &method.vis, &method.attrs, &method.sig, &method.block))
+                Some(function(
+                    file,
+                    &method.vis,
+                    &method.attrs,
+                    &method.sig,
+                    &method.block,
+                    owner_of_impl_block(&block.self_ty),
+                ))
             })
             .collect();
     }
@@ -85,7 +110,14 @@ fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
             .filter_map(|member| {
                 let syn::TraitItem::Fn(method) = member else { return None };
                 let body = method.default.as_ref()?;
-                Some(function(file, &syn::Visibility::Inherited, &method.attrs, &method.sig, body))
+                Some(function(
+                    file,
+                    &syn::Visibility::Inherited,
+                    &method.attrs,
+                    &method.sig,
+                    body,
+                    owner_of_trait_block(&declared.ident),
+                ))
             })
             .collect();
     }
@@ -95,6 +127,25 @@ fn functions_of(file: &Path, item: &syn::Item) -> Vec<Function> {
     Vec::new()
 }
 
+/// The owner a free function carries.
+#[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
+fn owner_of_free_function() -> Option<String> {
+    todo!("owner of a free function")
+}
+
+/// The owner a method of an `impl` block carries: the block's self type, as
+/// the source wrote it.
+#[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
+fn owner_of_impl_block(self_ty: &syn::Type) -> Option<String> {
+    todo!("owner of the methods of `impl {}`", self_ty.to_token_stream())
+}
+
+/// The owner a method of a `trait` block carries: the trait's name.
+#[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
+fn owner_of_trait_block(name: &syn::Ident) -> Option<String> {
+    todo!("owner of the methods of `trait {name}`")
+}
+
 /// One function as the pass carries one, from the pieces a declaration wrote.
 fn function(
     file: &Path,
@@ -102,6 +153,7 @@ fn function(
     attrs: &[syn::Attribute],
     sig: &syn::Signature,
     block: &syn::Block,
+    owner: Option<String>,
 ) -> Function {
     Function {
         file: file.to_path_buf(),
@@ -109,5 +161,6 @@ fn function(
         attrs: attrs.to_vec(),
         sig: sig.clone(),
         block: block.clone(),
+        owner,
     }
 }

@@ -86,7 +86,8 @@ mod tests {
 
     use super::*;
 
-    /// A function as the pass reads one, from the source a fixture wrote.
+    /// A function as the pass reads one, from the source a fixture wrote — a
+    /// free function, so it carries no owner.
     fn function(source: &str) -> Function {
         let parsed: syn::ItemFn = syn::parse_str(source).expect("a function the fixture wrote");
         Function {
@@ -95,6 +96,7 @@ mod tests {
             attrs: parsed.attrs,
             sig: parsed.sig,
             block: *parsed.block,
+            owner: None,
         }
     }
 

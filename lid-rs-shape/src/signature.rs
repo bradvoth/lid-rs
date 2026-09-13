@@ -5,14 +5,20 @@ use quote::ToTokens;
 
 use crate::{Signature, function::Function, spec};
 
-/// One function's [`Signature`]: the file and name it is joined on, and the
-/// type tokens of both positions.
+/// One function's [`Signature`]: the file and name it is joined on, the type
+/// tokens of both positions, and the owner the reading decided for it.
+///
+/// The owner is copied across as the file and the name are — decided
+/// elsewhere, carried here — but a literal that dropped it would answer none
+/// for every function, which is the wrong answer for two of the three kinds.
+#[implements(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
 pub(crate) fn signature_of(function: &Function) -> Signature {
     Signature {
         file: function.file.clone(),
         function: function.sig.ident.to_string(),
         parameters: parameter_tokens(&function.sig),
         returns: return_tokens(&function.sig),
+        owner: function.owner.clone(),
     }
 }
 

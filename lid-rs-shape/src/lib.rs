@@ -86,6 +86,12 @@ pub struct Signature {
     /// The return type tokens the source wrote, whole, and none for a function
     /// declared with no `->` at all.
     pub returns: Option<String>,
+    /// Whose function it is: the self type tokens of the `impl` block it was
+    /// read from as the source wrote them, the name of the `trait` block it was
+    /// read from, and none for a free function. Written like the two type
+    /// positions, so a `Self` in either of them is explained by this and
+    /// resolved by nothing.
+    pub owner: Option<String>,
 }
 
 /// One thing the pass has to say about one place in one crate's source.
@@ -389,6 +395,7 @@ mod tests {
             function: function.to_string(),
             parameters: parameters.iter().map(|written| (*written).to_string()).collect(),
             returns: returns.map(str::to_string),
+            owner: None,
         }
     }
 
