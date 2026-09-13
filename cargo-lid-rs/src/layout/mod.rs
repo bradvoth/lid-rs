@@ -803,7 +803,7 @@ fn module_dir(crate_root: &Path, module: &str) -> PathBuf {
 /// A slice's name as a module's: hyphens as underscores. The form the three
 /// places that name a slice — its `docs/intent` directory, its module
 /// directory, and its package — all reduce to.
-fn module_of(slice: &str) -> String {
+pub fn module_of(slice: &str) -> String {
     slice.replace('-', "_")
 }
 
