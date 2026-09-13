@@ -1196,7 +1196,8 @@ fn without_lifetimes_around_list(head: &str, list: &str, tail: &str) -> String {
 /// A run of tokens guaranteed to hold no top-level generic argument list of
 /// its own — the head [`type_argument_list`] split off, which can never hold
 /// one because it is exactly the text before the first top-level `<`, or the
-/// whole of a type with no top-level `<` at all — with every lifetime token
+/// whole of a type that reading found no list in, whether it writes no
+/// top-level `<` at all or writes one that is never closed — with every lifetime token
 /// in it removed and nothing else touched: an argument `'a`, an annotation
 /// `'static` in `&'static str`, an elided `'_` — each token taken out
 /// outright, the punctuation around it left exactly where it was. A tail is
@@ -1567,8 +1568,9 @@ The decisions are told in a paragraph, and there is no table.
 - another
 ";
 
-    /// A guideline whose checklist names four of the six checks, and whose
-    /// questions name the other two outside the checklist.
+    /// A guideline whose checklist names four of the nine checks, and whose
+    /// questions name two of the five it omits, outside the checklist — where
+    /// naming a check is not naming it in the checklist.
     const PARTIAL_CHECKLIST: &str = "\
 # Writing an LLD, and reading one
 
@@ -1617,14 +1619,16 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         failures.iter().map(located).collect()
     }
 
-    /// A `cargo metadata` document for a workspace at `root` whose members
-    /// are the directories `members`, each relative to it.
-    fn metadata(root: &Path, members: &[&str]) -> String {
+    /// A `cargo metadata` document for a workspace at `root` whose members are
+    /// the directories `members`, each relative to it and each carrying the
+    /// package name it is paired with — the name being what [`crate_names`]
+    /// reads, and nothing else here.
+    fn metadata(root: &Path, members: &[(&str, &str)]) -> String {
         let packages: Vec<String> = members
             .iter()
-            .map(|member| {
+            .map(|(member, name)| {
                 let manifest = root.join(member).join("Cargo.toml");
-                format!(r#"{{"name":"m","manifest_path":"{}","targets":[{{"kind":["lib"],"name":"m"}}]}}"#, manifest.display())
+                format!(r#"{{"name":"{name}","manifest_path":"{}","targets":[{{"kind":["lib"],"name":"{name}"}}]}}"#, manifest.display())
             })
             .collect();
         format!(
@@ -1635,8 +1639,16 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         )
     }
 
-    /// A project rooted at `root` with those members, without asking cargo.
+    /// A project rooted at `root` with those members, without asking cargo,
+    /// every package named `m`: which reading a member's directory is enough
+    /// for, and which is every check here but [`crate_names`].
     fn project_at(root: &Path, members: &[&str]) -> Project {
+        project_naming(root, &members.iter().map(|member| (*member, "m")).collect::<Vec<(&str, &str)>>())
+    }
+
+    /// A project rooted at `root` whose members carry the package names they
+    /// are paired with, for the one check that reads a package's name.
+    fn project_naming(root: &Path, members: &[(&str, &str)]) -> Project {
         Project::from_json(&metadata(root, members)).expect("the metadata document parses")
     }
 
@@ -1665,6 +1677,166 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
     fn reader_declaring(tools: &str) -> String {
         format!("---\nname: lid-rs-lld-review\ndescription: Reads one slice's LLD.\ntools: {tools}\n---\n\nYou read one slice's LLD.\n")
     }
+
+    /// A slice's source holding the three declarations whose owners differ: a
+    /// free function, which has none; a method of an `impl Shape<T>`, whose
+    /// owner is the block's self type as the source wrote it; and a function a
+    /// `trait` gives a body to, whose owner is the trait's name.
+    const SLICE_SOURCE: &str = "\
+pub mod inner;
+
+pub fn run(args: &[String], project: &Project) -> Result<(), String> {
+    todo!()
+}
+
+pub struct Shape<T> {
+    pub held: T,
+}
+
+impl<T> Shape<T> {
+    pub fn of(&self, held: T) -> Shape<T> {
+        todo!()
+    }
+}
+
+pub trait Read {
+    fn read(&self, path: &Path) -> Option<Self>
+    where
+        Self: Sized,
+    {
+        todo!()
+    }
+}
+";
+
+    /// A scratch workspace whose member `app` holds the slice `thing`: that
+    /// source as its `mod.rs`, a submodule file under it, the document beside
+    /// them, and a module of the same crate that is no part of the slice.
+    fn slice_with_source(name: &str, source: &str, document: &str) -> (PathBuf, Project) {
+        let root = fixture::scratch(name);
+        write_at(&root.join("app/src/lib.rs"), "pub mod elsewhere;\npub mod thing;\n");
+        write_at(&root.join("app/src/elsewhere.rs"), "pub fn far_away(only: u8) -> u8 { only }\n");
+        write_at(&root.join("app/src/thing/mod.rs"), source);
+        write_at(&root.join("app/src/thing/inner.rs"), "pub fn deeper(one: u8) -> u8 { one }\n");
+        write_at(&root.join("app/src/thing/lld.md"), document);
+        (root.clone(), project_at(&root, &["app"]))
+    }
+
+    /// One fragment as a first cell writes it, for the comparisons that are
+    /// about a path and its arguments rather than about how a cell is read.
+    fn fragment(path: &[&str], arguments: Option<&[&str]>, returns: Option<&str>) -> Fragment {
+        Fragment { path: strings(path), arguments: arguments.map(strings), returns: returns.map(str::to_string), linked: false }
+    }
+
+    /// One fragment spelled back as a line a test reads: the path, the
+    /// arguments where it writes parentheses, and the return where it writes
+    /// one — the three answers [`fragments`] gives, in one string.
+    fn as_written(fragment: &Fragment) -> String {
+        let arguments =
+            fragment.arguments.as_ref().map_or_else(|| ", no parentheses".to_string(), |written| format!("({})", written.join(", ")));
+        let returns = fragment.returns.as_deref().map_or_else(|| ", no return".to_string(), |written| format!(" -> {}", written.trim()));
+        format!("{}{arguments}{returns}", fragment.path.join("::"))
+    }
+
+    /// One declaration as this slice carries one, its receiver already dropped
+    /// from its parameters, as [`declared`] answers it.
+    fn declaration(name: &str, owner: Option<&str>, parameters: &[&str], returns: Option<&str>) -> Declared {
+        Declared {
+            name: name.to_string(),
+            owner: owner.map(str::to_string),
+            parameters: strings(parameters),
+            returns: returns.map(str::to_string),
+            file: PathBuf::from("/w/app/src/thing/mod.rs"),
+        }
+    }
+
+    /// One signature as the shape pass answers one, the receiver still among
+    /// the parameters, as the type tokens it stands for.
+    fn signature(function: &str, owner: Option<&str>, parameters: &[&str], returns: Option<&str>) -> lid_rs_shape::Signature {
+        lid_rs_shape::Signature {
+            file: PathBuf::from("/w/app/src/thing/mod.rs"),
+            function: function.to_string(),
+            parameters: strings(parameters),
+            returns: returns.map(str::to_string),
+            owner: owner.map(str::to_string),
+        }
+    }
+
+    /// A document whose shape rows meet that source: a row agreeing with the
+    /// entry, one an argument short of it, one qualified by a type the method
+    /// is not declared under, one naming no declared function, and one naming
+    /// a type rather than a function.
+    const AGREEMENT_ROWS: &str = "\
+# thing — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `run(args, project) -> Result<(), String>` | the entry, as the source declares it |
+| `run(args)` | the same entry, one argument short |
+| `Shape::of(&self, held) -> Shape<T>` | the method, its receiver written |
+| `Lld::of(project)` | `of` qualified by a type that is not its owner |
+| `nowhere(a, b)` | a fragment naming no declared function |
+| `Shape` | a type, with no parentheses to compare |
+";
+
+    /// A document failing eight of the nine checks at once, the ninth being
+    /// the one a document with a decisions table cannot fail.
+    const ORDERED_FAILURES: &str = "\
+# thing — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| a row that names no identifier | a note rather than a shape |
+| `run(args)` | the entry, one argument short of the source |
+| `hidden() -> impl Iterator<Item = u8>` | a return no layer-0 skeleton can be written for |
+| `layout::lld_path(project, slice)` | another slice's item, named bare |
+
+## Decisions & Alternatives
+
+| Decision | Chosen | Alternatives Considered | Rationale |
+|---|---|---|---|
+| three | cells | only |
+
+### Deferred
+- an unnumbered deferral
+";
+
+    /// A document whose rows name items of every kind the link rule tells
+    /// apart, one of them bare where the rule asks for a link.
+    const REUSE_ROWS: &str = "\
+# thing — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `layout::lld_path(project, slice)` | another slice's item in the same crate, named bare |
+| [`layout::slice_dir`](crate::layout::slice_dir) | the same kind of item, written as the link the rule asks for |
+| `thing::run(args)` | the slice's own name, spelled as a path spells it |
+| `inner::deeper(one)` | a module inside the slice's own directory |
+| `m::far_away(only)` | a workspace member's crate name |
+| `Lld::read(project, slice)` | a type, which the role cell introduces |
+";
+
+    /// A document whose rows write returns of both unskeletonable shapes,
+    /// beside returns that merely contain one.
+    const RETURN_ROWS: &str = "\
+# thing — a slice
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `hidden() -> impl Iterator<Item = u8>` | a hidden type a `todo!()` body infers as `!` |
+| `erased() -> dyn Error` | unsized in return position |
+| `boxed() -> Box<dyn Error>` | a type that merely contains one |
+| `fallible() -> Result<Box<dyn Error>, String>` | deeper still |
+| `Section` | a type, writing no return at all |
+";
 
     #[test]
     #[validates(spec::TheSliceIsTheFlagsValueOrTheBranchName)]
@@ -1821,8 +1993,21 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
     #[validates(spec::LldCheckExitsZeroOnlyWhenEveryCheckHolds)]
     fn lld_check_exits_zero_only_when_every_check_holds() {
         // This slice's own document, under this workspace's own synced
-        // artifacts: every check holds, and the run exits zero.
-        let project = project_at(&workspace_root(), &["cargo-lid-rs"]);
+        // artifacts: every check holds, and the run exits zero. The members
+        // are named as this workspace names them, because the reuse check
+        // excludes a first cell qualified by a crate's name, and a fabricated
+        // member list would exclude a name no row here could write.
+        let project = project_naming(
+            &workspace_root(),
+            &[
+                ("lid-rs", "lid-rs"),
+                ("lid-rs-macros", "lid-rs-macros"),
+                ("cargo-lid-rs", "cargo-lid-rs"),
+                ("lid-rs-shape", "lid-rs-shape"),
+                ("lid-rs-pipeline", "lid-rs-pipeline"),
+                ("xtask", "xtask"),
+            ],
+        );
         let own = Lld::read(&project, "lld-review").expect("this slice's own document");
         let holds = check_all(&project, &own).expect("the root is locatable");
         let failing = check_all(&project, &document("s", FAILS_THREE)).expect("the root is locatable");
@@ -1874,6 +2059,9 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
             (Check::DecisionsExist, "Decisions & Alternatives"),
             (Check::Alternatives, "four non-empty cells"),
             (Check::ShapeRows, "backticked identifier"),
+            (Check::ShapeAgrees, "argument count"),
+            (Check::SkeletonableReturns, "bare `dyn Trait`"),
+            (Check::ReuseRowsLinked, "intra-doc link"),
             (Check::DeferredNumbered, "numbered list item"),
             (Check::GuidelineNamesEveryCheck, "every check"),
             (Check::ReaderObservesOnly, "nothing else"),
@@ -2006,8 +2194,8 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
         install_artifacts(&root);
         let shipped = guideline_names_every_check(&project).expect("the root is locatable");
 
-        // Four of six named in the checklist; the other two named only in
-        // the questions, which are not the checklist.
+        // Four of nine named in the checklist; two of the five it omits are
+        // named only in the questions, which are not the checklist.
         write_at(&root.join(GUIDELINE), PARTIAL_CHECKLIST);
         let failures = guideline_names_every_check(&project).expect("the root is locatable");
         let guideline = root.join(GUIDELINE);
@@ -2021,7 +2209,11 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
                 line_at(PARTIAL_CHECKLIST, "## The checklist — what the tool refuses")
             )]
         );
-        assert!(failures[0].message.starts_with("`ShapeRows`, `ReaderObservesOnly`"), "it names what the checklist omits: {}", failures[0].message);
+        assert!(
+            failures[0].message.starts_with("`ShapeRows`, `ShapeAgrees`, `SkeletonableReturns`, `ReuseRowsLinked`, `ReaderObservesOnly`"),
+            "it names what the checklist omits, in the order the checks are declared: {}",
+            failures[0].message
+        );
     }
 
     #[test]
@@ -2143,6 +2335,528 @@ Outside the checklist, `ShapeRows` and `ReaderObservesOnly` are named here.
             absent[0].message,
             unreadable[0].message
         );
+    }
+
+    #[test]
+    #[validates(spec::TheChecksRunInTheOrderTheTableStatesThem)]
+    fn the_checks_run_in_the_order_the_table_states_them() {
+        // Eight of the nine at once, in a project holding neither synced
+        // artifact. The ninth cannot fail beside `Alternatives`: a decisions
+        // table that is not there has no row to leave a cell empty.
+        let (_, project) = slice_with_source("lld-review-order", SLICE_SOURCE, ORDERED_FAILURES);
+        let doc = Lld::read(&project, "thing").expect("the member holds the slice's document");
+        let checks: Vec<Check> = check_all(&project, &doc).expect("the root is locatable").iter().map(|failure| failure.check).collect();
+        let without_a_table: Vec<Check> =
+            check_all(&project, &document("thing", FAILS_THREE)).expect("the root is locatable").iter().map(|failure| failure.check).collect();
+
+        assert_eq!(
+            checks,
+            [
+                Check::Alternatives,
+                Check::ShapeRows,
+                Check::ShapeAgrees,
+                Check::SkeletonableReturns,
+                Check::ReuseRowsLinked,
+                Check::DeferredNumbered,
+                Check::GuidelineNamesEveryCheck,
+                Check::ReaderObservesOnly,
+            ],
+            "the order the table of checks states them, which is the order `Check` declares its variants"
+        );
+        assert_eq!(
+            without_a_table,
+            [Check::DecisionsExist, Check::ShapeRows, Check::DeferredNumbered, Check::GuidelineNamesEveryCheck, Check::ReaderObservesOnly],
+            "and where the decisions table is absent altogether, that check is the first of all — ahead of the shape rows, not behind them"
+        );
+    }
+
+    #[test]
+    #[validates(spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory, spec::ASliceNoCrateHoldsDeclaresNoFunction)]
+    fn the_declared_functions_are_the_slices_own_crates_under_its_directory() {
+        let (root, project) = slice_with_source("lld-review-declared", SLICE_SOURCE, HOLDS);
+
+        // No workspace member holds a document for `skill`, so it has no
+        // crate: it declares nothing, and that is an answer and not an error.
+        assert!(declared(&project, "skill").is_empty(), "a slice no crate holds declares no function");
+
+        let read = declared(&project, "thing");
+        let mut named: Vec<(&str, Option<&str>, usize)> =
+            read.iter().map(|one| (one.name.as_str(), one.owner.as_deref(), one.parameters.len())).collect();
+        named.sort_unstable();
+
+        assert_eq!(
+            named,
+            [("deeper", None, 1), ("of", Some("Shape < T >"), 1), ("read", Some("Read"), 1), ("run", None, 2)],
+            "the submodule's function, the method of an `impl`, the trait's own and the free one — and never `far_away`, which is the same crate but not the slice"
+        );
+        assert!(read.iter().all(|one| one.file.starts_with(root.join("app/src/thing"))), "each was read from a file of the slice's own");
+    }
+
+    #[test]
+    #[validates(spec::ADeclaredMethodsReceiverIsNotAmongItsParameters)]
+    fn a_declared_methods_receiver_is_not_among_its_parameters() {
+        // The four shapes a receiver is answered as, each also written with a
+        // lifetime, which is what makes a `&'a self` one of the four and not a
+        // fifth. That a first parameter genuinely typed `&'a Self` is read the
+        // same way is the imprecision the document states, so nothing here
+        // asserts against it.
+        let receivers = ["Self", "& Self", "& mut Self", "Box < Self >", "& 'a Self", "& 'a mut Self"]
+            .map(|first| less_receiver(&strings(&[first, "u8"])).len());
+        let method = declared_from(signature("held", Some("Returned < 'a >"), &["& 'a Self", "& str"], Some("& 'a str")));
+
+        assert_eq!(receivers, [1; 6], "each of the four leaves a count that is a count of arguments");
+        assert_eq!(
+            less_receiver(&strings(&["& 'a str", "u8"])),
+            strings(&["& 'a str", "u8"]),
+            "a lifetime-annotated reference to something that is not `Self` is an argument, and stays"
+        );
+        assert_eq!(
+            (method.name.as_str(), method.owner.as_deref(), method.parameters.as_slice(), method.returns.as_deref()),
+            ("held", Some("Returned < 'a >"), strings(&["& str"]).as_slice(), Some("& 'a str")),
+            "the reading's own name, owner and return are carried across; the receiver alone is dropped"
+        );
+    }
+
+    #[test]
+    #[validates(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
+    fn every_backticked_identifier_of_a_first_cell_is_its_own_fragment() {
+        let cell = "`Lld`, `Lld::read(project, slice) -> Result<Lld, String>`, `run()`";
+        let read: Vec<String> = fragments(cell).iter().map(as_written).collect();
+
+        assert_eq!(
+            read,
+            [
+                "Lld, no parentheses, no return",
+                "Lld::read(project, slice) -> Result<Lld, String>",
+                "run(), no return",
+            ],
+            "one fragment per identifier, as many as the cell holds; empty parentheses are a function of no arguments, and none at all name a type"
+        );
+        assert!(fragments("plain prose, naming nothing").is_empty(), "a cell with no backtick span writes no fragment");
+    }
+
+    #[test]
+    #[validates(spec::AReturnIsWrittenWithTheAsciiArrowAlone)]
+    fn a_return_is_written_with_the_ascii_arrow_alone() {
+        let ascii = fragments("`skeletonable(returns) -> bool`");
+        let unicode = fragments("`skeletonable(returns) → bool`");
+
+        assert_eq!(
+            (ascii[0].returns.as_deref().map(str::trim), ascii[0].arguments.clone()),
+            (Some("bool"), Some(strings(&["returns"]))),
+            "the ASCII arrow writes the return"
+        );
+        assert_eq!(
+            (unicode[0].returns.as_deref(), unicode[0].arguments.clone()),
+            (None, Some(strings(&["returns"]))),
+            "a row that reaches for the Unicode arrow writes no return, and is compared on its arguments alone"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AFirstArgumentWrittenAsAReceiverIsNotAFragmentsArgument)]
+    fn a_first_argument_written_as_a_receiver_is_not_a_fragments_argument() {
+        // Both conventions the tables use: a row that writes the receiver, and
+        // a row that leaves the one its source declares out.
+        let written = ["Budget::spend(&mut self) -> bool", "Shape::of(&self, held)", "of(self)", "Door::request(method, path, bearer, body, idem)"]
+            .map(arguments);
+
+        assert_eq!(
+            written,
+            [
+                Some(strings(&[])),
+                Some(strings(&["held"])),
+                Some(strings(&[])),
+                Some(strings(&["method", "path", "bearer", "body", "idem"])),
+            ],
+            "what is left is a list of arguments however the row's author spelled the method"
+        );
+        assert_eq!(
+            (arguments("Lld"), arguments("run()")),
+            (None, Some(strings(&[]))),
+            "no parentheses names a type; empty ones are a function of no arguments"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink)]
+    fn a_fragment_is_linked_only_when_its_backtick_span_is_wrapped_in_a_markdown_link() {
+        // The same identifier twice, once linked and once bare; a bracket that
+        // opens no link; and a span the cell never closes, which runs to the
+        // end and so has no byte after it to ask about.
+        let cell = "[`layout::lld_path`](crate::layout::lld_path), `layout::lld_path`, [`bracketed`] and `trailing";
+        let by_position: Vec<bool> = (0..5).map(|nth| linked(cell, nth)).collect();
+
+        assert_eq!(by_position, [true, false, false, false, false], "linked only where `[` and `](` are the span's neighbours, and never where there is no span");
+        assert_eq!(fragments(cell).iter().map(|fragment| fragment.linked).collect::<Vec<bool>>(), [true, false, false, false]);
+    }
+
+    #[test]
+    #[validates(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
+    fn a_qualifier_narrows_a_match_only_when_it_is_a_type() {
+        let free = declaration("read", None, &["& Project"], None);
+        let method = declaration("read", Some("Lld"), &["& Project"], None);
+        let bare = fragment(&["read"], Some(&["project"]), None);
+        let typed = fragment(&["Lld", "read"], Some(&["project"]), None);
+
+        assert_eq!(
+            (matches(&bare, &free), matches(&bare, &method), matches(&typed, &method), matches(&typed, &free)),
+            (true, true, true, false),
+            "names alone where the fragment writes no type; the owner too where it writes one"
+        );
+        assert!(!matches(&typed, &declaration("read", Some("Other"), &["& Project"], None)), "a type that is not the owner narrows to nothing");
+        assert!(
+            matches(&fragment(&["Fields", "of"], Some(&["held"]), None), &declaration("of", Some("Fields < '_ >"), &["u8"], None)),
+            "a row's `Fields` is the owner an `impl<'_> Fields<'_>` is printed as, both sides read the same way"
+        );
+        assert!(
+            matches(&fragment(&["layout", "lld_path"], Some(&["p"]), None), &declaration("lld_path", Some("Layout"), &["p"], None)),
+            "a lowercase qualifier is a module, which narrows nothing"
+        );
+        assert!(!matches(&fragment(&["write"], Some(&["p"]), None), &free), "different names never name each other");
+        // A path of one segment writes no qualifier at all — its one segment is
+        // the name — so there is nothing to narrow with whatever case that
+        // segment is in. The reading answers whatever the source spelled, and a
+        // free function declared under an uppercase name is one a row may write
+        // bare.
+        let uppercase = [declaration("Build", None, &["u8"], None)];
+        let bare_uppercase = fragment(&["Build"], Some(&["held"]), None);
+
+        assert!(
+            matches(&bare_uppercase, &uppercase[0]),
+            "a one-segment path names a function and no owner, so an uppercase name is not thereby a qualifier the declaration must be owned by"
+        );
+        assert_eq!(
+            compared(&bare_uppercase, &uppercase).len(),
+            1,
+            "so the row is compared to the declaration it names, rather than narrowed against an owner it never wrote and compared to none"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AFragmentWithoutParenthesesIsComparedToNothing)]
+    fn a_fragment_without_parentheses_is_compared_to_nothing() {
+        let declarations = [declaration("run", None, &["& [String]"], None)];
+        let names_a_type = fragment(&["run"], None, None);
+
+        assert!(compared(&names_a_type, &declarations).is_empty(), "a fragment writing no parentheses names a type, whatever the crate declares under that name");
+        assert_eq!(disagreement(&names_a_type, &declarations), None, "so it has nothing to disagree with");
+        assert_eq!(
+            compared(&fragment(&["run"], Some(&["args"]), None), &declarations).len(),
+            1,
+            "a fragment that writes them is compared to the function it names"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AFragmentNamingNoDeclaredFunctionIsComparedToNone)]
+    fn a_fragment_naming_no_declared_function_is_compared_to_none() {
+        let declarations = [declaration("run", None, &["& [String]", "& Project"], None)];
+
+        assert_eq!(
+            disagreement(&fragment(&["absent"], Some(&["a"]), None), &declarations),
+            None,
+            "at Phase 1 no function is declared yet, and a reuse row names an item another slice owns"
+        );
+        assert_eq!(
+            disagreement(&fragment(&["run"], Some(&["args"]), None), &declarations),
+            Some(&declarations[0]),
+            "a fragment that names one and agrees with none of them has that one to disagree with"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AFragmentAgreeingWithAnyDeclarationItNamesHolds)]
+    fn a_fragment_agreeing_with_any_declaration_it_names_holds() {
+        let (_, project) = slice_with_source("lld-review-agreement", SLICE_SOURCE, AGREEMENT_ROWS);
+        let doc = Lld::read(&project, "thing").expect("the member holds the slice's document");
+        let twice = [declaration("run", None, &["u8"], None), declaration("run", None, &["u8", "u8"], None)];
+
+        assert_eq!(
+            all_located(&shape_agrees(&project, &doc)),
+            [(Check::ShapeAgrees, doc.path.as_path(), line_at(AGREEMENT_ROWS, "| `run(args)` | the same entry, one argument short |"))],
+            "the agreeing row, the row whose qualifier names no declaration, the row naming nothing declared and the row naming a type all hold"
+        );
+        assert_eq!(
+            disagreement(&fragment(&["run"], Some(&["a", "b"]), None), &twice),
+            None,
+            "a name the crate declares twice is not thereby wrong: agreeing with either of them holds"
+        );
+        assert_eq!(disagreement(&fragment(&["run"], Some(&["a", "b", "c"]), None), &twice), Some(&twice[0]), "and the first is the one a failure quotes");
+    }
+
+    #[test]
+    #[validates(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
+    fn a_fragment_agrees_when_its_count_and_any_return_it_writes_are_the_sources() {
+        let source = declaration("read", Some("Lld"), &["& Project", "& str"], Some("Result < Self , String >"));
+        let infallible = declaration("run", None, &[], None);
+
+        assert!(agrees(&fragment(&["Lld", "read"], Some(&["project", "slice"]), None), &source), "a row writing no return agrees about its arguments alone");
+        assert!(agrees(&fragment(&["read"], Some(&["project", "slice"]), Some("Result<Lld, String>")), &source), "and one that writes the source's return agrees");
+        assert!(!agrees(&fragment(&["read"], Some(&["project"]), None), &source), "one argument short of the source disagrees");
+        assert!(!agrees(&fragment(&["read"], Some(&["project", "slice"]), Some("Result<PathBuf, String>")), &source), "a return that is not the source's disagrees");
+        assert!(!agrees(&fragment(&["run"], Some(&[]), Some("bool")), &infallible), "a row writing a return where the source declared none disagrees");
+        assert!(agrees(&fragment(&["run"], Some(&[]), None), &infallible), "and a row that writes neither agrees");
+    }
+
+    #[test]
+    #[validates(spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared)]
+    fn whitespace_is_stripped_from_both_sides_before_two_types_are_compared() {
+        // The reading renders the source's `Result<Lld, String>` with the
+        // spacing its printer chose; the row types it as a reader types it.
+        assert!(same_type("Result<Lld, String>", "Result < Lld , String >", None), "how one side was printed is never the difference");
+        assert!(same_type("Result < Lld , String >", "Result<Lld,String>", None), "and neither is how the other was typed");
+        assert!(!same_type("Result<Lld, PathBuf>", "Result < Lld , String >", None), "what is left once the spacing is gone is compared");
+        assert_eq!(stripped("  Result < Lld , String >  "), "Result<Lld,String>");
+    }
+
+    #[test]
+    #[validates(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
+    fn lifetime_arguments_and_annotations_are_erased_before_two_types_are_compared() {
+        // What an erased lifetime takes with it is an argument and not a
+        // character: a list that loses one of two, or one of three, still
+        // writes the arguments it has, brackets and all.
+        let read = [
+            "Cow < 'a , str >",
+            "Map < 'a , 'b , K >",
+            "& 'static str",
+            "Result < Cow < 'a , str > , String >",
+            "( Vec < u8 > , Section < 'a > )",
+            "Vec < u8 >",
+            "Result < Lld , String",
+        ]
+        .map(stripped);
+
+        assert_eq!(
+            read,
+            ["Cow<str>", "Map<K>", "&str", "Result<Cow<str>,String>", "(Vec<u8>,Section)", "Vec<u8>", "Result<Lld,String"],
+            "an argument the erasure does not touch survives, at any depth and in a sibling list; and one side of every comparison is written by a human, so an unclosed `<` is no list to rewrite"
+        );
+        // An outer argument that erases away entirely, beside an inner list
+        // that survives: the outer list is written afresh from the survivor
+        // alone, so the comma that separated the two goes with the argument it
+        // separated. This is what the split into top-level arguments is for,
+        // and the only reading that shows it — where every argument of the
+        // outer list survives, a split that never comes back to the list's own
+        // depth reads the whole contents as one argument, finds the inner list
+        // inside it anyway, rewrites that, and joins back to the same
+        // characters. Here it cannot: the comma it leaves standing is
+        // `Map<,Cow<str>>` when the erased argument came first and
+        // `Map<Cow<str>,>` when it came last, and both orders are asked because
+        // a split that fails only after the first inner list closes agrees with
+        // the first of them.
+        let stranded = ["Map < 'a , Cow < 'b , str > >", "Map < Cow < 'b , str > , 'a >"].map(stripped);
+
+        assert_eq!(
+            stranded,
+            ["Map<Cow<str>>", "Map<Cow<str>>"],
+            "the surviving argument is written on its own, wherever in the list the erased lifetime stood, and never beside the comma that stood between them"
+        );
+        assert_eq!(
+            (same_type("Cow<str>", "Cow < 'a , str >", None), same_type("&str", "& 'static str", None), same_type("Map<K>", "Map < 'a , 'b , K >", None)),
+            (true, true, true),
+            "a document that spells the lifetime is not more correct than one that does not"
+        );
+        assert_eq!(
+            (same_type("Cow<String>", "Cow < 'a , str >", None), same_type("Map", "Map < 'a , 'b , K >", None), same_type("Vec<T>", "Vec < T", None)),
+            (false, false, false),
+            "erasing a lifetime never erases the arguments beside it, and `Vec<T` is not the shape `Vec<T>` is"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AnArgumentListLeftWithNoArgumentIsNotWrittenAtAll)]
+    fn an_argument_list_left_with_no_argument_is_not_written_at_all() {
+        // The list is written afresh from whatever survived, so a list of
+        // none, a list of one and a list of two are written the same way.
+        let emptied = stripped("Section < 'a >");
+
+        assert_eq!(emptied, "Section", "the brackets go with the only argument the list had");
+        assert_ne!(emptied, "Section<>", "which is the shape this decision exists to forbid");
+        assert_eq!(
+            [stripped("Cow < 'a , str >"), stripped("Map < 'a , 'b , K >"), stripped("( Vec < u8 > , Section < 'a > )")],
+            ["Cow<str>", "Map<K>", "(Vec<u8>,Section)"],
+            "a list that keeps an argument keeps its brackets, and a sibling list is written on its own"
+        );
+        assert_eq!(
+            (same_type("Section", "Section < 'a >", None), same_type("Section<>", "Section < 'a >", None)),
+            (true, false),
+            "a row writing the type without its erased lifetime agrees; one writing empty brackets does not"
+        );
+    }
+
+    #[test]
+    #[validates(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
+    fn self_is_the_declarations_owner_on_both_sides() {
+        let owned_elsewhere = declaration("read", Some("Other"), &["& Project", "& str"], Some("Result < Self , String >"));
+        let says_lld = fragment(&["Lld", "read"], Some(&["project", "slice"]), Some("Result<Lld, String>"));
+
+        assert_eq!(
+            (
+                same_type("Result<Lld, String>", "Result < Self , String >", Some("Lld")),
+                same_type("Returned", "Self", Some("Returned < 'a >")),
+                same_type("Self", "Lld", Some("Lld")),
+            ),
+            (true, true, true),
+            "the owner stands for `Self` on whichever side writes it, itself read as every token string here is read"
+        );
+        assert_eq!(
+            (same_type("Lld", "Self", None), same_type("Self", "Self", None), same_type("Lld", "Lld", None)),
+            (false, false, true),
+            "a free function has no owner, so a `Self` in a row about one stands for no type and the row disagrees"
+        );
+        assert!(!agrees(&says_lld, &owned_elsewhere), "the substitution is the declaration's owner and never the fragment's own qualifier");
+    }
+
+    #[test]
+    #[validates(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
+    fn an_agreement_failure_names_the_items_file_and_both_readings() {
+        let doc = PathBuf::from("/w/app/src/thing/lld.md");
+        let source = declaration("read", Some("Lld"), &["& Project", "& str"], Some("Result < Self , String >"));
+        let wrote = source_wrote(&source);
+        let failure = agreement_failure(Check::ShapeAgrees, &doc, 12, &source.file, "Lld::read(project)", &wrote);
+        let places = ["/w/app/src/thing/mod.rs", "Lld::read(project)", wrote.as_str(), rule(Check::ShapeAgrees)].map(|part| failure.message.find(part));
+
+        assert_eq!(located(&failure), (Check::ShapeAgrees, doc.as_path(), 12), "the document's path and the row's line, as every failure carries them");
+        assert!(
+            places.iter().all(Option::is_some) && places.windows(2).all(|pair| pair[0] < pair[1]),
+            "the item's file, what the row said, what the source said, and then the rule: {}",
+            failure.message
+        );
+        assert_eq!(
+            (qualified(&source).as_str(), returning(None).as_str(), returning(Some("u8")).contains("-> u8")),
+            ("Lld::read", "", true),
+            "the source is spelled back qualified by its owner, with the return it declared and nothing where it declared none"
+        );
+        // What the source said is the declaration's own three parts, and the
+        // message has to hold them: the name its owner qualifies, the parameter
+        // tokens the reading answered, and the return the source declared, in
+        // the order a signature writes them. The spelling that joins them is
+        // evidence rather than a grammar, so nothing here asks for its
+        // punctuation — but a message that carries none of the item's parts
+        // cites the row against nothing, and a reader has no evidence to fix it
+        // against.
+        let spelled = ["Lld::read", "& Project", "& str", "Result < Self , String >"].map(|part| failure.message.find(part));
+
+        assert!(
+            spelled.iter().all(Option::is_some) && spelled.windows(2).all(|pair| pair[0] < pair[1]),
+            "the source's own name, its parameters and its return are in the message, in the order a signature writes them: {}",
+            failure.message
+        );
+        // What the row said is the identifier as the cell wrote it, which
+        // `written_fragments` pairs with the fragment read from that same
+        // identifier — so a cell naming two items has a pair for each, and a
+        // failure quotes the row's own text rather than a spelling this slice
+        // invented for it.
+        let row = Row {
+            line: 12,
+            cells: strings(&["`Lld::read(project, slice) -> Result<Lld, String>` and `run(args)`", "two items in one cell"]),
+        };
+        let paired: Vec<String> =
+            written_fragments(&row).iter().map(|(written, fragment)| format!("{written} => {}", as_written(fragment))).collect();
+
+        assert_eq!(
+            paired,
+            [
+                "Lld::read(project, slice) -> Result<Lld, String> => Lld::read(project, slice) -> Result<Lld, String>",
+                "run(args) => run(args), no return",
+            ],
+            "one pair per identifier the cell holds, each the text the row wrote beside the fragment read from it"
+        );
+    }
+
+    #[test]
+    #[validates(spec::AReuseRowNamesItsItemAsAnIntraDocLink)]
+    fn a_reuse_row_names_its_item_as_an_intra_doc_link() {
+        let (_, project) = slice_with_source("lld-review-reuse", SLICE_SOURCE, REUSE_ROWS);
+        let doc = Lld::read(&project, "thing").expect("the member holds the slice's document");
+
+        assert_eq!(
+            all_located(&reuse_rows_linked(&project, &doc)),
+            [(
+                Check::ReuseRowsLinked,
+                doc.path.as_path(),
+                line_at(REUSE_ROWS, "| `layout::lld_path(project, slice)` | another slice's item in the same crate, named bare |")
+            )],
+            "the linked row, the slice's own name, a module inside its directory, a member's crate name and a type all hold"
+        );
+    }
+
+    #[test]
+    #[validates(
+        spec::AModuleQualifiedPathOutsideTheSlicesDirectoryIsAReuseRow,
+        spec::APathThatIsNotModuleQualifiedIsNotAReuseRow,
+        spec::APathIntoTheSlicesOwnModulesIsNotAReuseRow,
+        spec::APathQualifiedByAWorkspaceMembersCrateNameIsNotAReuseRow,
+    )]
+    fn a_module_qualified_path_outside_the_slices_directory_is_a_reuse_row() {
+        let inside = strings(&["spec", "lld"]);
+        let crates = strings(&["cargo_lid_rs", "lid_rs_shape"]);
+        let asked = |path: &[&str]| is_reuse(&fragment(path, Some(&["a"]), None), "lld-review", &inside, &crates);
+
+        assert!(asked(&["layout", "lld_path"]) && asked(&["phase", "plan"]), "a sibling module of the crate is another slice's, and its row is asked for a link");
+        assert!(!asked(&["run"]), "a bare name names nothing elsewhere");
+        assert!(!asked(&["Lld", "read"]) && !asked(&["_private", "held"]), "a first segment that does not start with a lowercase letter is no module");
+        assert!(!asked(&["lld_review", "run"]) && !asked(&["spec", "ClaimName"]), "the slice's own name in module form, and a sibling inside its directory");
+        assert!(
+            !asked(&["cargo_lid_rs", "catalog", "entry"]) && !asked(&["lid_rs_shape", "signatures"]),
+            "a path into a crate is not a path into a sibling module, and rustdoc could not resolve a link into a crate that is no dependency"
+        );
+    }
+
+    #[test]
+    #[validates(spec::ASiblingIsAFileStemOrADirectoryNameOneLevelInsideTheSlice, spec::ASliceWithNoDirectoryToReadListsNoSibling)]
+    fn a_sibling_is_a_file_stem_or_a_directory_name_one_level_inside_the_slice() {
+        let (root, project) = slice_with_source("lld-review-siblings", SLICE_SOURCE, HOLDS);
+        write_at(&root.join("app/src/thing/nested/mod.rs"), "//! A module one level inside the slice.\n");
+        write_at(&root.join("app/src/thing/nested/deeper.rs"), "//! Two levels in, and no sibling of the slice.\n");
+
+        assert!(siblings(&project, "skill").is_empty(), "a slice with no directory to read lists nothing, and not an error");
+
+        let mut listed = siblings(&project, "thing");
+        listed.sort();
+
+        assert_eq!(
+            listed,
+            strings(&["inner", "lld", "nested"]),
+            "a file's stem without its extension and a directory's own name, one level in, with `mod.rs` left out and nothing deeper listed"
+        );
+    }
+
+    #[test]
+    #[validates(spec::ACrateNameIsAMembersPackageNameWithHyphensAsUnderscores)]
+    fn a_crate_name_is_a_members_package_name_with_hyphens_as_underscores() {
+        let root = fixture::scratch("lld-review-crate-names");
+        let project = project_naming(&root, &[("app", "app"), ("shape", "lid-rs-shape")]);
+
+        assert_eq!(crate_names(&project), strings(&["app", "lid_rs_shape"]), "`lid-rs-shape` is the package's name and `lid_rs_shape` is the path's");
+        assert!(crate_names(&project_naming(&root, &[])).is_empty(), "a workspace with no member names no crate");
+    }
+
+    #[test]
+    #[validates(spec::AnImplTraitOrBareDynTraitReturnIsNotSkeletonable, spec::AReturnThatMerelyContainsAnImplOrDynTypeIsSkeletonable)]
+    fn an_impl_trait_or_bare_dyn_trait_return_is_not_skeletonable() {
+        let refused = ["impl Iterator<Item = u8>", "impl Trait", "dyn Error", "dyn Fn(u8) -> u8"].map(skeletonable);
+        let held = ["Box<dyn Error>", "Result<Box<dyn Error>, String>", "Result<Lld, String>", "implementation::Handle", "dynamics::Handle"].map(skeletonable);
+
+        assert_eq!(refused, [false; 4], "a `todo!()` body infers an `impl Trait`'s hidden type as `!`, which implements nothing, and a bare `dyn Trait` is unsized");
+        assert_eq!(held, [true; 5], "the test is over the return's outermost form and nothing deeper, and over its first word and not a prefix of one");
+    }
+
+    #[test]
+    #[validates(spec::ARowWhoseReturnCannotBeSkeletonisedFailsOnItsLine)]
+    fn a_row_whose_return_cannot_be_skeletonised_fails_on_its_line() {
+        let doc = document("thing", RETURN_ROWS);
+
+        assert_eq!(
+            all_located(&shape_returns(&doc)),
+            [
+                (Check::SkeletonableReturns, doc.path.as_path(), line_at(RETURN_ROWS, "| `hidden() -> impl Iterator<Item = u8>` | a hidden type a `todo!()` body infers as `!` |")),
+                (Check::SkeletonableReturns, doc.path.as_path(), line_at(RETURN_ROWS, "| `erased() -> dyn Error` | unsized in return position |")),
+            ],
+            "each unskeletonable row fails on its own line; the rows that merely contain one, and the row writing no return at all, hold"
+        );
+        assert!(shape_returns(&document("thing", HOLDS)).is_empty(), "a row writing no return has none to refuse");
     }
 }
 
