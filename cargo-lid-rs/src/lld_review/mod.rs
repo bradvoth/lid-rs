@@ -213,7 +213,8 @@ fn artifact_failure(check: Check, path: &Path, line: usize, found: &str) -> Fail
 /// one path, so the document's is the path and the source's is in the sentence.
 #[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
 fn agreement_failure(check: Check, path: &Path, line: usize, item_file: &Path, row: &str, source: &str) -> Failure {
-    todo!("agreement_failure({check:?}, {}, {line}, {}, {row}, {source})", path.display(), item_file.display())
+    let message = format!("{}: the row writes `{row}`, the source writes `{source}`: {}", item_file.display(), rule(check));
+    Failure { check, path: path.to_path_buf(), line, message }
 }
 
 /// The sentence the skill states a check's rule in, which its failure quotes.
@@ -748,7 +749,8 @@ fn slice_declarations(own_crate: &Path, dir: &Path, module: &str) -> Vec<Declare
 /// not exist at all.
 #[implements(spec::TheDeclaredFunctionsAreTheSlicesOwnCratesUnderItsDirectory)]
 fn in_the_slice(file: &Path, dir: &Path, module: &str) -> bool {
-    todo!("in_the_slice({}, {}, {module})", file.display(), dir.display())
+    let file_module = dir.parent().map(|parent| parent.join(format!("{module}.rs")));
+    file.starts_with(dir) || file_module.as_deref() == Some(file)
 }
 
 /// One signature the shape pass read, as the [`Declared`] this slice carries:
@@ -829,7 +831,8 @@ fn fragment_of(cell: &str, nth: usize, identifier: &str) -> Fragment {
 /// its parentheses, or the whole of it where it writes none.
 #[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
 fn path_segments(identifier: &str) -> Vec<String> {
-    todo!("path_segments({identifier})")
+    let name = identifier.split('(').next().unwrap_or(identifier).trim();
+    name.split("::").map(str::trim).map(str::to_string).collect()
 }
 
 /// The arguments an identifier writes: those between its parentheses, less a
@@ -848,7 +851,31 @@ fn arguments(identifier: &str) -> Option<Vec<String>> {
 /// nothing.
 #[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
 fn argument_list(identifier: &str) -> Option<Vec<String>> {
-    todo!("argument_list({identifier})")
+    let start = identifier.find('(')?;
+    let mut depth = 0;
+    let mut end = None;
+    for (offset, ch) in identifier[start..].char_indices() {
+        match ch {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = Some(start + offset);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    Some(split_arguments(&identifier[start + 1..end?]))
+}
+
+/// The comma-separated pieces of an argument list's inside text, each
+/// trimmed; an empty list of parentheses holds no argument to split, and not
+/// one empty argument.
+#[implements(spec::EveryBacktickedIdentifierOfAFirstCellIsItsOwnFragment)]
+fn split_arguments(inside: &str) -> Vec<String> {
+    if inside.trim().is_empty() { vec![] } else { inside.split(',').map(str::trim).map(str::to_string).collect() }
 }
 
 /// An argument list less a first argument written as a receiver — one of the
@@ -867,7 +894,7 @@ fn without_receiver(written: &[String]) -> Vec<String> {
 /// with no return rather than a row with a return spelled another way.
 #[implements(spec::AReturnIsWrittenWithTheAsciiArrowAlone)]
 fn written_return(identifier: &str) -> Option<String> {
-    todo!("written_return({identifier})")
+    identifier.split_once("->").map(|(_, after)| after.trim().to_string())
 }
 
 /// Whether the cell wrapped one of its backtick spans in a markdown link: the
@@ -883,7 +910,11 @@ fn written_return(identifier: &str) -> Option<String> {
 /// neighbour after the span is asked for rather than indexed.
 #[implements(spec::AFragmentIsLinkedOnlyWhenItsBacktickSpanIsWrappedInAMarkdownLink)]
 fn linked(cell: &str, nth: usize) -> bool {
-    todo!("linked({cell}, {nth})")
+    let cell_spans = spans(cell);
+    let Some(span) = cell_spans.get(nth) else { return false };
+    let before = span.start.checked_sub(2).and_then(|start| cell.get(start..start + 1));
+    let after = cell.get(span.end + 1..span.end + 3);
+    before == Some("[") && after == Some("](")
 }
 
 /// The first cells whose fragment names a function the slice declares and
@@ -994,14 +1025,17 @@ fn source_wrote(declaration: &Declared) -> String {
 /// free function.
 #[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
 fn qualified(declaration: &Declared) -> String {
-    todo!("qualified({declaration:?})")
+    match &declaration.owner {
+        Some(owner) => format!("{owner}::{}", declaration.name),
+        None => declaration.name.clone(),
+    }
 }
 
 /// A return as a signature writes it: `-> Type` where the source declared one,
 /// and nothing at all where it did not.
 #[implements(spec::AnAgreementFailureNamesTheItemsFileAndBothReadings)]
 fn returning(returns: Option<&str>) -> String {
-    todo!("returning({returns:?})")
+    returns.map_or_else(String::new, |returns| format!(" -> {returns}"))
 }
 
 /// Whether a fragment names one declared function at all: their names are
@@ -1017,7 +1051,29 @@ fn returning(returns: Option<&str>) -> String {
 /// compared to nothing and the check would quietly stop checking.
 #[implements(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
 pub fn matches(fragment: &Fragment, declared: &Declared) -> bool {
-    todo!("matches({fragment:?}, {declared:?})")
+    let Some(name) = fragment.path.last() else { return false };
+    if *name != declared.name {
+        return false;
+    }
+    match fragment.path.first() {
+        Some(qualifier) if fragment.path.len() > 1 && starts_uppercase(qualifier) => owner_is(declared, qualifier),
+        _ => true,
+    }
+}
+
+/// Whether a path segment starts with an uppercase letter — a type, as
+/// opposed to a module or a bare name.
+#[implements(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
+fn starts_uppercase(segment: &str) -> bool {
+    segment.chars().next().is_some_and(char::is_uppercase)
+}
+
+/// Whether a declaration's owner is the qualifier a fragment wrote, both read
+/// as every token string here is read. A free function has no owner, so a
+/// qualifier is never it.
+#[implements(spec::AQualifierNarrowsAMatchOnlyWhenItIsAType)]
+fn owner_is(declared: &Declared, qualifier: &str) -> bool {
+    declared.owner.as_deref().is_some_and(|owner| stripped(owner) == stripped(qualifier))
 }
 
 /// One fragment against one declaration it names: the fragment's argument
@@ -1039,7 +1095,7 @@ pub fn agrees(fragment: &Fragment, declared: &Declared) -> bool {
 /// arguments it writes are the arguments it has.
 #[implements(spec::AFragmentAgreesWhenItsCountAndAnyReturnItWritesAreTheSources)]
 fn same_arity(fragment: &Fragment, declared: &Declared) -> bool {
-    todo!("same_arity({fragment:?}, {declared:?})")
+    fragment.arguments.as_ref().is_some_and(|arguments| arguments.len() == declared.parameters.len())
 }
 
 /// Whether the return a row writes is the one the source wrote. A row that
@@ -1128,7 +1184,7 @@ fn ownerless(written: String) -> Option<String> {
 /// it as a reader types it.
 #[implements(spec::WhitespaceIsStrippedFromBothSidesBeforeTwoTypesAreCompared)]
 fn without_whitespace(type_tokens: &str) -> String {
-    todo!("without_whitespace({type_tokens})")
+    type_tokens.chars().filter(|ch| !ch.is_whitespace()).collect()
 }
 
 /// A type's tokens with its lifetime arguments and lifetime annotations
@@ -1149,8 +1205,9 @@ fn without_whitespace(type_tokens: &str) -> String {
 /// again rather than through [`without_lifetime_tokens`], which would erase
 /// its lifetime in place and leave exactly the `Section<>` the list-rewriting
 /// rule forbids. Tokens with no top-level list at all — `&'static str`, a
-/// bare `'a` an argument's whole text once split out of one — have only a
-/// lifetime token to erase, which [`without_lifetime_tokens`] does directly.
+/// bare `'a` an argument's whole text once split out of one, and a type
+/// whose only `<` is never closed — have only a lifetime token to erase,
+/// which [`without_lifetime_tokens`] does directly.
 #[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
 fn without_lifetimes(type_tokens: &str) -> String {
     match type_argument_list(type_tokens) {
@@ -1172,7 +1229,24 @@ fn without_lifetimes(type_tokens: &str) -> String {
 /// are ` Cow < 'a , str > , String `, and the tail is empty.
 #[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
 fn type_argument_list(type_tokens: &str) -> Option<(String, String, String)> {
-    todo!("type_argument_list({type_tokens})")
+    let open = type_tokens.find('<')?;
+    let mut depth = 0;
+    let mut close = None;
+    for (index, ch) in type_tokens.char_indices().skip(open) {
+        match ch {
+            '<' => depth += 1,
+            '>' => {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(index);
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    let close = close?;
+    Some((type_tokens[..open].to_string(), type_tokens[open + 1..close].to_string(), type_tokens[close + 1..].to_string()))
 }
 
 /// The text around a type's own outermost generic argument list: the head,
@@ -1208,7 +1282,18 @@ fn without_lifetimes_around_list(head: &str, list: &str, tail: &str) -> String {
 /// [`argument_survives`]'s question, never this function's.
 #[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
 fn without_lifetime_tokens(type_tokens: &str) -> String {
-    todo!("without_lifetime_tokens({type_tokens})")
+    let mut written = String::with_capacity(type_tokens.len());
+    let mut chars = type_tokens.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            while chars.peek().is_some_and(|next| next.is_alphanumeric() || *next == '_') {
+                chars.next();
+            }
+        } else {
+            written.push(ch);
+        }
+    }
+    written
 }
 
 /// One generic argument list's contents, written afresh from whichever of its
@@ -1216,10 +1301,13 @@ fn without_lifetime_tokens(type_tokens: &str) -> String {
 /// [`top_level_arguments`], the survivors [`surviving_arguments`] answers are
 /// joined back into the list — or the list is left out entirely, brackets
 /// included — by [`argument_list_written`], the one place that decision is
-/// made.
+/// made. A list with no content at all between its brackets — `Section<>`,
+/// written empty rather than emptied by an erased lifetime — is not this
+/// decision's to make: there was no argument there to erase, so its brackets
+/// are kept exactly as written rather than dropped as an emptied list's are.
 #[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
 fn rewritten_argument_list(list_contents: &str) -> String {
-    argument_list_written(&surviving_arguments(list_contents))
+    if list_contents.is_empty() { "<>".to_string() } else { argument_list_written(&surviving_arguments(list_contents)) }
 }
 
 /// A list's contents split into its own top-level arguments — by a comma at
@@ -1228,7 +1316,22 @@ fn rewritten_argument_list(list_contents: &str) -> String {
 /// ` String `, not three.
 #[implements(spec::LifetimeArgumentsAndAnnotationsAreErasedBeforeTwoTypesAreCompared)]
 fn top_level_arguments(list_contents: &str) -> Vec<String> {
-    todo!("top_level_arguments({list_contents})")
+    let mut depth = 0;
+    let mut start = 0;
+    let mut arguments = Vec::new();
+    for (index, ch) in list_contents.char_indices() {
+        match ch {
+            '<' => depth += 1,
+            '>' => depth -= 1,
+            ',' if depth == 0 => {
+                arguments.push(list_contents[start..index].to_string());
+                start = index + 1;
+            }
+            _ => {}
+        }
+    }
+    arguments.push(list_contents[start..].to_string());
+    arguments
 }
 
 /// [`top_level_arguments`]'s split, each argument read through
@@ -1279,14 +1382,14 @@ fn argument_list_written(surviving: &[String]) -> String {
 /// inside another and never a printer's spacing inside a stripped type.
 #[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
 fn self_substituted(type_tokens: &str, owner: &str) -> String {
-    todo!("self_substituted({type_tokens}, {owner})")
+    type_tokens.replace("Self", owner)
 }
 
 /// Whether a type's tokens write `Self` at all, which is the only thing an
 /// ownerless declaration needs to know about them.
 #[implements(spec::SelfIsTheDeclarationsOwnerOnBothSides)]
 fn names_self(type_tokens: &str) -> bool {
-    todo!("names_self({type_tokens})")
+    type_tokens.contains("Self")
 }
 
 /// The rows whose first cell names another slice's item as a bare identifier
@@ -1342,7 +1445,7 @@ pub fn siblings(project: &Project, slice: &str) -> Vec<String> {
     spec::ASliceWithNoDirectoryToReadListsNoSibling,
 )]
 fn entries(dir: &Path) -> Vec<PathBuf> {
-    todo!("entries({})", dir.display())
+    std::fs::read_dir(dir).map_or_else(|_| vec![], |read| read.filter_map(Result::ok).map(|entry| entry.path()).collect())
 }
 
 /// The module name one entry carries: a directory's own name, a file's stem
@@ -1350,7 +1453,13 @@ fn entries(dir: &Path) -> Vec<PathBuf> {
 /// rather than anything under it.
 #[implements(spec::ASiblingIsAFileStemOrADirectoryNameOneLevelInsideTheSlice)]
 fn module_name(entry: &Path) -> Option<String> {
-    todo!("module_name({})", entry.display())
+    if entry.is_dir() {
+        entry.file_name().map(|name| name.to_string_lossy().into_owned())
+    } else if entry.file_name() == Some(std::ffi::OsStr::new("mod.rs")) {
+        None
+    } else {
+        entry.file_stem().map(|stem| stem.to_string_lossy().into_owned())
+    }
 }
 
 /// The workspace members' names as a path spells them:
@@ -1361,7 +1470,12 @@ fn module_name(entry: &Path) -> Option<String> {
 /// join is this function's and no caller's.
 #[implements(spec::ACrateNameIsAMembersPackageNameWithHyphensAsUnderscores)]
 pub fn crate_names(project: &Project) -> Vec<String> {
-    todo!("crate_names({project:?})")
+    project
+        .member_manifest_dirs()
+        .iter()
+        .filter_map(|dir| project.package_at(&dir.join("Cargo.toml")))
+        .map(|name| name.replace('-', "_"))
+        .collect()
 }
 
 /// One decision over one fragment: whether it names another slice's item in
@@ -1379,7 +1493,28 @@ pub fn crate_names(project: &Project) -> Vec<String> {
     spec::APathQualifiedByAWorkspaceMembersCrateNameIsNotAReuseRow,
 )]
 pub fn is_reuse(fragment: &Fragment, slice: &str, siblings: &[String], crates: &[String]) -> bool {
-    todo!("is_reuse({fragment:?}, {slice}, {siblings:?}, {crates:?})")
+    match fragment.path.as_slice() {
+        [first, _, ..] => starts_lowercase(first) && !names_the_slice_or_a_known_module(first, slice, siblings, crates),
+        _ => false,
+    }
+}
+
+/// Whether a path segment starts with a lowercase letter — a module or a
+/// crate, as opposed to a type.
+#[implements(spec::AModuleQualifiedPathOutsideTheSlicesDirectoryIsAReuseRow)]
+fn starts_lowercase(segment: &str) -> bool {
+    segment.chars().next().is_some_and(char::is_lowercase)
+}
+
+/// Whether a lowercase first segment names the slice itself, a sibling
+/// listed for it, or a workspace member's crate — the three ways a
+/// module-qualified path is not another slice's.
+#[implements(
+    spec::APathIntoTheSlicesOwnModulesIsNotAReuseRow,
+    spec::APathQualifiedByAWorkspaceMembersCrateNameIsNotAReuseRow,
+)]
+fn names_the_slice_or_a_known_module(first: &str, slice: &str, siblings: &[String], crates: &[String]) -> bool {
+    first == layout::module_of(slice) || siblings.iter().any(|sibling| sibling == first) || crates.iter().any(|krate| krate == first)
 }
 
 /// One decision over a return fragment: whether a signature written with it
@@ -1390,7 +1525,16 @@ pub fn is_reuse(fragment: &Fragment, slice: &str, siblings: &[String], crates: &
 /// outermost form and nothing deeper.
 #[implements(spec::AnImplTraitOrBareDynTraitReturnIsNotSkeletonable, spec::AReturnThatMerelyContainsAnImplOrDynTypeIsSkeletonable)]
 pub fn skeletonable(returns: &str) -> bool {
-    todo!("skeletonable({returns})")
+    let outermost = returns.trim();
+    !starts_with_word(outermost, "impl") && !starts_with_word(outermost, "dyn")
+}
+
+/// Whether a return's outermost form opens with `word` as its own token —
+/// followed by nothing or by whitespace — so that `implementation::Handle`
+/// is not mistaken for an `impl` return.
+#[implements(spec::AnImplTraitOrBareDynTraitReturnIsNotSkeletonable)]
+fn starts_with_word(text: &str, word: &str) -> bool {
+    text.strip_prefix(word).is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
 }
 
 /// The rows whose return fragment cannot be skeletonised, as [`skeletonable`]
