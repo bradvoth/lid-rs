@@ -102,6 +102,9 @@ pub enum Step {
     SyncCheck,
     /// `mutants`, through the library.
     Mutants,
+    /// One entry of the workspace's `gate_extra`: the program and its
+    /// arguments, carried as data on the variant, run after the floor.
+    Extra(Vec<String>),
     /// The phase 5 red run over the slice's validations.
     Red,
     /// The `lld-review` slice's mechanical checks over the slice's LLD and
@@ -744,35 +747,44 @@ fn lld_checks(project: &Project, slice: &str) -> Result<(), String> {
     crate::lld_review::report(&crate::lld_review::check_all(project, &lld)?)
 }
 
-/// Runs a phase's check: its plan, executed in order.
+/// Runs a phase's check: its plan, executed in order. The plan is built from
+/// the workspace's own gate steps as `policy::gate_extra` reads them — the
+/// one place the value is read, so a `gate_extra` the tool cannot read fails
+/// here, at whichever phase is running, before any step runs.
 pub fn check(project: &Project, phase: Phase, slice: Option<&str>) -> Result<(), String> {
-    execute(project, slice, &plan(phase, &project.publishing_members()))
+    execute(project, slice, &plan(phase, &project.publishing_members(), &policy::gate_extra(project)?))
 }
 
 /// A phase's steps, in order, as data. `publishing` names the packages
-/// `cargo package` runs for at phase 7.
+/// `cargo package` runs for at phase 7, and `extra` the workspace's own
+/// steps, which follow the floor there in the order configured.
 #[implements(
     spec::PhaseOneChecksTheDocs,
     spec::PhaseTwoChecksTheClaimsBuild,
     spec::WarningsDoNotFailPhaseTwosCheck,
     spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks,
     spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::TheExtraStepsFollowTheMutationStepInTheOrderConfigured,
 )]
-pub fn plan(phase: Phase, publishing: &[String]) -> Vec<Step> {
+pub fn plan(phase: Phase, publishing: &[String], extra: &[Vec<String>]) -> Vec<Step> {
     match phase {
         Phase::One => vec![Step::LldChecks, Step::Doc, Step::DocTests],
         Phase::Two => vec![Step::Check],
         Phase::Three | Phase::Four => vec![Step::Check],
         Phase::Five => vec![Step::Red],
-        Phase::Seven => gate(publishing),
+        Phase::Seven => gate(publishing, extra),
     }
 }
 
-/// README §4.5 in order: the five cargo steps, one `cargo package` naming
-/// every publishing member, then the two library steps.
-#[implements(spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce)]
-fn gate(publishing: &[String]) -> Vec<Step> {
-    vec![
+/// README §4.5 in order — the five cargo steps, one `cargo package` naming
+/// every publishing member, then the two library steps — and after that
+/// floor, one `Step::Extra` per entry of `extra`, in the order configured.
+#[implements(
+    spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
+    spec::TheExtraStepsFollowTheMutationStepInTheOrderConfigured,
+)]
+fn gate(publishing: &[String], extra: &[Vec<String>]) -> Vec<Step> {
+    let floor = [
         Step::Check,
         Step::Clippy,
         Step::Doc,
@@ -781,7 +793,8 @@ fn gate(publishing: &[String]) -> Vec<Step> {
         Step::Package(publishing.to_vec()),
         Step::SyncCheck,
         Step::Mutants,
-    ]
+    ];
+    floor.into_iter().chain(extra.iter().map(|entry| -> Step { todo!("carry {entry:?} as Step::Extra after the floor") })).collect()
 }
 
 /// Runs steps in order against the project; the first failure is the
@@ -802,12 +815,15 @@ fn execute_with(steps: &[Step], mut run: impl FnMut(&Step) -> Result<(), String>
 /// no lint, so a workspace that builds with warnings passes it. The mutation
 /// step is the one whose argument is not data: its base is resolved when the
 /// step runs, and it is the gate's — the last gate commit, or the merge base
-/// with `main` — never the trunk.
+/// with `main` — never the trunk. An extra step carries its entry as data
+/// and `extra_step` runs it.
 #[implements(
     spec::PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce,
     spec::WarningsDoNotFailPhaseTwosCheck,
     spec::TheSliceComesFromTheBranchName,
     spec::TheGatesMutationStepDiffsAgainstTheGateCommit,
+    spec::AnExtraStepRunsItsEntryAsAProgramAtTheWorkspaceRootThroughNoShell,
+    spec::AnExtraStepThatExitsNonZeroOrCannotRunFailsTheGateNamingTheEntry,
 )]
 fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), String> {
     match step {
@@ -815,9 +831,26 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
         Step::Doc => cargo_step(project, &args_of(step), &[("RUSTDOCFLAGS", "-D rustdoc::broken_intra_doc_links")]),
         Step::SyncCheck => sync::check(project),
         Step::Mutants => mutants::run(&["--diff-base".to_string(), mutation_base(project)?]),
+        Step::Extra(entry) => extra_step(project, entry),
         Step::Red => check_red(project, slice.ok_or(NO_SLICE)?),
         Step::LldChecks => lld_checks(project, slice.ok_or(NO_SLICE)?),
     }
+}
+
+/// One extra entry run: the entry's first word as a program, the rest as its
+/// arguments, at the workspace root and through no shell — so no quoting
+/// grammar, word splitting, or variable expansion stands between the manifest
+/// and the process. A non-zero exit or a program that cannot be run is the
+/// failure, naming the entry and carrying the program's output: the two are
+/// one answer, because a step that could not run is not a step that passed.
+/// A malformed entry never reaches here — `policy::gate_extra` fails the
+/// check before any step runs.
+#[implements(
+    spec::AnExtraStepRunsItsEntryAsAProgramAtTheWorkspaceRootThroughNoShell,
+    spec::AnExtraStepThatExitsNonZeroOrCannotRunFailsTheGateNamingTheEntry,
+)]
+fn extra_step(project: &Project, entry: &[String]) -> Result<(), String> {
+    todo!("run {entry:?} as a program at the workspace root {:?}, through no shell", project.root())
 }
 
 /// One step's cargo arguments as data, so what a step invokes is assertable
@@ -829,7 +862,9 @@ fn run_step(project: &Project, slice: Option<&str>, step: &Step) -> Result<(), S
 /// `-p <name>` pair in a single argument vector — so the members resolve
 /// against each other rather than each against a registry that holds no
 /// unreleased sibling — with `--allow-dirty`. A step that invokes no cargo —
-/// the library steps, the red run, the LLD checks — answers with nothing.
+/// the library steps, the red run, the LLD checks, and an extra step, whose
+/// argument list is the entry's own and invokes whatever the workspace named
+/// — answers with nothing.
 #[implements(
     spec::EveryCargoStepIsLocked,
     spec::TheDocStepDocumentsPrivateItems,
@@ -847,7 +882,7 @@ pub fn args_of(step: &Step) -> Vec<String> {
             .chain(names.iter().flat_map(|name| ["-p".to_string(), name.clone()]))
             .chain(["--allow-dirty".to_string(), "--locked".to_string()])
             .collect(),
-        Step::SyncCheck | Step::Mutants | Step::Red | Step::LldChecks => Vec::new(),
+        Step::SyncCheck | Step::Mutants | Step::Extra(_) | Step::Red | Step::LldChecks => Vec::new(),
     }
 }
 
@@ -1375,13 +1410,13 @@ mod tests {
     #[test]
     #[validates(spec::PhaseOneChecksTheDocs)]
     fn phase_one_checks_the_docs() {
-        assert_eq!(plan(Phase::One, &[]), [Step::LldChecks, Step::Doc, Step::DocTests]);
+        assert_eq!(plan(Phase::One, &[], &[]), [Step::LldChecks, Step::Doc, Step::DocTests]);
     }
 
     #[test]
     #[validates(spec::PhaseTwoChecksTheClaimsBuild)]
     fn phase_two_checks_the_claims_build() {
-        assert_eq!(plan(Phase::Two, &[]), [Step::Check]);
+        assert_eq!(plan(Phase::Two, &[], &[]), [Step::Check]);
     }
 
     /// Writes the fixture's claims module the way a Phase 2 leaves it: the
@@ -1436,8 +1471,8 @@ mod tests {
     #[test]
     #[validates(spec::PhasesThreeAndFourCheckTheSkeletonTypeChecks)]
     fn phases_three_and_four_check_the_skeleton_type_checks() {
-        assert_eq!(plan(Phase::Three, &[]), [Step::Check]);
-        assert_eq!(plan(Phase::Four, &[]), [Step::Check]);
+        assert_eq!(plan(Phase::Three, &[], &[]), [Step::Check]);
+        assert_eq!(plan(Phase::Four, &[], &[]), [Step::Check]);
     }
 
     /// The scratch workspace the packaging step is observed against: three
@@ -1504,7 +1539,7 @@ mod tests {
             Step::SyncCheck,
             Step::Mutants,
         ];
-        assert_eq!([plan(Phase::Seven, &strings(&["a", "b"])), plan(Phase::Five, &[])], [gate, vec![Step::Red]]);
+        assert_eq!([plan(Phase::Seven, &strings(&["a", "b"]), &[]), plan(Phase::Five, &[], &[])], [gate, vec![Step::Red]]);
         // Who every publisher is: `xtask` and `lid-rs-pipeline` say `publish =
         // false`, so the published crates remain, and full metadata — which
         // lists the dependencies too, and they are not members — names the
@@ -1561,7 +1596,7 @@ mod tests {
         let flags = ["--no-deps", "--document-private-items"].map(|flag| args.iter().any(|a| a == flag));
         assert_eq!(flags, [true, true], "both flags, beside each other: {args:?}");
         // Phases 1 and 7 share the one doc step, so the flag is on at Phase 1 too.
-        assert!(plan(Phase::One, &[]).contains(&Step::Doc) && plan(Phase::Seven, &[]).contains(&Step::Doc));
+        assert!(plan(Phase::One, &[], &[]).contains(&Step::Doc) && plan(Phase::Seven, &[], &[]).contains(&Step::Doc));
     }
 
     #[test]

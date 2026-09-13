@@ -213,6 +213,39 @@ fn companion_refusal(what: &str) -> Refusal {
     }
 }
 
+/// The `metadata.lid_rs` key that declares a workspace's own gate steps.
+const GATE_EXTRA_KEY: &str = "gate_extra";
+
+/// The workspace's own gate steps, parsed from the node
+/// `Project::setting_node` answers for `gate_extra` — the
+/// `[workspace.metadata.lid_rs]` table's as `cargo metadata` reports it,
+/// falling back to the root package's `[package.metadata.lid_rs]` as
+/// `mutation_scope` is read, and never a manifest the tool parsed. An absent
+/// key is the empty list, so a workspace that configures nothing runs the
+/// floor and only the floor; a value that is not a list fails the check
+/// naming `gate_extra` and what it found; an entry that is not a non-empty
+/// list of strings fails the check naming `gate_extra` and the entry it could
+/// not read. The same two-sided shape `companion` has over
+/// `package_setting_at`: the raw door implements no claim, and the reading
+/// of the node is here.
+///
+/// This is the skeleton's body, not the leaf's: the node is read and every
+/// answer is the empty list. That is the one wrong answer that compiles —
+/// `check` builds every phase's plan through here, so a `todo!()` would
+/// redden validations that are not this change's — and it is wrong for a
+/// configured key and for a malformed one, which is what leaves those claims
+/// red until the parse is written.
+#[implements(
+    spec::GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest,
+    spec::AnAbsentGateExtraIsTheEmptyListSoTheFloorAloneRuns,
+    spec::AGateExtraThatIsNotAListFailsTheCheckNamingWhatItFound,
+    spec::AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry,
+)]
+pub fn gate_extra(project: &Project) -> Result<Vec<Vec<String>>, String> {
+    let _node = project.setting_node(GATE_EXTRA_KEY);
+    Ok(Vec::new())
+}
+
 /// A crate's `src`: the directory a crate-root slice's code is, and the one
 /// every module slice's directory sits under. It is named because the rule
 /// below now turns on it — a slice's directory that *is* a crate's `src` has
