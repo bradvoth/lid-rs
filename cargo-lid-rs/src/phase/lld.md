@@ -571,13 +571,18 @@ message must carry exactly one of two fenced blocks:
 
 - ```` ```commit ```` — the proposed commit message, subject `phase <n>:
   <what> for <slice>` (Phase 7: `phase 7: <version>: <what and why>`). The
-  hook bumps the version if this is Phase 7, then runs `phase-check <n>`;
+  hook undoes a replaceable tip if the phase is being reworked, bumps the
+  version if this is Phase 7, then runs `phase-check <n>`;
   on success it stages the phase's staged set — the allowed paths, plus at
   Phase 7 the two files the bump wrote, and nothing else — commits the
   message with
   the tally appended as trailers (`Lid-Rs-Phase`, `Lid-Rs-Agent`,
-  `Lid-Rs-Tools`, `Lid-Rs-Checks`, `Lid-Rs-Refusals`), and allows the stop. Nothing staged
-  is a refusal ("no change to commit"). A subject whose tag is not this
+  `Lid-Rs-Tools`, `Lid-Rs-Checks`, `Lid-Rs-Refusals`, `Lid-Rs-Reworks`), and
+  allows the stop. Any failure after the undo restores the tip before the
+  refusal, so the attempt's record reaches the next stop. Nothing changed
+  under the phase's editing set
+  is a refusal ("no change to commit"), asked before the undo and before the
+  check. A subject whose tag is not this
   agent's phase is a refusal, as is a Phase 7 subject whose version is not
   the bumped one.
 - ```` ```stop ```` — the numbered decisions that block the phase. The hook
@@ -586,6 +591,200 @@ message must carry exactly one of two fenced blocks:
   through the workflow's structured output.
 
 A message with neither block, or both, is refused with the format.
+
+**A rejected phase replaces its commit; it does not stack a second.** A phase
+has one commit, whatever it took to make it. A reviewer's rejection sends the
+findings back to a worker and the phase runs again; the stop that follows
+replaces the commit the rejected attempt made rather than following it. The
+branch then reads as the walk reads — one `phase 2:`, one `phase 3:`, one
+`phase 4:` — each commit holding its phase whole.
+
+Stacking is what that replaces, and it costs three things. The log shows two
+commits with one subject and no way to tell which is the phase. The reviewer,
+whose instruction is to read *the newest commit on the branch*, reads a
+rework's delta and never sees the phase it is judging. And at Phase 7 the
+gate's own base moves: `gate_base` answers the newest `phase 7:` commit
+reachable from `HEAD`, which after a stacked rework is the rejected attempt, so
+the mutation step diffs against it and covers the rework's few lines while the
+commit presents itself as the slice's gate.
+
+**Which tip is replaceable.** The tip is read once — `tip` answers the branch
+tip's hash, subject and body from one `git log -1`, or none in a repository
+with no commit — and `Replaced::of` turns that reading into the record a
+replacement needs, its agents and counts through `trailer_of` and
+`tally::from_trailers`. What is left for `replaced_tip` is the decision alone,
+over three conditions, every one of them a property of a commit and none of
+them an argument:
+
+- **its subject carries this phase's tag** — `tag_of(subject)` is
+  `Tag::Checked` of this phase;
+- **its body carries a `Lid-Rs-Phase` trailer naming this phase** — the hook's
+  own signature, which no agent holds the git to write;
+- **it is not reachable from `main`** (`on_the_trunk`), since a commit on the
+  trunk is never this branch's to replace.
+
+The first two are separate rules and not one read twice: they fail
+independently, and a commit made by hand — a `phase 7:` commit a human wrote
+when the watchdog killed the gate — carries the tag and no trailer, which is
+exactly the commit the hook must not silently swallow. The branch supplies the
+slice: a phase runs on `lld/<slice>` or `lld/<slice>--<change>`, so a tip of
+this phase on this branch is this slice's own attempt, and the subject's
+`for <slice>` field is never parsed — a Phase 7 subject has no such field to
+parse. A repository with no `main` cannot show that a commit is on it, and the
+first two conditions carry the decision there. A tip failing any of the three
+is left where it is and the stop commits on top of it, exactly as a first
+attempt does.
+
+**The tip is undone after the nothing-to-commit test and before the bump and
+the check.** `git reset --soft HEAD~1` is the whole mechanism: the commit stops
+being a commit, every change it carried stays in the index, and `HEAD` becomes
+the commit the replacement will sit on. The position in the order is what makes
+every later reading correct without any of them knowing that a rework is in
+flight. `manifest_at_head` reads `HEAD:./Cargo.toml`, so after the undo it
+reads the manifest below the release and the bump recomputes the version the
+replaced commit carried. `gate_base` — and `mutation_base` through it — answers
+the newest `phase 7:` commit reachable from `HEAD`, so after the undo it
+answers the gate *below* the one being replaced. The red set takes that same
+base, so its diff is unmoved. And `changed_within` sees both rounds, which is
+what the replacement must carry. Undone after the bump or after the check,
+every one of those readings would have to be told which commit to skip, and a
+reading that forgot would silently narrow the gate; undone first, none of them
+changes at all.
+
+The nothing-to-commit test is the one question that has to be asked ahead of
+the undo. Before the undo the phase's editing set holds only what this round
+wrote, so a rework that changed nothing is refused as having nothing to commit
+and the rejected commit stays where it is. After the undo that set holds both
+rounds, and the same question would answer *yes* for an agent that did nothing
+at all — having already deleted the tip it would have amended. So the order is
+the subject's tag, then the editing set, then the undo, and only then the bump
+and the check. Asked that early the test also costs a second rather than a
+gate, which is the reason the subject's version is compared before the check
+too.
+
+Only half of that order is a claim, because only half of it can be made red.
+*Undone before the bump and the check* has a wrong answer a validation
+observes: a Phase 7 stop over a replaceable tip, with an edit in the editing
+set and a subject naming the wrong version, leaves the tree at the version the
+replaced commit carried, and leaves the branch tip a *new hash* carrying that
+commit's subject — the restore's signature. An undo placed after the bump
+leaves the tree one patch level higher and the tip's hash untouched, so the two
+orders are told apart without the check ever running. *Asked after the
+nothing-to-commit test* has no second
+behaviour to observe on its own; it is observed through
+`NothingChangedInTheEditingSetIsARefusal`, whose validation now asserts that
+the refusal it already described leaves the replaceable tip standing. So the
+claim is the first half, the second half is this paragraph, and the existing
+claim carries it.
+
+**This reorders two validations that are green today, and Phase 5 rewrites
+them.** Both drive a Phase 7 stop with *nothing* changed in the editing set
+and expect the bump to have run —
+`phase_sevens_stop_bumps_the_patch_version_from_the_manifest_at_head` in the
+slice's module, validating
+`PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead`, and
+`nothing_changed_in_the_editing_set_is_a_refusal_read_from_the_changes_within_it`
+in `integrity`, validating `NothingChangedInTheEditingSetIsARefusal`, which
+asserts the two root files dirty afterwards. Under the new order the stop
+refuses before the bump, so both become false about the tool without either
+claim changing: each must first make an edit the editing set admits, so the
+stop reaches the bump it is asking about. Neither claim is in this change's red
+set, so this is work on claims that must stay **green**, by the same rule the
+companion-seat row states — a validation that has to be rewritten because the
+behaviour around it moved, not because its own claim did.
+
+**A reworked gate is a whole gate.** With the tip undone, the mutation step's
+base is the newest gate commit *below* the replaced one — the base the rejected
+attempt ran against — so check 12 sees everything the slice changed rather than
+the difference between two attempts at one phase. It costs a second full
+mutation run for every rejected gate, which is the price of the commit meaning
+what it says; the base is still a gate commit and not the trunk, so the run
+stays the proportionate one and the bound Deferred 6 records is unmoved.
+
+The version follows the same reading. The bump raises the patch level of the
+manifest at `HEAD`, and after the undo `HEAD` is the commit before the release
+— so a reworked Phase 7 writes the version the replaced commit carried, and a
+rejection spends no version number. The subject the agent writes is therefore
+the same across attempts, and the comparison of subject to bump is unchanged.
+
+**What the replacement's trailers carry.** The trailers measure how the phase
+was made, and a phase made twice was made by one agent or by two. A resumed
+worker keeps its `agent_id`, and the tally is filed under that id, so its
+counts already include the rejected attempt; the replacement's counts are that
+tally alone, and adding the replaced commit's numbers would count every call
+twice. A fresh worker — which is what the unattended workflow spawns for a
+rework — starts a tally at zero, so the replacement's counts are the replaced
+commit's added to this agent's. The discriminator is the replaced commit's own
+`Lid-Rs-Agent` trailer: it names this agent, or it does not.
+
+`Lid-Rs-Agent` then names every agent whose work the commit carries, in the
+order they worked and none of them twice, so a commit still names the record of
+how it was made when that record has two halves. `Lid-Rs-Reworks` carries the
+number of commits this one replaced — one more than the replaced commit's own
+value, and zero on a first attempt — because the attempt count is the review
+signal stacking made visible, and a replacement that dropped it would make a
+phase that took four tries read exactly like one that took one.
+
+```text
+Lid-Rs-Phase: 4
+Lid-Rs-Agent: a580cd3d769f4ec4e, b12f0c94ee3a71d60
+Lid-Rs-Tools: 13 edits, 26 observations, 0 commands
+Lid-Rs-Checks: 13 post-edit, 3 stop
+Lid-Rs-Refusals: 0 policy, 0 stop
+Lid-Rs-Reworks: 1
+```
+
+**What the undo does not touch.** It writes `.git` and nothing in the working
+tree, so no path joins the staged set and what the hook writes is unchanged;
+the agent still holds no git, and the one destructive git operation in the
+design can remove only a commit the hook itself made, on this branch, for this
+phase, with every byte of it kept in the index. The replaced commit's paths are
+the same phase's paths in the same crates, so the staged set already covers
+them — unless the phase's policy narrowed between the attempts, in which case
+the stop is refused naming a path the phase may no longer write, which is the
+current policy answering for the commit it is about to make.
+
+**A refused stop puts the attempt back.** The undo runs before the check, so
+any failure after it — the check, the integrity pass, a staging that refuses —
+would otherwise leave the branch one commit shorter than it was, with the
+rejected attempt's subject, body and trailers surviving only in the reflog, and
+the next stop, finding no replaceable tip, would stack after all. So any
+refusal that follows an undo re-commits the attempt before it returns —
+**from the replaced commit's own tree object**, not from the index:
+`git commit-tree <hash>^{tree} -p <hash>^ -F <message>`, the message being the
+subject and body the `Tip` already holds, then `git update-ref HEAD <new>`.
+
+Building the commit from the stored tree is what makes it exact rather than
+approximate. A commit of the *index* would be exact only while nothing had
+staged, and something can: `stage_and_commit` runs `git add` before it commits,
+so a failure between the two leaves this round's edits in the index, and a
+restore reading it would fold them into the attempt and call the result the
+attempt. Naming `<hash>^{tree}` asks for the bytes the replaced commit
+recorded, whatever the index holds, and `commit-tree` with `update-ref` writes
+no index and no working-tree file at all. The result is the same tree, the same
+message, the same trailers, a new hash — so the restored commit is not a new
+commit of the phase's work: it *is* the attempt that was already there, which
+is why "a commit is what a passing check produces" stays true through the
+restore. What the branch loses is one hash; what it keeps is the fact that this
+phase has been attempted, and how.
+
+This round's edits stay where they were, in the working tree and wherever the
+failure left the index. The next stop sees them, passes the nothing-to-commit
+test, and runs the check again — and if it too fails, its undo leaves the same
+tree to restore, because the tree it undoes is the tree this one restored.
+Nothing here bounds a re-stopping agent; the bound is the eight-refusal cap
+Claude Code already enforces, after which the phase is uncommitted, the tree
+dirty, and the run reported as stopped. A restore that fails is the refusal's
+own failure and is reported as one — a stop that cannot put the attempt back
+must say so rather than return a refusal that quietly shortened the branch.
+
+Both halves take the record and answer to it: `undo_tip` and `restore_tip` are
+each handed the `Option<&Replaced>` and do nothing when it is none, which is
+where the "was anything replaced" decision lives for them, as it does for the
+three tally leaves. So the stop's chain reads the same whether a phase is on
+its first attempt or its fourth, and `gate_commit` holds no branch on it: it
+undoes, calls `after_undo` for everything the undo makes safe to ask, and hands
+that call's `Err` to `restore_tip` on the way out.
 
 The check runs as `phase-check <n>` in a fresh process of the same binary,
 its output captured whole: the hook's own stdout is its channel to Claude
@@ -713,7 +912,10 @@ It is asked of the **editing** set — the phase's allowed paths, what the agent
 could have written — so a Phase 7 whose agent changed nothing is refused as
 having nothing to commit, and a bare version bump is never a commit. The
 refusal is the same one every other phase gives; only the set it reads is
-named differently from the set that is staged.
+named differently from the set that is staged. It is also asked before the
+bump runs at all — the rework order above puts it first — so at Phase 7 the
+question meets a tree the hook has not yet written to, and the set it reads is
+the reason rather than the timing.
 
 **The two root files are checked, not exempted.** Admitting them to the staged
 set would otherwise make them the one place a Phase 5 or Phase 7 test could
@@ -818,20 +1020,32 @@ trailers are.
 Every phase commit ends with trailers the stop hook writes from the tally:
 
 ```text
-Lid-Rs-Phase: 6
-Lid-Rs-Agent: agent-7f3a
-Lid-Rs-Tools: 14 edits, 9 observations, 0 commands
-Lid-Rs-Checks: 14 post-edit, 1 stop
-Lid-Rs-Refusals: 1 policy, 0 stop
+Lid-Rs-Phase: 4
+Lid-Rs-Agent: a580cd3d769f4ec4e, b12f0c94ee3a71d60
+Lid-Rs-Tools: 13 edits, 26 observations, 0 commands
+Lid-Rs-Checks: 13 post-edit, 3 stop
+Lid-Rs-Refusals: 0 policy, 0 stop
+Lid-Rs-Reworks: 1
 ```
 
-`Lid-Rs-Agent` is the id the tally was kept under — the subagent's id on
-Claude Code, the session's on the canopy client — so a commit names the
-record of how it was made. The ratio of deterministic steps to agent-chosen ones is then in git for
+`Lid-Rs-Agent` is the id, or the ids, the tally was kept under — the
+subagent's id on Claude Code, the session's on the canopy client — so a commit
+names the record of how it was made, and names every agent when a rejection
+sent the phase back to a second one. Two or more ids are separated by `", "` —
+a comma and a space, which is the one form written and the one form read back,
+since `Replaced::of` splits the trailer on it to learn whose work the commit it
+is replacing carries. `Lid-Rs-Reworks` is how many commits this one replaced,
+and a commit that carries no such line replaced none: every phase commit made
+before this change lacks it, and reading its absence as zero is what lets those
+commits be reworked at all. The ratio of deterministic steps to agent-chosen ones is then in git for
 every phase of every slice — `commands` is structurally zero and the tally
 proves it — and refusals per phase is the quality signal: a phase whose
 refusals rise is a phase whose skill file or policy is teaching the wrong
 thing.
+
+The phase in the example is 4 and not 6 because `Lid-Rs-Phase` is rendered
+from the phase the hook is serving, and `Phase` is the closed set `One`–`Five`,
+`Seven`: Phase 6 has no commit and no hook, so no commit can carry it.
 
 ## Security posture
 
@@ -938,10 +1152,22 @@ document does not imply it.
 | `Project::package_setting_at(dir, key)`, `Project::member_dir_named(name)` | What `companion` reads: a package's `[package.metadata.lid_rs]` setting, and a member's manifest directory by package name — both from the metadata document `Project` already holds, in `src/project.rs`, which this slice's phases may not write and the human adds by hand |
 | `Project::setting_node(key) -> Option<serde_json::Value>` | One `metadata.lid_rs` key's raw JSON node from the metadata document `Project` already holds: the `[workspace.metadata.lid_rs]` table's, falling back to that of the package whose manifest is the workspace root's, as `configured_scope` reads `mutation_scope` through `setting_in`. It implements no claim — a raw node has no wrong answer — and it lives in `src/project.rs`, which this slice's phases may not write and the human adds by hand between Phases 2 and 3 |
 | `SliceCrates { slice, own, companion }`, `SliceCrates::resolve`, `claims_crate()` | The crates a phase may write, resolved once per hook call; the crate that holds the slice's claims, where the red run diffs and tests |
-| `Tally`, `tally::record(project, agent_id, event)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
+| `Tally`, `tally::record(project, agent_id, event)`, `tally::trailers(tally, phase, agents, reworks)` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers, `Lid-Rs-Agent` naming every agent whose work the commit carries and `Lid-Rs-Reworks` the number `Replaced::next_reworks` answers. The renderer is handed the agents and the number, so neither the agent list's order nor the reworks' arithmetic is decided here |
+| `Tip { hash, subject, body }`, `tip(project) -> Result<Option<Tip>, String>` | The branch tip as it reads, from one `git log -1`: the hash, the subject line, and the body the trailers are in; none in a repository with no commit. The one read of the commit, so the decision below re-reads none of it — `on_the_trunk` asks git one further question, about the hash and not about the commit's content |
+| `Replaced { commit, agents, tally, reworks }`, `Replaced::of(tip) -> Result<Replaced, String>` | What a stop replacing the branch tip needs from it: the `Tip` itself — the hash to parent the restore on and the subject and body to re-commit, since the commit is read once and `restore_tip` is handed nothing else — the agents its `Lid-Rs-Agent` names split on `", "`, the counts its trailers carry, and how many commits it already replaced — built from one `Tip` through `trailer_of` and `tally::from_trailers`, whose failure is this one's. An absent `Lid-Rs-Reworks` is zero, because every commit made before this change carries none; an absent `Lid-Rs-Agent` or count line is not, and fails naming the line, since a commit the hook wrote carried the five lines of its day |
+| `Replaced::next_reworks(replaced: Option<&Replaced>) -> u32` | The `Lid-Rs-Reworks` a commit carries: zero when it replaces none, one more than the replaced commit's value when it does. The trailer's whole arithmetic in one place, so `tally::trailers` is handed the number rather than the record |
+| `replaced_tip(project, phase) -> Result<Option<Replaced>, String>` | The decision alone, over `tag_of(subject)`, `trailer_of(body, "Lid-Rs-Phase")` and `on_the_trunk(hash)`: replaceable when the tag names this phase, the trailer names this phase, and the commit is not reachable from `main`; none otherwise, and the stop then commits on top of it. The slice is the branch's, so no subject field is parsed for it |
+| `trailer_of(body, key) -> Option<String>` | One trailer's value in a commit body — the last line beginning `<key>: `, trimmed — none for a body that carries none |
+| `on_the_trunk(project, commit) -> Result<bool, String>` | Whether a commit is reachable from `main` — `git merge-base --is-ancestor <commit> main`, true on exit 0 and false on anything else — which a repository with no `main` answers with false, since a ref that does not exist reaches nothing |
+| `undo_tip(project, replaced: Option<&Replaced>) -> Result<(), String>` | Nothing when nothing is replaceable; otherwise `git reset --soft HEAD~1`: the tip stops being a commit and every change it carried stays in the index, so the replacement carries both rounds and every reading after it sees the commit below the one replaced |
+| `restore_tip(project, replaced: Option<&Replaced>) -> Result<(), String>` | Nothing when nothing was replaced; otherwise the undo's other half, run when any failure after the undo turns the stop into a refusal: `git commit-tree <hash>^{tree} -p <hash>^ -F <message>` with the message the `Tip` already holds, then `git update-ref HEAD <new>`. It reads the replaced commit's own tree object, so it touches neither the index nor the working tree and the attempt comes back byte for byte — same tree, same message, new hash. A failure here is the refusal's own failure |
+| `after_undo(project, phase, input, message, plan) -> Result<Vec<PathBuf>, String>` | Everything the stop does once the tip is undone, as one item: sync, the Phase 7 bump and its subject, the check, integrity, and the staged set it answers with. `gate_commit` hands its `Err` to `restore_tip` and returns it unchanged. The commit is chained inside that region — `after_undo(…).and_then(commit_now).or_else(restore_tip)` — because a staging that refuses is one of the failures the restore answers, and `or_else` is still the one place the restore is reached; `replaced` stays with `gate_commit` because the restore is `gate_commit`'s, not this item's |
+| `tally::from_trailers(body) -> Result<Tally, String>` | The counts a commit's trailer block carries, read back from the lines `tally::trailers` wrote; a line that renderer could not have written is a failure naming it |
+| `tally::merged(replaced: Option<&Replaced>, this: &Tally, agent: &str) -> Tally` | One decision: this agent's tally alone when nothing was replaced, or when the replaced commit's agents already name `agent` — that tally counts both rounds — otherwise the replaced commit's counts added to this agent's. The id is a parameter because the decision is about *which* agent, and the counts do not carry one; `tally::agents` takes it for the same reason. The `Option` is read here and not in `commit_now`, which holds no decision |
+| `tally::agents(replaced: Option<&Replaced>, this: &str) -> Vec<String>` | The agents whose work the commit carries, in the order they worked, none of them twice: this agent alone when nothing was replaced, otherwise the replaced commit's agents with this one appended if it is not already among them |
 | `hook_pre_tool(project, phase, input)` | Policy verdict for editing tools, tally for every tool |
 | `hook_post_edit(project, input)` | Clippy, rendered as `additionalContext` |
-| `hook_stop(project, phase, input) -> Result<HookVerdict, String>` | Parse the message; `commit` → sync → bump (Phase 7) → subject version → check → integrity (sync, staged set, bumped files) → stage → commit → allow; `stop` → allow; else refuse |
+| `hook_stop(project, phase, input) -> Result<HookVerdict, String>` | Parse the message; `commit` → subject tag → nothing changed in the editing set → undo a replaceable tip → sync → bump (Phase 7) → subject version → check → integrity (sync, staged set, bumped files) → stage → commit → allow, and any failure after the undo → restore the tip → refuse; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crates)` | `git status --porcelain` filtered against `staged_paths`; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
@@ -967,7 +1193,7 @@ document does not imply it.
 | Runtime tampering | Detected at the stop (synced artifacts and everything outside the policy must be unchanged) and refused; prevented only by isolation | Sandbox every check from the hook (`bwrap`, `sandbox-exec`); ignore it | Detection is cheap, deterministic, and names the event; a sandbox is a control of its own with platform rules, deferred rather than implied. Ignoring it would let a Phase 5 test rewrite the policy the next session loads. |
 | Where a proc-macro crate's slice keeps its claims, companion module, and fixtures | A companion crate, named by the proc-macro crate's `[package.metadata.lid_rs] companion`, with its own per-phase path table | Build such slices by hand, outside the phases; a widened policy for compile-time slices; deriving the companion from the dependency graph (the member that depends on the macro crate and re-exports it) | A proc-macro crate cannot register a claim or cite one, so without a second crate no phase of its slice has an artifact; by hand forgoes the gate for the four slices that extend the derive. A widened policy admits everything. The dependency graph names every dependant, and which one re-exports the macros is a question of Rust source; one line of package metadata, read from `cargo metadata`, is the answer the human gives once. |
 | The branch a change to a delivered slice is made on | `lld/<slice>--<change>`; the slice is the part before the first `--` | `lld/<slice>/<change>`; `lld/<slice>@<change>`; committing to the original `lld/<slice>` | git refuses `lld/<slice>/<change>` while `lld/<slice>` exists, and the original is kept forever as the slice's origin. `@` is legal in a ref but reads as a revision suffix in every git command line. A double dash cannot occur in a kebab-case slice name, so the slice is the part before the first `--`. The original branch is the slice's story; a change branch is the change's. |
-| Shared leaves on a Phase 8 edit | A leaf that also implements a claim outside the red set keeps its body; Phase 3 wipes only leaves whose every claim is in the red set; Phase 5 makes each red-set claim red by validating the delta | Wipe every implementer of a red-set claim; commit every such Phase 5 by hand | Wiping a shared leaf breaks green validations of claims the edit never touched, so Phase 3 could not commit. A reword's delta is observable by construction — it is why the claim was reworded — so a validation of it can be red without un-implementing anything. Hand commits stay for subtractions, whose delta is an absence. |
+| Shared leaves on a Phase 8 edit | A leaf that also implements a claim outside the red set keeps its body; Phase 3 wipes only leaves whose every claim is in the red set; Phase 5 makes each red-set claim red by validating the delta | Wipe every implementer of a red-set claim; commit every such Phase 5 by hand | Wiping a shared leaf breaks green validations of claims the edit never touched, so Phase 3 could not commit. A reword's delta is observable by construction — it is why the claim was reworded — so a validation of it can be red without un-implementing anything. Hand commits stay for subtractions, whose delta is an absence. The same rule reaches validations whose *claim* did not change and whose behaviour moved under them: the rework change reorders the stop, and `phase_sevens_stop_bumps_the_patch_version_from_the_manifest_at_head` (`PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead`) and `nothing_changed_in_the_editing_set_is_a_refusal_read_from_the_changes_within_it` in `integrity` (`NothingChangedInTheEditingSetIsARefusal`) both drive a Phase 7 stop with nothing in the editing set and expect the bump to have run, which the nothing-to-commit test now forestalls. Each must make an edit the editing set admits before the stop, and the second must also assert the tip it did not replace is still there. Neither claim is in the red set, so Phase 5 rewrites them as green work, exactly as the companion-seat row prescribes. |
 | Compile-time slices | Disclosed from `cargo metadata`; edits refused unless `docs/intent/<slice>/compile-time-accepted` exists, a file only the human's Phase 1 commit can add | Refuse them outright; treat them like any slice; a workflow argument (`args.compile_time`) | The tool's own `lid-rs-macros` is such a crate and must be workable; the human, not the workflow, decides to run compile-time code unattended. A workflow argument reaches the hook only through a model's prompt, which is exactly the channel the policy must not trust; a file in a path no agent can write is a decision the hook can verify. |
 | The stop protocol | Fenced ```` ```commit ```` or ```` ```stop ```` in the final message | Structured output only; a marker line; the hook reading the transcript | `last_assistant_message` is what the hook receives; a fenced block is unambiguous to parse and to write, and the refusal teaches the format when it is missing. Whether the final message survives a workflow `schema` is verified at Phase 3 of this slice; if not, the workflow's worker returns plain text and the script parses it. |
 | The workflow's structured answer | `StructuredOutput` is an observation | A fourth tool kind; a command, with the workflow parsing the worker's final message instead of a `schema` | The call reads and writes nothing, and it arrives after the stop hook has already judged the commit block: refusing it there ends the run with the phase committed and the workflow reporting a failure. A tool kind of its own would count something the tally has no question about. |
@@ -995,6 +1221,14 @@ document does not imply it.
 | The workflow's input | A branch with a human-approved `phase 1:` commit; no waiver argument | A slice name, with the workflow drafting the LLD; a `--waive` argument | Phase 1 is human-owned; a workflow that drafts it and continues has approved its own LLD. A waiver given once is reused; an argument is a waiver given every time. |
 | Reviewer at each stop | One clean agent per phase, prompted to refute, one rework round | No reviewer; a judge panel per phase | A clean reviewer is also the test that the artifact is context-free — the failure interactive mode cannot see. A panel exceeds the cost a slice warrants; one rework round bounds the run. |
 | Where the artifacts live | `agent/` and `workflow/` beside `skill/` in the `lid-rs` crate, synced under one rule | Inside `skill/`; a separate crate; the plugin | Claude Code reads agents and workflows from `.claude/agents/` and `.claude/workflows/`; the files are version-coupled to the skill they point at, so they ship with it. |
+| What a rework's commit does to the rejected attempt's | Replaces it: the hook undoes the tip it made for this phase and commits in its place, so a phase has one commit | Stacking a second `phase <n>:` commit, as it was; squashing at the end of the slice; a `fixup!` commit left for the human's rebase | A phase's commit is what its review reads, and a review's instruction is to read the newest commit on the branch: under stacking the second review reads the rework's delta and never sees the phase whole. The log loses the walk it exists to show — two commits, one subject, no way to tell which is the phase. And at Phase 7 stacking moves the gate's own base onto the rejected attempt, so the mutation step covers the delta while the commit claims the slice. Squashing later needs a step nothing in the design has, on a branch the human may already have pushed; a `fixup!` leaves the branch wrong until someone rebases, and the rebase is exactly the git the agents do not hold. **Claims:** one new claim replaces the tip rather than following it; one holds the replacement to a tip whose *subject tag* names this phase; one to a tip whose *`Lid-Rs-Phase` trailer* names this phase — two claims and not one, because the two fail independently and the commit that separates them is real: a `phase 7:` commit a human made when the watchdog killed a gate carries the tag and no trailer, and swallowing it is the worst thing this decision could do. One more refuses to replace a tip already reachable from `main`. |
+| How a rejected tip is told from an accepted one | It is not on `main`: a tip reachable from `main` is accepted and never replaced, and a tip not on `main` carrying this phase's tag and the hook's `Lid-Rs-Phase` trailer is this phase's attempt being reworked | A `Lid-Rs-Rejected` trailer the reviewer's seat writes; a marker file the workflow keeps; comparing the tip to the branch point instead of to `main` | Nothing in a commit says it was rejected, and nothing can: rejection is a verdict the reviewer reaches after the commit was made, and the only writer at that moment is a reviewer with no git and no tools but reading. So the question is turned around — what marks a commit as *accepted* — and landing is the answer the design already has. This is a **hand seam**: the rule is sound only while accepted phase commits reach `main`, and under this workspace's per-phase-squash landing every accepted phase commit does, so a tip that is not on `main` is by construction an attempt this branch has not yet landed. A trailer written after the fact needs a writer that holds git, which is the one thing the agents are denied; a marker file is state outside the commit, which a fresh clone and the canopy client would both lose. Comparing to the branch point rather than to `main` fails the case the guard exists for — a branch cut from a `main` that already holds this slice's phases — and `merge_base_with_main` already fails naming `main` when there is none, which must not become every stop's failure. **Claim:** the on-`main` refusal is the claim named in the row above; this row records what makes it the right test rather than a second one. |
+| How the replacement is made | `git reset --soft HEAD~1`, after the nothing-to-commit test and before the bump and the check, then the ordinary commit | `git commit --amend` at the end, with `gate_base` and `manifest_at_head` told which commit to skip; `git commit` then `git reset --soft HEAD~2` and commit again; undoing before the nothing-to-commit test | Undoing first is what makes every later reading correct without knowing a rework is in flight: `manifest_at_head` reads the manifest below the release, `gate_base` and `mutation_base` answer the gate below the replaced commit, the red set's diff is unmoved, and the staging sees both rounds. Amending at the end would thread "the commit being replaced" into two independent readings, and a reading that forgot it would silently narrow the gate — the failure mode this slice exists to remove. The nothing-to-commit test is the one thing that must come *before* the undo: after it the editing set holds both rounds, so a rework that changed nothing would pass the test and would already have deleted the tip it meant to amend. The undo's cost is that a failing check finds the branch a commit shorter, which the row below pays for with the restore. Committing then resetting twice runs the check against the wrong `HEAD` and gains nothing. **Claims:** one new claim puts the undo before the bump and the check — the half a validation can redden, since an undo placed later leaves the tree at the unreplaced version and `HEAD` unmoved; the "after the nothing-to-commit test" half is prose, observed through `NothingChangedInTheEditingSetIsARefusal`, whose rewritten validation asserts the refusal leaves the replaceable tip standing. One new claim makes a reworked gate's mutation base the gate commit below the one being replaced; one has a reworked Phase 7 bump to the version the replaced commit carried. |
+| What a refused stop does with the attempt it undid | Re-creates it from the replaced commit's own tree object before the refusal returns — `git commit-tree <hash>^{tree} -p <hash>^ -F <message>`, then `git update-ref HEAD <new>` — the same tree and the same record under a new hash | Leave the branch short and the record in the reflog (the first design); keep the record in a file under the target directory until the next stop; read it back out of the reflog | The undo runs before the check so that every later reading is correct, and the price is that a refusal lands on a branch whose tip the hook removed. Left there, the phase's attempt survives only in the reflog, and the next stop finds no replaceable tip and stacks after all. Re-creating it pays that back with two plumbing calls, and it is exact rather than approximate because it names the stored tree: `git commit -C` over the index would be exact only while nothing had staged, and `stage_and_commit` runs `git add` before it commits, so a failure between the two leaves this round's edits in the index and a restore reading it would fold them into the attempt. `<hash>^{tree}` asks for the bytes the replaced commit recorded whatever the index holds, and `commit-tree` with `update-ref` writes neither the index nor a working-tree file, so the restored commit *is* the attempt that was already there. This round's edits stay where the failure left them, so the next stop passes the nothing-to-commit test and runs the check again. Nothing here bounds a re-stopping agent and nothing needs to: that is Claude Code's eight-refusal cap, which this document already relies on. A file under the target directory is a second place for one fact, in a directory that is scratch and may be cleaned between attempts — the same objection the trailers row makes to reading tallies from disk. The reflog is not a record a tool should read: it is local, expiring, and absent from a fresh clone, so a rule resting on it holds only where nobody cleaned up. **Claim:** one new claim re-commits the undone attempt with the replaced commit's message before the stop refuses. |
+| How `replaced_tip` and the tally leaves are skeletoned | Wired into `gate_commit` at Phase 3 with a body answering `Ok(None)` — never replace — so the branch stacks exactly as it does today until Phase 7; the three tally leaves are wired too, each with a stated wrong-but-compiling answer | Declared unwired with a `todo!()` body; a wired `todo!()`; wiring them only at Phase 5 | Five existing validations drive `hook_stop` past the nothing-to-commit test, so a wired `todo!()` in `replaced_tip` turns them red for a reason that is not theirs and Phase 3's own check could not pass; unwired, the item is dead code in a private module and the post-edit lint refuses it. `Ok(None)` is the wrong answer that compiles, and it is wrong *observably*: stacking is what the branch does today, so a validation that asserts one commit where two would stand is red against it, and the replaceability claims are red by assertion rather than by panic. The tally leaves are reached on **every** commit, not only a rework's — `the_stop_stages_exactly_the_staged_set` drives a Phase 3 stop all the way to a commit — so a `todo!()` in any of them fails a validation of a claim outside the red set. Each therefore lands at Phase 3 answering the first-attempt case: `Replaced::next_reworks` answers `0`; `tally::merged(replaced, this, agent)` answers this agent's tally; `tally::agents(replaced, this)` answers `[this]`; and `tally::trailers(tally, phase, agents, reworks)` is written **whole**, because it decides nothing — it renders the six lines from what it is handed. All three of the first take `Option<&Replaced>`, so the dispatch on "was anything replaced" lives in them and not in `commit_now`, which stays a work item. `undo_tip`, `restore_tip`, `on_the_trunk`, `trailer_of`, `tip`, `Replaced::of` and `tally::from_trailers` keep the ordinary `todo!()`: nothing green reaches them while the decision answers none. |
+| Which halves are green at Phase 3, and what makes each claim red anyway | Every claim's validation carries the case `Ok(None)` gets wrong, beside the case it gets right | One validation per half; accepting that some claims arrive green and stating it at Phase 5 | The precedent is the `policy::gate_extra` row above: a skeleton that answers the common case leaves each claim half-green, and the claim is red only if its validation also drives the case the skeleton answers wrongly. Here the negative halves are all green against `Ok(None)` — a tip whose tag is another phase's, a tip with no `Lid-Rs-Phase` trailer, a tip already on `main` — because "the stop commits on top of it" is exactly what never replacing does. So each of those three validations asserts the *contrast*: the negative case leaving two commits, and beside it the positive case — tag, trailer, and off `main` — leaving one. The restore claim's validation asserts that after a refused stop the tip's hash has changed while its subject and trailers have not, which `Ok(None)` leaves untouched, so it is red on its own. The mutation-base claim is not driven through a stop at all: it is observed at leaf level, over a fixture whose history carries two `phase 7:` commits — `mutation_base` answers the newer, `undo_tip` runs, `mutation_base` answers the older — and it is red the ordinary way, because `undo_tip` is a `todo!()`. The two agent-count claims part the same way: `tally::merged` answering this agent's tally is already right for a resumed agent, which Phase 5 states as green early, and wrong for a fresh one, which is where its validation drives it; `tally::agents` answering `[this]` is right for a first attempt and wrong for a replacement by a second agent. And `TheTallyIsWrittenAsTrailers`, reworded, is red through the sixth line, but only because its validation is **stop-driven**: the renderer is written whole at Phase 3 and would satisfy any assertion made of it directly, so the validation drives a stop that replaces a tip and reads `Lid-Rs-Reworks: 1` off the commit that comes out, which `next_reworks` answering `0` cannot produce. A validation of the renderer alone would be green on arrival and the claim would enter the red set unreddenable. |
+| What the replacement's trailers count | The agent's own tally when the replaced commit already names that agent; the replaced commit's counts added to this agent's when it does not | Always the agent's tally (restart); always the sum (accumulate); summing the on-disk tallies of every named agent | The two cases are both real and they differ: an interactive session resumes the worker, which keeps its `agent_id` and whose tally already counts the rejected attempt — measured on this slice's own branch, where a Phase 4 rework's trailers read 8 edits where the replaced commit read 5 — while the unattended workflow spawns a fresh worker for the rework, whose tally starts at zero. Restarting always loses the first agent's work; summing always double-counts the resumed one. Summing the on-disk tallies would be simpler, but they live under the target directory, which is scratch and may be cleaned between attempts, so a cleaned tree would silently undercount; the commit is the durable record and its own trailers are what the replacement reads back. **Claims:** one new claim keeps a resumed agent's counts from being added to a commit that already covers them; one adds a new agent's counts to the replaced commit's; one has `Lid-Rs-Agent` name every agent whose work the commit carries, in order and none twice. And one more for the reading itself, since the commit is the durable record only if a record it cannot read is a failure and not a zero: a trailer line the renderer could not have written — an absent `Lid-Rs-Agent` or count line, a count that is not a number — fails naming that line, cited by `tally::from_trailers`. Silently defaulting there would file the replaced commit's work under counts nobody kept. |
+| Whether the attempt count survives the replacement | `Lid-Rs-Reworks`, the number of commits this one replaced | No new trailer — the agent list is the only record; a line in the commit body | The attempt count is a quality signal stacking made visible by accident, and a design that replaces commits loses it unless it is written down: a phase that took four tries would read exactly like one that took one. The agent list carries it only when the reworks were done by different agents, which is the workflow's case and not the interactive one. A body line is prose a reader must parse; a trailer is what `git log --format=%(trailers:key=…)` already answers with. **Claims:** one new claim makes the trailer one more than the value the replaced commit carries, and zero when that commit carries none or when nothing is replaced — the two zeroes are one rule, because a phase commit made before this change carries no such line and reading its absence as anything else would refuse to rework it. Cited by `Replaced::next_reworks`, which is the whole of that arithmetic, and by `Replaced::of`, which is where the absent line becomes the zero; the renderer is handed a number and decides nothing. And `TheTallyIsWrittenAsTrailers` is **reworded**, the sixth rewording this document records: it names five trailers where the block now has six, and says "the agent being the id the tally was kept under" where a replacement's `Lid-Rs-Agent` may name two. A rename with the retired name kept beside it as a `#[deprecated]` alias, by the rule this document states for a reworded claim; its one validator is named for it, so no mark is needed. The rewording is what puts it in this change's red set, which is therefore **fourteen** claims — the thirteen added here and this one renamed. |
 
 **How to read the claim notes.** Each Decisions row above ends with the claims
 its decision costs: those to be added, and those whose text no longer matches
@@ -1009,6 +1243,23 @@ reworded claim. `TheBaseIsTheNewestGateCommitReachableFromHead`,
 `PhaseSevenRunsTheGateInOrderPackagingEveryPublisherAtOnce` and
 `PhaseOneChecksTheDocs` are named in those notes as claims that stay as they
 are, each with the reason a sibling was cut instead.
+
+The rework rows add a sixth rewording, recorded in the `Lid-Rs-Reworks` row:
+`TheTallyIsWrittenAsTrailers` names five trailers where there are now six, and
+says "the agent" where a replaced commit's record may name two; it is renamed
+with the retired name kept beside it as a `#[deprecated]` alias, by the same
+rule. That rename is what puts it in the red set beside the thirteen claims the
+rework rows add, so this change's red set is fourteen. Three neighbouring claims are
+*not* reworded, and the rows above say why:
+`NothingChangedInTheEditingSetIsARefusal` describes the test it always
+described — only its place in the stop's order moves, which is the undo's rule
+and not its own, and its *validation* is rewritten to observe the new order and
+the tip left standing, which is Phase 5's green work and not a rewording;
+`TheBaseIsTheNewestGateCommitReachableFromHead` still says
+which commit `gate_base` answers with for a given `HEAD`; and
+`PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead` still reads the
+manifest at `HEAD`. What the undo changes in the last two is what `HEAD` *is*,
+which is the undo's claim to make.
 
 ## Open Questions & Future Decisions
 
@@ -1078,7 +1329,10 @@ The defect blocks **two** of the remaining slices, not one: slice 18
    commit. Phase 7 is then committed by hand with the gate's run recorded
    in the body. What would remove the bound rather than raise it is a hook
    that emits progress while the gate runs, so the watchdog sees a live run
-   instead of a silent one.
+   instead of a silent one. A rejected gate now meets this bound twice: the
+   replacement runs a second full gate against the same proportionate base,
+   so a slice whose Phase 7 sits near the watchdog reaches it again on the
+   rework.
 7. A Phase 8 edit that subtracts has no red run: the behaviour change
    *is* the shape change, so it lands at Phase 3 and every validation of
    it is green before Phase 5 writes one; such a Phase 5 is committed by
@@ -1092,14 +1346,15 @@ The defect blocks **two** of the remaining slices, not one: slice 18
 8. Running each check under an OS sandbox from the hook — no network,
    writes confined to `target/` — so the residue in Security posture is
    bounded by the tool rather than by the environment it is run in.
-9. The join in `gate_commit` between the check and the commit — the
-   nothing-to-commit test over the editing set, then the staged set as what
-   is staged — is observed at the two sets on a stopped tree, not as
-   `hook_stop`'s verdict: a Phase 7 stop that passes the check is the full
-   gate on the fixture, which no unit test carries. A `gate_commit` that read
-   the staged set for both is therefore a mutant no test kills and none
-   cargo-mutants generates. A seam on `checked` would let a test drive the
-   stop past a stubbed check; that is a Shape change, and a later edit's.
+9. The join in `gate_commit` between its two sets — the nothing-to-commit test
+   over the editing set, now asked before the undo and the check, and the
+   staged set as what a passing check stages — is observed at the two sets on
+   a stopped tree, not as `hook_stop`'s verdict: a Phase 7 stop that passes
+   the check is the full gate on the fixture, which no unit test carries. A
+   `gate_commit` that read the staged set for both is therefore a mutant no
+   test kills and none cargo-mutants generates. A seam on `checked` would let
+   a test drive the stop past a stubbed check; that is a Shape change, and a
+   later edit's.
 10. An extra step has no catalog entry and no report. The pipeline's catalog
     fixes each command's inputs, report, and exit code; a workspace's own step
     is outside that vocabulary, so `cargo lid-rs catalog` neither names it nor
