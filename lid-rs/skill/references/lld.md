@@ -17,8 +17,9 @@ agent decides is not a gate.
 
 ## The checklist — what the tool refuses
 
-Six checks, each a property of the text with no opinion in it. Four are about
-the document; two are about the artifacts this file ships with, so that a
+Nine checks, each a property of the text with no opinion in it. Five are about
+the document alone, two read something beside it (the slice's own source, and
+the listing of its directory), and two are about the artifacts this file ships with, so that a
 guideline and the code cannot drift, and so that the reader's inability to edit
 is held rather than promised.
 
@@ -27,6 +28,9 @@ is held rather than promised.
 | `DecisionsExist` | The document has a `## Decisions & Alternatives` heading with a table under it |
 | `Alternatives` | Every row of that table has four non-empty cells |
 | `ShapeRows` | Where a `## Shape` table exists, every row names at least one backticked identifier and gives a non-empty role |
+| `ShapeAgrees` | Where a `## Shape` row's first cell writes a signature fragment for a function the slice's own source declares, the fragment's argument count is that function's parameter count, and a return it writes is the one the source wrote |
+| `SkeletonableReturns` | A `## Shape` row's return fragment is not an `impl Trait` return and not a bare `dyn Trait` one |
+| `ReuseRowsLinked` | A first cell's fragment that names another slice's item in the same crate — a lowercase-module-qualified path that is not the slice's own, a sibling's, or a crate's — is written as an intra-doc link |
 | `DeferredNumbered` | Every item under `### Deferred` is a numbered list item |
 | `GuidelineNamesEveryCheck` | This checklist names every check the tool knows |
 | `ReaderObservesOnly` | The reader declares `Read`, `Grep`, `Glob` and nothing else |
