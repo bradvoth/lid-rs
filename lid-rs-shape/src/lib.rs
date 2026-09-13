@@ -574,6 +574,34 @@ mod tests {
         );
     }
 
+    /// Every signature carries the block its function was read from: none for
+    /// a free function, the `impl` block's self type as the source wrote it —
+    /// generic arguments and all — and the `trait`'s name for a method the
+    /// trait gives a body to. A trait `impl`'s owner is its self type, not the
+    /// trait, and a trait method declared without a body is no function at
+    /// all, so nothing is carried for it.
+    #[test]
+    #[validates(spec::ASignaturesOwnerIsTheBlockItWasReadFrom)]
+    fn a_signatures_owner_is_the_block_it_was_read_from() {
+        let source = "pub fn spells(input: &Report) -> Outcome { answer(input) }\n\
+                      impl<T> Shape<T> { pub fn method(&self) -> Self { answer(self) } }\n\
+                      pub trait Render { fn render(&self) -> String { answer(self) } fn declared(&self); }\n\
+                      impl Render for Report { fn render(&self) -> String { answer(self) } }\n";
+        let root = crate_with("signature-owner", &[("src/lib.rs", source)]);
+        let carried: Vec<(String, Option<String>)> =
+            signatures(&root).iter().map(|read| (read.function.clone(), read.owner.as_deref().map(tight))).collect();
+        assert_eq!(
+            carried,
+            vec![
+                ("spells".to_string(), None),
+                ("method".to_string(), Some("Shape<T>".to_string())),
+                ("render".to_string(), Some("Render".to_string())),
+                ("render".to_string(), Some("Report".to_string())),
+            ],
+            "the free function carries no owner, the `impl` method its block's written self type, the trait's bodied method the trait's name, and the trait `impl`'s method the self type rather than the trait",
+        );
+    }
+
     /// A file `syn` cannot parse is answered as a finding, the rest of the
     /// pass running on — never a panic and never a silent skip.
     #[test]
