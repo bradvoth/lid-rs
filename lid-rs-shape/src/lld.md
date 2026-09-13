@@ -109,6 +109,42 @@ and is not in the HLD's row for this slice. It is not a check but the *reason*
 the re-measurement below is meaningful, and it is recorded here so a reader
 does not go looking for check 19 in the wrong place.
 
+### What a signature carries, and whose function it is
+
+The pass's second answer is one `Signature` per function: the file and the name
+the two answers join on, the type tokens of every parameter in declaration
+order, and the whole written return. Every function of the crate has one,
+whether the classification called it flow or leaf, because rule V reads these
+tokens for the flow nodes and a conformance check reads them for every
+implementer of a claim.
+
+A signature also carries **whose function it is**. For a function read from an
+`impl` block, the owner is the tokens of the block's self type as the source
+wrote them — the bare name for `impl Shape`, and the name with its generic
+arguments where the block wrote them. For a function read from a `trait`
+block, the owner is the trait's name. For a free function there is none. The
+rendering is the one both type positions already use — the tokens through
+`quote::ToTokens`, `to_token_stream().to_string()` — so an owner is spelled the
+way `parameters` and `returns` are spelled, and a consumer comparing them
+compares like with like.
+
+Written tokens, not a resolved type. A block written `impl Report` names the
+owner `Report` whether this crate declares that name or reached it through a
+`use`, and a `Self` written in a parameter or in the return stays `Self`: what
+the owner supplies is the thing `Self` stood for at that declaration, and what
+to do with the pair is the consumer's. Nothing is looked up, which is what keeps the addition
+inside the carve-out this document's Context section quotes — one item's
+tokens, read and not resolved.
+
+The owner is decided where the item kinds are already told apart, in
+`functions_of`: the one function that knows whether the tokens it is walking
+came from a free function, from an `impl` block or from a `trait` block. Those
+three kinds are one decision and it stays in that one body; the helper that
+assembles a function's pieces takes the owner as another piece, and
+`signature_of` copies it across as it copies the file and the name. Nothing
+else about the reading changes — the same functions are found, in the same
+order, and a verdict is answered for each of them as before.
+
 ### The crate knows nothing about the workspace
 
 Every fact about *this workspace* that a rule needs is **passed in by the
@@ -283,6 +319,7 @@ stop:
 | The classification is derived, the marks only pin | F1–F6 from the body; `#[flow]`/`#[leaf]` as pins | Classify by attribute | README §3.7: a marker is "evaded by omitting it". A derived classification cannot be opted out of, which is the whole point of rule A. |
 | F1–F6 are six claims, not one | One claim per rule, plus one for the verdict they compose | One claim "a function is flow iff F1–F6", table-driven | Each F-rule is a decision, and §0's rule makes every decision a claim. Check 14 binds one validator per claim, so one claim over six rules forces a single table-driven test whose failure names the table row rather than the rule; six claims give six validators that each name their rule, which is what a report needs. |
 | The threshold is measured, not changed | This slice reports the warnings-at-1 join in its Phase 7 commit | Lower it to 1 here; leave it unmeasured | Six hundred warnings at 1 is what made the number a measurement. Applying a conclusion in the commit that produces the evidence leaves no step at which the evidence could have said otherwise. |
+| The owner travels on the signature, rather than being worked out by the consumer | `signatures` records the block's written self type beside the parameter and return tokens, as one more written thing | (a) the consumer works out `Self` for itself — it is handed `Signature` values and no tokens, so it would have to read the crate's source a second time; (b) the consumer treats a written `Self` as a wildcard matching whatever a document claims — measured and dropped | The reading holds the tokens at the moment it knows the item kind, and carrying them on costs one field; a consumer may not resolve a name at all (constraint 2), so a `Self` it cannot expand is a comparison it cannot make, and a second reading of the same source would be a second implementation of the same pass. The wildcard was dropped because it goes silent exactly where a written return is most likely wrong: `-> Self` on `impl Report` and on `impl Finding` would both accept a document naming either, so a return that drifted from the block it was written in is the one case a wildcard cannot see. |
 | **This crate has no `level`.** Every rule reports; nothing here gates | `check` returns `Finding`s and takes no level | Inject `level` into `check`; a third state for unregistered rules | This is the row that makes Phase 2 possible, and an earlier draft had it the other way. If a rule's claim reads "shall fail" under one measurement and "shall report" under another, Phase 2 cannot write the claim, Phase 5 cannot write its validator, and check 14's one-validator-per-claim binding makes the choice unrecoverable without a rename cascade — so **every claim of this slice is written level-agnostically, as `Finding` production**. That is what the row above already required: a crate that reads no workspace metadata and writes no files has no business knowing whether a finding is fatal. `shape.level` is applied by `cargo lid-rs shape`, in `cargo-lid-rs`, which owns the exit status. The measurement then decides only that caller's default, which is a metadata value and not a claim, and so can wait for the pass that measures it. |
 
 ## Open Questions & Future Decisions
@@ -383,7 +420,9 @@ or verified against the source.
 | `lid_rs_shape::Shape` | One function's verdict: its name, whether it is flow, why not, and its dispatch arity. |
 | `lid_rs_shape::check` | Rules A, B and V over a classification, with the knobs and the slice `mod.rs` set as arguments, answering every violation as a `Finding`. **No `level`:** whether a finding is fatal is the caller's, and this crate returns data. Rule P is not here — it lands with the pins. |
 | `lid_rs_shape::Finding` | One rule violation: the rule, the function, and what it saw. |
-| `lid_rs_shape::signatures` | **Every** function's parameter and **return** type tokens — not only flow nodes and not only the `Ok` type — which rule V reads and slice 19 consumes. |
+| `lid_rs_shape::signatures` | **Every** function's parameter and **return** type tokens — not only flow nodes and not only the `Ok` type — and the owner of each. Rule V reads the type tokens and slice 19 consumes them; the owner is what lets a consumer read a written `Self`. |
+| `lid_rs_shape::Signature` | One function's written signature: the `file` and `function` the two answers join on, `parameters` in declaration order, `returns` whole, and `owner` — the `impl` block's self type as written, the `trait`'s name, or none for a free function. Every field is tokens the source wrote, so a `Self` in either type position stays `Self` and the owner is what explains it. |
+| `lid_rs_shape::function::functions_of` | The reading's one dispatch over item kinds — a free function, the methods of an `impl` block, the bodied methods of a `trait`, the functions of an inline module — and so the one body that decides a function's owner, because it is the only place that knows which kind the tokens came from. Three kinds are one decision and it is made here, once. |
 | `lid_rs_shape::Classification` | The serialisable whole: every `Shape`, which `cargo-lid-rs` writes as `shape-classify.json`. |
 
 `signatures`' breadth is README's, not a choice: §4.7 says it "returns **each
@@ -404,6 +443,26 @@ does for every other command's report:
   with its first failed F-rule and its dispatch arity.
 - **`shape.json`** — the catalog's ordinary findings report over `Finding`,
   plus the per-rule `warn` counts Open Question 1 is about.
+
+### The cascade a field added to `Signature` makes
+
+`Signature` has public fields and is not `#[non_exhaustive]`, so a field added
+to it breaks every struct literal that constructs one. Inside this crate that
+is two — `signature_of`, which is the item that fills the field, and the
+fixture helper that spells a signature for a test. Outside it there are none:
+`Signature {` matches in no other member's source, and no member's
+`Cargo.toml` names `lid-rs-shape` as a dependency at all, the root manifest's
+`[workspace.dependencies]` entry standing ahead of the first consumer rather
+than behind one.
+
+So nothing in this workspace fails on the addition, and that is the reason to
+record it rather than the reason not to. `lid-rs-shape` is a published crate,
+and a consumer outside this repository that built a `Signature` by struct
+literal is broken by the new field without any gate step here being able to
+see it. The version the Phase 7 gate writes is one patch level above the
+workspace version, for this change as for every other: this workspace has a
+single consumer of its own crates, and takes a breaking change at a patch bump
+rather than holding it back for a release that would serve nobody.
 
 ## The pins are a slice of another crate
 
