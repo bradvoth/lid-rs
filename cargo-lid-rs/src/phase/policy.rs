@@ -1324,19 +1324,26 @@ mod tests {
     #[test]
     #[validates(spec::PhaseTwoMayWriteOnlyTheCompanionsSpecFiles)]
     fn phase_two_may_write_only_the_companions_spec_files() {
+        // The row is reached through the doors that resolve the seat's
+        // claims file — `workspace_paths` for the staged set, `allowed` for
+        // the verdict — never through `allowed_paths` with a claims path of
+        // this test's choosing, which would assert the own-crate answer the
+        // claim refuses. A module slice under a companion: the companion's
+        // row is its module directory's `spec.rs` and `src/spec/mod.rs`, and
+        // the verdict admits those two there and nothing else.
+        let (project, crates) = colocated("policy-companion-spec-two");
         assert_eq!(
-            allowed_paths(Phase::Two, Seat::Companion, Path::new(NOTIONAL_CLAIMS), &module_code("hello")),
-            paths(&["src/spec/hello.rs", "src/spec/mod.rs"])
+            workspace_paths(&project, Phase::Two, &crates).expect("both under the root"),
+            paths(&["owner/src/m/spec.rs", "owner/src/spec/mod.rs", "app/src/m/spec.rs", "app/src/spec/mod.rs"])
         );
-        // The row is the claims file it is given and not the slice's name
-        // spelled into a path: a hyphenated slice whose claims the layout
-        // puts elsewhere gets that answer, not `src/spec/phase_gate.rs`.
-        assert_eq!(
-            allowed_paths(Phase::Two, Seat::Companion, Path::new("src/phase_gate/spec.rs"), &module_code("phase-gate")),
-            paths(&["src/phase_gate/spec.rs", "src/spec/mod.rs"])
-        );
-        let cases = [("/w/app/src/spec/mod.rs", false), ("/w/app/src/lib.rs", true), ("/w/app/tests/ui/fail.rs", true)];
-        check_refusals(&with_companion(), Phase::Two, &cases);
+        let cases = [("app/src/m/spec.rs", false), ("app/src/spec/mod.rs", false), ("app/src/lib.rs", true), ("app/src/m/mod.rs", true), ("app/tests/ui/fail.rs", true)];
+        check_refusals_under(&project, &crates, Phase::Two, &cases);
+        // A hyphenated slice: the companion's file is its module directory's,
+        // spelled in snake_case, and neither the slice's name spelled under
+        // `src/spec/` nor the own crate's claims file placed under the
+        // companion is the row's.
+        let crates = SliceCrates { slice: "phase-gate".to_string(), ..with_companion() };
+        check_refusals(&crates, Phase::Two, &[("/w/app/src/phase_gate/spec.rs", false), ("/w/app/src/spec/phase_gate.rs", true), ("/w/app/src/spec/hello.rs", true)]);
     }
 
     #[test]

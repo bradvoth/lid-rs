@@ -1278,6 +1278,25 @@ pub(crate) mod fixture {
         (dir, project)
     }
 
+    /// The fixture with `gate_extra = <value>` joined to the
+    /// `[package.metadata.lid_rs]` table `init` wrote, beside
+    /// `mutation_scope`, and its project reloaded so the metadata reports
+    /// the key. The key joins that table rather than a `[workspace.metadata]`
+    /// one because a lone package has no `[workspace]` header for the
+    /// workspace form to sit under, and a second `[package.metadata.lid_rs]`
+    /// header would be a table redefinition `cargo metadata` refuses — the
+    /// road `init`'s scaffold takes, and the one that exercises the door's
+    /// fallback to the root package's table.
+    pub fn with_gate_extra(name: &str, value: &str) -> (PathBuf, Project) {
+        let (dir, _) = copy(name);
+        let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
+        let joined = manifest.replacen("mutation_scope = \"diff\"\n", &format!("mutation_scope = \"diff\"\ngate_extra = {value}\n"), 1);
+        assert_ne!(joined, manifest, "the scaffold's `[package.metadata.lid_rs]` table is where the key joins");
+        std::fs::write(dir.join("Cargo.toml"), joined).expect("manifest");
+        let project = Project::load_graph_at(&dir.join("Cargo.toml")).expect("cargo metadata");
+        (dir, project)
+    }
+
     /// Whether the fixture's tree holds `version` as the workspace's — read
     /// from the manifest's text, not through the bump's own reader.
     pub fn tree_holds(dir: &Path, version: &str) -> bool {
@@ -1565,6 +1584,151 @@ mod tests {
         let tarballs: Vec<bool> = every.iter().map(|name| packaged(&project, name)).collect();
         let observed = (alone, at_once, tarballs);
         assert_eq!(observed, (Ok(()), Ok(()), vec![true, true, true]), "the control packages under either form; every publisher packages, and leaves its tarball, only at once");
+    }
+
+    #[test]
+    #[validates(spec::TheExtraStepsFollowTheMutationStepInTheOrderConfigured)]
+    fn the_extra_steps_follow_the_mutation_step_in_the_order_configured() {
+        let publishing = strings(&["a"]);
+        let extra = [strings(&["mdbook", "build", "book"]), strings(&["cargo", "deny", "check"])];
+        // The floor is what phase 7 plans with nothing configured, and it
+        // ends at the mutation step; the configured plan is that floor and
+        // then one `Step::Extra` per entry, in the order given — so the
+        // workspace's steps run after every step of the floor, the mutation
+        // step included, and none is added, dropped, or reordered.
+        let floor = plan(Phase::Seven, &publishing, &[]);
+        assert_eq!(floor.last(), Some(&Step::Mutants), "the floor ends at the mutation step: {floor:?}");
+        let expected: Vec<Step> = floor.iter().cloned().chain(extra.iter().cloned().map(Step::Extra)).collect();
+        assert_eq!(plan(Phase::Seven, &publishing, &extra), expected);
+    }
+
+    #[test]
+    #[validates(spec::AnAbsentGateExtraIsTheEmptyListSoTheFloorAloneRuns)]
+    fn an_absent_gate_extra_is_the_empty_list_so_the_floor_alone_runs() {
+        // `init`'s scaffold names no `gate_extra`: the answer `check` hands
+        // `plan` is the empty list, the phase 7 plan built from it ends where
+        // the floor ends, and the check itself — phase 2's, whose one step
+        // passes on a tree that builds — passes, running the floor alone.
+        let (_, project) = fixture::copy("gate-extra-absent");
+        let extra = policy::gate_extra(&project).expect("an absent key is not a failure");
+        assert!(extra.is_empty(), "the empty list, not a step: {extra:?}");
+        let steps = plan(Phase::Seven, &[], &extra);
+        assert_eq!(steps.last(), Some(&Step::Mutants), "the floor and only the floor: {steps:?}");
+        check(&project, Phase::Two, None).expect("a workspace that configures nothing runs the floor");
+    }
+
+    /// A metadata document with no manifest behind it — `/w` holds none —
+    /// whose workspace table and root package's table each name `gate_extra`
+    /// as the JSON given, or nothing.
+    fn metadata_naming(workspace: Option<&str>, package: Option<&str>) -> Project {
+        let table = |value: Option<&str>| value.map_or("null".to_string(), |v| format!(r#"{{"lid_rs":{{"gate_extra":{v}}}}}"#));
+        Project::from_json(&format!(
+            r#"{{"workspace_root":"/w","target_directory":"/w/target","metadata":{},"packages":[{{"name":"app","manifest_path":"/w/Cargo.toml","metadata":{}}}]}}"#,
+            table(workspace),
+            table(package)
+        ))
+        .expect("parses")
+    }
+
+    #[test]
+    #[validates(spec::GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest)]
+    fn gate_extra_is_read_from_the_metadata_cargo_reports_never_from_a_manifest() {
+        // The package form, which is what `init` scaffolds: the key joins the
+        // root package's `[package.metadata.lid_rs]`, the table the door falls
+        // back to when the workspace table names no such key — the fallback
+        // observed on a real tree, as `cargo metadata` reports it.
+        let (_, project) = fixture::with_gate_extra("gate-extra-package-form", r#"[["git", "status"], ["mdbook", "build", "book"]]"#);
+        assert_eq!(policy::gate_extra(&project), Ok(vec![strings(&["git", "status"]), strings(&["mdbook", "build", "book"])]));
+        // The workspace form, and its precedence: a document with no manifest
+        // behind it, so the answer can only be the document's. When both
+        // tables name the key the workspace's is read, as `mutation_scope`'s
+        // is; when only the package's does, that one.
+        let both = metadata_naming(Some(r#"[["from", "workspace"]]"#), Some(r#"[["from", "package"]]"#));
+        let package_only = metadata_naming(None, Some(r#"[["from", "package"]]"#));
+        assert_eq!(
+            (policy::gate_extra(&both), policy::gate_extra(&package_only)),
+            (Ok(vec![strings(&["from", "workspace"])]), Ok(vec![strings(&["from", "package"])]))
+        );
+    }
+
+    #[test]
+    #[validates(spec::AGateExtraThatIsNotAListFailsTheCheckNamingWhatItFound)]
+    fn a_gate_extra_that_is_not_a_list_fails_the_check_naming_what_it_found() {
+        // A string where the list should be, in the fixture's own manifest.
+        // Phase 2's one step passes on this tree, so a failure here is the
+        // plan's and not a step's: it names the key and the string found.
+        let (_, project) = fixture::with_gate_extra("gate-extra-not-a-list", r#""mdbook build book""#);
+        let err = check(&project, Phase::Two, None).expect_err("a value that is not a list fails the check");
+        assert!(err.contains("gate_extra") && err.contains("mdbook build book"), "{err}");
+        // At whichever phase is running: phase 5's step would have asked for
+        // a slice and failed naming the branch convention; the check fails
+        // before it, naming the key.
+        let err = check(&project, Phase::Five, None).expect_err("at whichever phase is running");
+        assert!(err.contains("gate_extra") && !err.contains("needs a slice"), "before any step runs: {err}");
+        // A table, a boolean, a number: each named as what it is, none
+        // mistaken for an absent key or an entry.
+        for (value, found) in [(r#"{"steps":[["mdbook"]]}"#, "steps"), ("true", "true"), ("7", "7")] {
+            let err = check(&metadata_naming(Some(value), None), Phase::Two, None).expect_err(value);
+            assert!(err.contains("gate_extra") && err.contains(found), "{value}: {err}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry)]
+    fn a_gate_extra_entry_that_is_not_a_non_empty_list_of_strings_fails_the_check_naming_the_entry() {
+        // One well-formed entry, then a bare string, then an empty list: the
+        // check names the first entry it could not read — the list is read in
+        // order and the first refusal is the answer — at phase 2, whose one
+        // step passes on this tree, and at phase 5, whose step would have
+        // asked for a slice; neither step runs.
+        let (_, project) = fixture::with_gate_extra("gate-extra-malformed-entry", r#"[["git", "status"], "mdbook build book", []]"#);
+        for phase in [Phase::Two, Phase::Five] {
+            let err = check(&project, phase, None).expect_err("an entry that cannot be read fails the check");
+            assert!(err.contains("gate_extra") && err.contains("mdbook build book"), "{phase:?}: {err}");
+            assert!(!err.contains("[]") && !err.contains("needs a slice"), "the first unreadable entry, before any step: {phase:?}: {err}");
+        }
+        // An empty list is an entry with no program to run; a number among
+        // the words is not a list of strings. Each is named.
+        for (value, entry) in [("[[]]", "[]"), (r#"[["mdbook", 3]]"#, "mdbook")] {
+            let err = check(&metadata_naming(Some(value), None), Phase::Two, None).expect_err(value);
+            assert!(err.contains("gate_extra") && err.contains(entry), "{value}: {err}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::AnExtraStepRunsItsEntryAsAProgramAtTheWorkspaceRootThroughNoShell)]
+    fn an_extra_step_runs_its_entry_as_a_program_at_the_workspace_root_through_no_shell() {
+        let (dir, project) = fixture::copy("extra-step-runs-at-the-root");
+        // `git ls-files --error-unmatch` answers for a tracked file only from
+        // the repository that tracks it: this test's own directory is another
+        // repository, where `src/hello.rs` is no file at all, so the step
+        // passes only when it runs at the fixture's root. The second file is
+        // named with a space and a `$`: through a shell the word would split
+        // in two and `$name` would expand to nothing, and neither half is
+        // tracked — so it passes only when the entry reaches git whole.
+        std::fs::write(dir.join("spaced $name.txt"), "").expect("a file to track");
+        fixture::git(&dir, &["add", "-A"]);
+        fixture::git(&dir, &["commit", "-q", "-m", "a file whose name a shell would rewrite"]);
+        let entries = [strings(&["git", "ls-files", "--error-unmatch", "--", "src/hello.rs"]), strings(&["git", "ls-files", "--error-unmatch", "--", "spaced $name.txt"])];
+        for entry in entries {
+            assert_eq!(run_step(&project, None, &Step::Extra(entry.clone())), Ok(()), "{entry:?}");
+        }
+    }
+
+    #[test]
+    #[validates(spec::AnExtraStepThatExitsNonZeroOrCannotRunFailsTheGateNamingTheEntry)]
+    fn an_extra_step_that_exits_non_zero_or_cannot_run_fails_the_gate_naming_the_entry() {
+        let (_, project) = fixture::copy("extra-step-fails");
+        // Exits non-zero: the failure names the entry and carries what git
+        // said about the ref it could not verify.
+        let entry = strings(&["git", "rev-parse", "--verify", "no-such-ref"]);
+        let err = run_step(&project, None, &Step::Extra(entry)).expect_err("a non-zero exit fails the step");
+        assert!(err.contains("rev-parse") && err.contains("no-such-ref"), "names the entry: {err}");
+        assert!(err.contains("fatal"), "carries the program's output: {err}");
+        // Not on the machine at all: the same answer, naming the entry.
+        let entry = strings(&["definitely-not-a-program", "--version"]);
+        let err = run_step(&project, None, &Step::Extra(entry)).expect_err("a program that cannot run fails the step");
+        assert!(err.contains("definitely-not-a-program"), "names the entry: {err}");
     }
 
     /// The six steps that invoke cargo, the one `cargo package` naming a member.
