@@ -104,6 +104,78 @@ pub struct WithoutAGateCommitTheMutationBaseIsTheMergeBaseWithMain;
 #[derive(Spec)]
 pub struct NoMergeBaseWithMainFailsTheMutationStepNamingTheRef;
 
+// ---- phase-check 7: the workspace's own gate steps ------------------------------
+//
+// README §4.5's list is the floor; a workspace declares the steps after it as
+// `[workspace.metadata.lid_rs] gate_extra`, a list of commands each a list of
+// strings, and `plan` carries them as `Step::Extra` after the mutation step.
+// The three claims about the value — absent, not a list, an entry that is not
+// a non-empty list of strings — are cited by `policy::gate_extra` and never by
+// `Project::setting_node`: the raw door is a hand commit no phase can write, so
+// a claim implemented only there would have no Phase 3 to leave it `todo!()`
+// and no Phase 5 that could make it red. `args_of` answering nothing for an
+// extra step is no claim of its own: it joins the arm the library steps and the
+// red run already share. All seven are written in the controlled language and
+// carry no mark.
+
+/// When [`plan`](crate::phase::plan) is asked for phase 7 with the workspace's
+/// configured `gate_extra` entries, the vector it answers with shall carry one
+/// `Step::Extra` per entry in the order configured after
+/// [`Step::Mutants`](crate::phase::Step::Mutants) — the last step of the floor
+/// — so the workspace's own steps run last, against a tree the floor has
+/// already accepted, and the floor's cheap and specific steps still fail first.
+#[derive(Spec)]
+pub struct TheExtraStepsFollowTheMutationStepInTheOrderConfigured;
+
+/// When [`check`](crate::phase::check) builds its plan for a project whose
+/// metadata names no `gate_extra` key, the extra steps it hands
+/// [`plan`](crate::phase::plan) shall be the empty list — `policy::gate_extra`'s
+/// answer for an absent key — so a workspace that configures nothing runs the
+/// floor and only the floor, and no consumer's gate changes by upgrading.
+#[derive(Spec)]
+pub struct AnAbsentGateExtraIsTheEmptyListSoTheFloorAloneRuns;
+
+/// When [`check`](crate::phase::check) reads the workspace's `gate_extra`, the
+/// value `policy::gate_extra` parses shall be the `[workspace.metadata.lid_rs]`
+/// table's entry as `cargo metadata` reports it — falling back to the
+/// `[package.metadata.lid_rs]` table of the package whose manifest is the
+/// workspace root's when the workspace table names no such key, as
+/// `mutation_scope` is read — and never a manifest the tool parsed itself.
+#[derive(Spec)]
+pub struct GateExtraIsReadFromTheMetadataCargoReportsNeverFromAManifest;
+
+/// When [`check`](crate::phase::check) builds its plan from a `gate_extra`
+/// whose value is not a list — a string, a table, a boolean, a number — the
+/// check shall fail naming `gate_extra` and what it found instead, a value that
+/// is neither an absent key nor an entry, at whichever phase is running and
+/// before any step runs.
+#[derive(Spec)]
+pub struct AGateExtraThatIsNotAListFailsTheCheckNamingWhatItFound;
+
+/// When [`check`](crate::phase::check) builds its plan from a `gate_extra`
+/// holding an entry that is not a non-empty list of strings — an empty list, a
+/// bare string, a number among the words — the check shall fail naming
+/// `gate_extra` and the entry it could not read, at whichever phase is running
+/// and before any step runs, since a gate step that cannot be read is never a
+/// gate step silently skipped.
+#[derive(Spec)]
+pub struct AGateExtraEntryThatIsNotANonEmptyListOfStringsFailsTheCheckNamingTheEntry;
+
+/// When [`run_step`](crate::phase::run_step) reaches a `Step::Extra`,
+/// `extra_step` shall run the entry's first word as a program with the rest as
+/// its arguments, at the workspace root and through no shell, so no quoting
+/// grammar, word splitting, or variable expansion stands between the manifest
+/// and the process.
+#[derive(Spec)]
+pub struct AnExtraStepRunsItsEntryAsAProgramAtTheWorkspaceRootThroughNoShell;
+
+/// When [`run_step`](crate::phase::run_step) runs an extra step whose program
+/// exits non-zero or is not on the machine at all, the step shall fail naming
+/// the entry and carrying the program's output, the two outcomes being one
+/// answer because a step that could not run is not a step that passed.
+#[derive(Spec)]
+pub struct AnExtraStepThatExitsNonZeroOrCannotRunFailsTheGateNamingTheEntry;
+
 // ---- phase-check 5: the red run ----------------------------------------------
 
 /// When the slice's claims are identified, they shall be the registered
@@ -301,10 +373,25 @@ pub struct ACompanionThatIsNotAWorkspaceMemberRefusesEveryEdit;
 #[lid(free)]
 pub struct APathUnderTheCompanionIsJudgedByTheCompanionsTable;
 
+// The claim below is corrected in place and keeps its name and its mark. Its
+// old sentence said the companion seat's claims file was "the same answer the
+// layout gives for the slice, placed in the companion", which
+// `TheCompanionSeatsClaimsFileIsItsModuleDirectorysSpec` refuses — but that
+// behaviour is already delivered and gated under that claim, so a rename
+// would put a claim into the red set whose validator is green on arrival,
+// which the red check refuses and no phase could make red. A text corrected to
+// match behaviour another claim already gates is a documentation defect and
+// no rename. The one thing left is Phase 5's: its validator asserts the raw
+// claims path through `allowed_paths`, the own-crate answer this claim
+// refuses, and is rewritten to reach the row through
+// `workspace_paths`/`allowed`, as work on a claim outside the red set that
+// must stay green.
+
 /// When a Phase 2 agent edits or writes under the companion, the target
-/// shall be the slice's claims file — the same answer the layout gives for
-/// the slice, placed in the companion rather than in the slice's own crate
-/// — or `src/spec/mod.rs` there, and nothing else in the companion.
+/// shall be the `spec.rs` in the companion's module directory named for the
+/// slice — the companion seat's claims file, whatever form the slice's own
+/// crate takes, and never the layout's own-crate answer placed under the
+/// companion — or `src/spec/mod.rs` there, and nothing else in the companion.
 #[derive(Spec)]
 #[lid(free)]
 pub struct PhaseTwoMayWriteOnlyTheCompanionsSpecFiles;

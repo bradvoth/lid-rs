@@ -241,6 +241,20 @@ impl Project {
             .and_then(|package| setting_in(package, key))
     }
 
+    /// One `[workspace.metadata.lid_rs]` setting as the JSON node `cargo
+    /// metadata` reports it, whatever its shape — falling back to the root
+    /// package's `[package.metadata.lid_rs]` the way `mutation_scope` is
+    /// read, since a lone package has no workspace table. A raw door: the
+    /// reading of the node is the caller's (`phase::policy::gate_extra`), and
+    /// this implements no claim.
+    pub fn setting_node(&self, key: &str) -> Option<serde_json::Value> {
+        node_in(&self.doc, key).or_else(|| {
+            let root_manifest = self.root().ok()?.join("Cargo.toml");
+            self.package_with_manifest(root_manifest.to_str()?)
+                .and_then(|package| node_in(package, key))
+        })
+    }
+
     /// The package whose `manifest_path` is exactly `manifest`.
     fn package_with_manifest(&self, manifest: &str) -> Option<&serde_json::Value> {
         self.packages()
@@ -262,6 +276,12 @@ fn setting_in(node: &serde_json::Value, key: &str) -> Option<String> {
     node.pointer(&format!("/metadata/lid_rs/{key}"))
         .and_then(serde_json::Value::as_str)
         .map(str::to_string)
+}
+
+/// The `[metadata.lid_rs] <key>` node under a workspace or package node,
+/// as reported, without reading it.
+fn node_in(node: &serde_json::Value, key: &str) -> Option<serde_json::Value> {
+    node.pointer(&format!("/metadata/lid_rs/{key}")).cloned()
 }
 
 /// Whether any of a package's targets is a library kind — something
