@@ -931,17 +931,17 @@ document does not imply it.
 | `ending::subject_carries_version(message, version) -> Result<(), String>` | That comparison as a refusal: a Phase 7 subject naming another version than the bump's, or none, is refused naming both — a rule separate from the tag's |
 | `integrity::contents_of(project, paths) -> Result<Vec<(PathBuf, Vec<u8>)>, String>` | The bump's two root files read back right after it, each with its bytes — what `bumped_files_untouched` holds the tree to; the bump returns the version, not the bytes, and `Cargo.lock` cannot be recomputed at check time without rewriting it |
 | `integrity::bumped_files_untouched(project, version_files)` | The other half of the post-check integrity pass: each of the two root files must still equal, byte for byte, what the bump wrote |
-| `policy::slice_crate(project, slice) -> PathBuf` | The package holding the slice's document, in either layout — asked of `layout::own_crate`, which is where the four shapes are told apart |
+| `policy::slice_crate(project, slice) -> Result<PathBuf, String>` | The package holding the slice's document, in either layout — asked of `layout::own_crate`, which is where the four shapes are told apart |
 | `policy::companion(project, crate_root) -> Result<Option<PathBuf>, Refusal>` | The package `[package.metadata.lid_rs] companion` names, from `cargo metadata`; none for an ordinary crate; a refusal naming the key for a proc-macro crate without one, or one whose companion is a proc-macro crate or not a member |
 | `policy::gate_extra(project) -> Result<Vec<Vec<String>>, String>` | The workspace's configured steps, parsed from `Project::setting_node("gate_extra")` — the same two-sided shape `companion` has over `package_setting_at`. An absent key is the empty list; a value that is not a list fails the check naming `gate_extra` and what it found; an entry that is not a non-empty list of strings fails the check naming `gate_extra` and the entry it could not read. The four metadata claims — the reading with its fallback, the absent key, the non-list value, the malformed entry — are cited here and not on the raw door; Phase 3 wires it answering the empty list, and Phase 5 reddens the other three through `extra_entry` and the non-list arm (the Decisions row "How `policy::gate_extra` is skeletoned") |
 | `policy::extra_entry(value: &serde_json::Value) -> Result<Vec<String>, String>` | One entry read, `gate_extra`'s descent: a list of one or more strings is the entry's words; anything else — not a list, an empty list, a non-string among the words — fails naming `gate_extra` and the entry as its JSON, never the whole configured value. The first entry that cannot be read is the failure, since the entries are collected in order |
 | `Project::package_setting_at(dir, key)`, `Project::member_dir_named(name)` | What `companion` reads: a package's `[package.metadata.lid_rs]` setting, and a member's manifest directory by package name — both from the metadata document `Project` already holds, in `src/project.rs`, which this slice's phases may not write and the human adds by hand |
 | `Project::setting_node(key) -> Option<serde_json::Value>` | One `metadata.lid_rs` key's raw JSON node from the metadata document `Project` already holds: the `[workspace.metadata.lid_rs]` table's, falling back to that of the package whose manifest is the workspace root's, as `configured_scope` reads `mutation_scope` through `setting_in`. It implements no claim — a raw node has no wrong answer — and it lives in `src/project.rs`, which this slice's phases may not write and the human adds by hand between Phases 2 and 3 |
 | `SliceCrates { slice, own, companion }`, `SliceCrates::resolve`, `claims_crate()` | The crates a phase may write, resolved once per hook call; the crate that holds the slice's claims, where the red run diffs and tests |
-| `Tally`, `tally::record(agent_id, kind)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
+| `Tally`, `tally::record(project, agent_id, event)`, `tally::trailers` | Counts per agent under `<target>/lid-rs/agents/`; rendered as commit trailers |
 | `hook_pre_tool(project, phase, input)` | Policy verdict for editing tools, tally for every tool |
 | `hook_post_edit(project, input)` | Clippy, rendered as `additionalContext` |
-| `hook_stop(project, phase, input) -> HookVerdict` | Parse the message; `commit` → sync → bump (Phase 7) → subject version → check → integrity (sync, staged set, bumped files) → stage → commit → allow; `stop` → allow; else refuse |
+| `hook_stop(project, phase, input) -> Result<HookVerdict, String>` | Parse the message; `commit` → sync → bump (Phase 7) → subject version → check → integrity (sync, staged set, bumped files) → stage → commit → allow; `stop` → allow; else refuse |
 | `integrity::synced_artifacts_match(project)` | `sync::check`, as a refusal reason |
 | `integrity::outside_policy_clean(project, phase, crates)` | `git status --porcelain` filtered against `staged_paths`; anything else is named |
 | `ExecutionClass::{Ordinary, CompileTime(reason)}`, `execution_class(project, crate_root)` | From `cargo metadata` target kinds: `proc-macro`, `custom-build` |
@@ -950,7 +950,7 @@ document does not imply it.
 | `refusal_for(project, phase, crates, output) -> String` | Output + `gates.md` row for the check that fired + what the phase permits |
 | `check_of_lint(name) -> Option<Check>` | The lint → check mapping |
 | `stage_and_commit(project, paths, message, trailers)` | `git add -- <paths>`; `git commit -F` |
-| `sync::artifacts()` | The mirror table: `skill/`, `workflow/`, `agent/` |
+| [`sync::artifacts()`](crate::sync::artifacts) | The mirror table: `skill/`, `workflow/`, `agent/` |
 | `lid-rs/agent/lid-rs-phase-{2,3,4,5,7}.md`, `lid-rs-review.md` | The agent definitions: `tools:` and the three hooks with the phase literal |
 | `lid-rs/workflow/lid-rs.js` | The unattended build |
 

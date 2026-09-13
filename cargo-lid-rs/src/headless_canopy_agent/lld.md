@@ -450,8 +450,8 @@ What changes is confidentiality, and it changes materially:
 | `review(project, door, phase, state, commit, max_cost) -> Result<Review, String>` | Drives the reviewer; parses the block; one re-ask |
 | `Review::{Approved, Rejected(findings)}`, `review_of(text) -> Result<Review, String>` | The review block, parsed |
 | `agent_body(project, name) -> Result<String, String>` | A synced agent file with its frontmatter removed |
-| `phase::hook_pre_tool`, `hook_post_edit`, `hook_stop` (phase slice, made `pub`) | The three verdicts this host calls with a `HookInput` it builds; `agent_id` is `canopy:<session>` |
-| `tally::trailers(tally, phase, agent_id)` (phase slice, gains the agent id) | Renders `Lid-Rs-Agent` between the phase and the tools |
+| [`phase::hook_pre_tool`](crate::phase::hook_pre_tool), `hook_post_edit`, `hook_stop` (phase slice, made `pub`) | The three verdicts this host calls with a `HookInput` it builds; `agent_id` is `canopy:<session>` |
+| [`tally::trailers(tally, phase, agent_id)`](crate::phase::tally::trailers) (phase slice, gains the agent id) | Renders `Lid-Rs-Agent` between the phase and the tools |
 
 ## Decisions & Alternatives
 

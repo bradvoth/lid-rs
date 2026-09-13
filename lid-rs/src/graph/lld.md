@@ -33,8 +33,8 @@ edges are not filtered, since any crate may legitimately cite any spec.
 | Item | Role |
 |---|---|
 | `EdgeKind` (`Implementations` / `Validations`) | Selects the edge set a check runs against — an enum, not a `bool`, because check 8 is right about flag arguments in our code too. |
-| `orphaned_specs(crate_name, specs, edges) → Vec<String>` | Work leaf: own-crate specs with no edge, formatted `name (file:line)`. |
-| `graph_orphans(crate_name, specs, impls, validations, kind) → Result<Vec<String>, CanaryStripped>` | Dispatch node: canary-first guard over all three slices, then one `match` on `EdgeKind` delegating to the leaf. |
+| `orphaned_specs(crate_name, specs, edges) -> Vec<String>` | Work leaf: own-crate specs with no edge, formatted `name (file:line)`. |
+| `graph_orphans(crate_name, specs, impls, validations, kind) -> Result<Vec<String>, CanaryStripped>` | Dispatch node: canary-first guard over all three slices, then one `match` on `EdgeKind` delegating to the leaf. |
 | `intent_graph!()` | `macro_rules!` emitting four `#[test]` fns: `registry_is_populated`, `every_spec_has_an_implementer`, `every_spec_has_a_validation` — each calling `graph_orphans` against the real registries via `$crate` — plus the inert `registry_dump_for_tooling` test the mutation xtask reads (`xtask/docs/intent/xtask/lld.md`). |
 | `CanaryStripped` | Error carried when the canary triple is absent: the registry cannot be trusted, so no orphan claim is made at all. |
 
