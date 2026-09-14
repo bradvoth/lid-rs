@@ -69,8 +69,10 @@ which is the right answer for an item whose module is its file.
 
 The engine's exit status and its `-F` selection are not trusted to describe
 what a group's run proved. Each group runs into a fresh output directory
-(`<target>/lid-mutants/<n>`, removed before the run so no earlier verdict can
-be read as this run's), and the tool judges the group's mutants — only those
+(`<output_root>/<n>` — `run`'s own default is `<target>/lid-mutants`, a
+caller-supplied root otherwise (Scratch paths, below) — removed before the
+run so no earlier verdict can be read as this run's), and the tool judges the
+group's mutants — only those
 — from the `outcomes.json` the engine writes there: `CaughtMutant` and
 `Unviable` are fine, `MissedMutant` and `Timeout` are survivors, any other
 summary is an error, and a mutant the engine reports *no* verdict for is a
@@ -108,6 +110,45 @@ generates `git diff <base>` (default base `main`; CI passes
 it via `--in-diff`. Diff interpretation is the engine's contract, not
 re-implemented here.
 
+## Scratch paths
+
+`write_diff_file` and `run_groups` each resolved one fixed location under
+`project.target_directory()?` — `lid-mutants.diff` for the diff,
+`lid-mutants` for the per-group output root — on the assumption that one
+checkout runs one `mutants::run` at a time. A phase's detached gate job
+breaks that assumption without ever starting a second process: it calls this
+crate's own code in-process, and a fresh attempt can start while a
+still-running one from the same checkout has not yet finished. Two calls
+sharing either fixed path do not merely race for it — `run_group` empties its
+own subdirectory of the output root before every group and reads
+`outcomes.json` back from it afterward, so a fresh call's cleanup can delete
+a stale call's still-being-written directory, and either call can then read
+the other's `outcomes.json` as its own — the exact guarantee the removal
+exists to give, defeated silently: a survived mutant reads as caught, not as
+a crash.
+
+`mutants::run(args)` stays the argument-parsing door its two existing callers
+already use, unchanged: it loads the project, asks `default_paths` for the
+pair of historical names under the target directory, and calls `run_at` with
+them. `run_at(project,
+args, diff_path, output_root)` holds the whole implementation and is the door
+for a caller that already has a `Project` and two distinct paths of its own —
+a phase's detached gate job supplies both, keyed to the job rather than fixed
+to the checkout, so two of its own attempts on one checkout never share
+either. Taking `&Project` rather than loading a second one avoids paying for
+`cargo metadata` again on behalf of a caller that already fetched one to
+decide what those two paths, or what scope, should be.
+
+## Shape
+
+| Item | Role |
+|---|---|
+| `mutants::run(args: &[String]) -> Result<(), String>` | The argument-parsing door: loads the project, asks `default_paths` for the diff file and output root under its target directory, and calls `run_at` with them. Unchanged for its two existing callers. |
+| `mutants::default_paths(target: &Path) -> (PathBuf, PathBuf)` | The pure leaf holding the two historical scratch names: returns `(target.join("lid-mutants.diff"), target.join("lid-mutants"))`, in the order `run` passes them to `run_at`. Takes the target directory rather than a `Project`, so it shells out to nothing and a plain unit test calls it directly. |
+| `mutants::run_at(project: &Project, args: &[String], diff_path: &Path, output_root: &Path) -> Result<(), String>` | The whole implementation: parses scope from `args` exactly as `run` always has, writes the diff to `diff_path` for `Diff` scope, lists and groups mutants, and runs the groups under `output_root`. The door a caller already holding a `Project` and both paths calls directly. |
+| `write_diff_file(scope: &Scope, project: &Project, path: &Path) -> Result<Option<PathBuf>, String>` | Writes `git diff <base>` to `path` for `Diff` scope, `None` for `Full`; `path` is the caller's own, no longer a join this function performs. |
+| `run_groups(project: &Project, groups: &BTreeMap<TestPlan, Vec<String>>, diff: Option<&Path>, output_root: &Path) -> Result<(), String>` | Runs every group under `output_root.join(<n>)`; `output_root` is the caller's own, no longer a join this function performs. |
+
 ## Decisions & Alternatives
 
 | Decision | Chosen | Alternatives Considered | Rationale |
@@ -124,11 +165,12 @@ re-implemented here.
 | Empty narrowed test set | Degrades to the full suite | Running the (empty) filtered set; erroring out | Running zero tests lets every mutant survive, which is itself a vacuous pass (constraint 3). Erroring would block brownfield crates where check 11 doesn't yet gate. |
 | Mutant identity | `(file, ends-with ::fn_name)` join | Qualified names from cargo-mutants (not provided); span-based matching | The JSON provides file + unqualified name; file equality plus suffix match is exact for everything but same-file same-name fns, which merge into one safe over-approximated test set. |
 | Verdict source | The group's own mutants, read from the engine's `outcomes.json` for that run | The engine's exit status; trusting `-F` to bound the run | Found in a consumer (`dmdr`): cargo-mutants 27.1.0's struct-field genre bypasses `-F` (upstream `visit.rs`), so stowaways rode along in every group and the exit status reported *their* survival against the wrong tests. Judging by name from the engine's own record is exact whatever the engine included. |
-| Output directory | Fresh `<target>/lid-mutants/<n>` per group via `--output` | The engine's default `mutants.out` in the project root | A stale `outcomes.json` from an earlier run would be indistinguishable from this run's; per-group directories keep every group's evidence for inspection and leave the project root alone. |
+| Output directory | Fresh `<output_root>/<n>` per group via `--output`, `output_root` the caller's own (`run`'s own default: `<target>/lid-mutants`) | The engine's default `mutants.out` in the project root; a fixed `<target>/lid-mutants` regardless of caller | A stale `outcomes.json` from an earlier run would be indistinguishable from this run's; per-group directories keep every group's evidence for inspection and leave the project root alone. Fixing the root regardless of caller stops working once two calls run against one checkout at once — a phase's detached gate job does exactly that — where a fresh call's own cleanup can delete a stale call's still-being-written directory before either process's outcome is read; the root is a parameter for the same reason the per-group index already is. **Claims:** shares `ScratchPathsComeFromTheCaller`, below. |
 | No verdict for a selected mutant | Failure naming the mutant | Treat as caught; treat as survivor | An engine that crashed or never built the mutant has proved nothing; silently passing is the vacuous pass constraint 3 forbids, and calling it a survivor misattributes a tooling failure to the tests. |
 | Failure timing | All groups run, then every survivor is reported | Stop at the first group with a survivor | One run names every real survivor; stopping early hides the rest behind the first and costs a run per discovery. |
 | Baseline handling | `--baseline skip` | Default baseline run per group | The gate runs the full suite before mutation ([§4.5](https://bradvoth.github.io/lid-rs/spec/gates.html) order); re-running it per group multiplies wall-clock for no information. |
 | Test scope per mutant | `--test-workspace true` | Engine default (test only the mutated package) | Found by a surviving mutant: a broken `derive` in the proc-macro crate is killed only by `lid-rs`'s tests, and the package-scoped default never runs them. Cross-crate kill paths are the norm. |
+| Where the diff file and the output root come from | `run_at(project, args, diff_path, output_root)` takes both as `&Path` parameters and holds the whole implementation; `run(args)` loads the project, asks `default_paths` for the pair of historical fixed paths under its target directory, and calls `run_at` with them | `--diff-file`/`--output-root` flags on `args`, parsed the way `--diff-base` already is; an `Option<&Path>` on each path that falls back to the fixed join when absent; a two-field struct bundling both paths; reloading the project inside the new function instead of taking the caller's | A caller that already holds two `PathBuf`s and calls this code as an ordinary function has no argv to put them on; a flag would only have it print each path to a string for this file to parse back, adding a way to mistype a path that today's one flag, `--diff-base`, does not have. `Option<&Path>` gives every leaf a branch neither of today's two callers exercises both sides of: one never supplies an override, the other always does — a decision kept for a caller that does not exist yet. A struct for two fields names the pair and nothing past it, worth adding at a third scratch value, not this one. Taking `&Project` rather than reloading avoids a second `cargo metadata` shell-out for a value the caller already fetched to decide what those paths, or what scope, should be — the same avoidance `dump_registry`'s and `collect_registries`' own `&Project` parameters already buy. The compatibility promise behind the historical names is itself a decision, and a decision needs a claim naming it; a claim needs an item a test can call, and two joins inline in an argument-parsing door that shells out to `cargo metadata` and then runs the whole mutation engine is not callable by any unit test. `default_paths` gives the promise a pure leaf: a plain unit test calls it directly, and a mutant over either string literal breaks an assertion on its return value instead of surviving unchallenged. **Claims:** `ScratchPathsComeFromTheCaller`, `TheDefaultsAreTheHistoricalScratchPaths`. |
 
 ## Open Questions & Future Decisions
 

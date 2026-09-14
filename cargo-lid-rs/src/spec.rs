@@ -107,6 +107,25 @@ pub struct AnEngineRunWithoutAVerdictIsAFailure;
 #[lid(free)]
 pub struct EveryGroupRunsBeforeSurvivorsAreReported;
 
+// ---- Scratch paths ----------------------------------------------------------
+
+/// When `write_diff_file` or `run_groups` is given a scratch path, every file
+/// and directory it writes shall be that path or a location inside it, never
+/// one joined under the project's target directory, so two attempts over one
+/// checkout are kept apart by the caller that names their paths.
+#[derive(Spec)]
+#[lid(free)]
+pub struct ScratchPathsComeFromTheCaller;
+
+/// When `default_paths` is asked for a target directory's scratch paths, it
+/// shall return the pair `<target>/lid-mutants.diff` and `<target>/lid-mutants`
+/// that this tool has always written under, in the order `run` passes them to
+/// `run_at`, so a caller supplying no paths of its own writes exactly where
+/// every earlier run wrote.
+#[derive(Spec)]
+#[lid(free)]
+pub struct TheDefaultsAreTheHistoricalScratchPaths;
+
 // ---- Retired names, kept while their deprecation windows stand ----------------
 //
 // These alias claims of other slices, which now live beside their own code.

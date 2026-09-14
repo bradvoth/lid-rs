@@ -43,16 +43,39 @@ pub struct Registry {
     pub validations: Vec<EdgeRecord>,
 }
 
-/// Runs the mutants subcommand: locate, scope, list, collect registries,
-/// plan, execute.
+/// Runs the mutants subcommand: locate the project, then run it at the scratch
+/// paths a caller that names none of its own gets — the argument-parsing door
+/// its two existing callers use.
 pub fn run(args: &[String]) -> Result<(), String> {
     let project = Project::load()?;
+    let (diff_path, output_root) = default_paths(&project.target_directory()?);
+    run_at(&project, args, &diff_path, &output_root)
+}
+
+/// The scratch paths under a build directory for a caller that supplies none:
+/// the diff file and the per-group output root, in the order [`run`] passes
+/// them to [`run_at`].
+#[implements(spec::TheDefaultsAreTheHistoricalScratchPaths)]
+pub fn default_paths(target: &Path) -> (PathBuf, PathBuf) {
+    (target.join("lid-mutants.diff"), target.join("lid-mutants"))
+}
+
+/// Runs the mutants subcommand at the caller's own scratch paths: scope, list,
+/// collect registries, plan, execute. The door for a caller that already holds
+/// a `Project` and two paths of its own, so two attempts over one checkout are
+/// kept apart by the paths they are given.
+pub fn run_at(
+    project: &Project,
+    args: &[String],
+    diff_path: &Path,
+    output_root: &Path,
+) -> Result<(), String> {
     let scope = parse_scope(args, project.configured_scope())?;
-    let diff = write_diff_file(&scope, &project)?;
-    let mutants = list_mutants(&project, diff.as_deref())?;
-    let registry = collect_registries(&project)?;
+    let diff = write_diff_file(&scope, project, diff_path)?;
+    let mutants = list_mutants(project, diff.as_deref())?;
+    let registry = collect_registries(project)?;
     let groups = group_by_plan(&mutants, &registry);
-    run_groups(&project, &groups, diff.as_deref())
+    run_groups(project, &groups, diff.as_deref(), output_root)
 }
 
 /// Parses `--full` / `--diff-base <ref>` over the configured scope.
@@ -80,17 +103,17 @@ fn apply_flag<'a>(flag: &str, tail: &'a [String]) -> Result<(Scope, &'a [String]
     }
 }
 
-/// For diff scope, writes `git diff <base>` to a file under the build
-/// directory and returns its path; `None` for full scope.
-#[implements(spec::DiffScopePassesThroughToTheEngine)]
-fn write_diff_file(scope: &Scope, project: &Project) -> Result<Option<PathBuf>, String> {
+/// For diff scope, writes `git diff <base>` to `path` and returns it; `None`
+/// for full scope. `path` is the caller's own, not a location this function
+/// resolves.
+#[implements(spec::DiffScopePassesThroughToTheEngine, spec::ScratchPathsComeFromTheCaller)]
+fn write_diff_file(scope: &Scope, project: &Project, path: &Path) -> Result<Option<PathBuf>, String> {
     let Scope::Diff { base } = scope else {
         return Ok(None);
     };
     let diff = capture(project.git()?.args(["diff", base]))?;
-    let path = project.target_directory()?.join("lid-mutants.diff");
-    std::fs::write(&path, &diff).map_err(|e| format!("writing {}: {e}", path.display()))?;
-    Ok(Some(path))
+    std::fs::write(path, &diff).map_err(|e| format!("writing {}: {e}", path.display()))?;
+    Ok(Some(path.to_path_buf()))
 }
 
 /// Enumerates mutants, restricted by the diff when one is given.
@@ -220,14 +243,15 @@ pub struct Survivor {
     pub plan: TestPlan,
 }
 
-/// Runs every group, then fails if any mutant survived.
-#[implements(spec::SurvivingMutantsFailTheGate)]
+/// Runs every group under `output_root`, then fails if any mutant survived.
+/// `output_root` is the caller's own, not a location this function resolves.
+#[implements(spec::SurvivingMutantsFailTheGate, spec::ScratchPathsComeFromTheCaller)]
 fn run_groups(
     project: &Project,
     groups: &BTreeMap<TestPlan, Vec<String>>,
     diff: Option<&Path>,
+    output_root: &Path,
 ) -> Result<(), String> {
-    let output_root = project.target_directory()?.join("lid-mutants");
     let survivors = run_groups_with(groups, |index, plan, names| {
         run_group(project, plan, names, diff, &output_root.join(index.to_string()))
     })?;
@@ -405,16 +429,67 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::DiffScopePassesThroughToTheEngine)]
+    #[validates(spec::DiffScopePassesThroughToTheEngine, spec::ScratchPathsComeFromTheCaller)]
     fn diff_scope_writes_a_real_diff_file() {
         let project = Project::load().expect("cargo metadata must succeed in this repository");
         let scope = Scope::Diff { base: "HEAD".to_string() };
-        let path = write_diff_file(&scope, &project)
+        let scratch = project
+            .target_directory()
+            .expect("the build directory")
+            .join("lid-rs/mutants-tests/diff-scope-writes-a-real-diff-file");
+        std::fs::create_dir_all(&scratch).expect("the scratch directory must be creatable");
+        let scratch = scratch.join("lid-mutants.diff");
+        let path = write_diff_file(&scope, &project, &scratch)
             .expect("git diff HEAD must succeed in this repository")
             .expect("diff scope must yield a diff file");
-        assert!(path.ends_with("lid-mutants.diff"), "{path:?}");
+        assert_eq!(path, scratch, "the diff must land at the path the caller named");
         assert!(path.exists(), "diff file must exist at {path:?}");
-        assert_eq!(write_diff_file(&Scope::Full, &project).expect("full scope never fails"), None);
+        assert_eq!(write_diff_file(&Scope::Full, &project, &scratch).expect("full scope never fails"), None);
+    }
+
+    /// A ref no repository resolves, so the work fails inside `git diff` long
+    /// before any mutation engine starts.
+    const UNRESOLVABLE_DIFF_BASE: &str = "lid-rs-no-such-ref-for-tests";
+
+    #[test]
+    #[validates(spec::TheDefaultsAreTheHistoricalScratchPaths)]
+    fn the_defaults_are_the_historical_scratch_paths() {
+        let target = Path::new("/a/build/directory");
+        assert_eq!(
+            default_paths(target),
+            (target.join("lid-mutants.diff"), target.join("lid-mutants")),
+            "the diff file first, the output root second — the order `run` passes them to `run_at`"
+        );
+    }
+
+    #[test]
+    fn run_fails_on_a_diff_base_git_cannot_resolve() {
+        let args = ["--diff-base", UNRESOLVABLE_DIFF_BASE].map(String::from);
+        assert!(
+            run(&args).is_err(),
+            "an unresolvable diff base must fail the run, not start an engine"
+        );
+    }
+
+    #[test]
+    fn run_at_fails_on_a_diff_base_git_cannot_resolve() {
+        let project = Project::load().expect("cargo metadata must succeed in this repository");
+        let scratch = project
+            .target_directory()
+            .expect("the build directory")
+            .join("lid-rs/mutants-tests/run-at-fails-on-a-diff-base-git-cannot-resolve");
+        std::fs::create_dir_all(&scratch).expect("the scratch directory must be creatable");
+        let args = ["--diff-base", UNRESOLVABLE_DIFF_BASE].map(String::from);
+        let result = run_at(
+            &project,
+            &args,
+            &scratch.join("lid-mutants.diff"),
+            &scratch.join("lid-mutants"),
+        );
+        assert!(
+            result.is_err(),
+            "an unresolvable diff base must fail the run, not start an engine"
+        );
     }
 
     #[test]
@@ -448,7 +523,11 @@ mod tests {
         let mut groups: BTreeMap<TestPlan, Vec<String>> = BTreeMap::new();
         groups.insert(TestPlan::FullSuite, vec!["any_mutant".to_string()]);
         let missing_diff = Path::new("target/definitely-missing.diff");
-        let result = run_groups(&project, &groups, Some(missing_diff));
+        let output_root = project
+            .target_directory()
+            .expect("the build directory")
+            .join("lid-rs/mutants-tests/engine-failures-fail-the-gate");
+        let result = run_groups(&project, &groups, Some(missing_diff), &output_root);
         assert!(result.is_err(), "an engine failure must fail the mutants gate");
     }
 

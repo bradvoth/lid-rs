@@ -12,14 +12,14 @@ license.workspace = true
 # in this crate's extern prelude: the transitive path through `cargo-lid-rs`
 # does not put it there, so the edge is direct even though nothing here names
 # `lid_rs` in source.
-lid-rs = { path = "../lid-rs", version = "0.3.5" }
+lid-rs = { path = "../lid-rs", version = "0.3.6" }
 # The session-state readings this slice reuses rather than reimplements —
 # `slice_of`, `committed_phases`, `fork_point`, `own_commits`, `log_subjects`
 # (`cargo-lid-rs/src/headless_canopy_agent/`) — and `catalog::Finding`, which
 # its report links. Reimplementing them would put the same reading in two
 # crates, which is the defect this workspace has found three instances of in
 # path handling alone.
-cargo-lid-rs = { path = "../cargo-lid-rs", version = "0.3.5" }
+cargo-lid-rs = { path = "../cargo-lid-rs", version = "0.3.6" }
 # `write_report` puts the report under `target/lid/status.json`, so the report
 # and every type it holds derive `Serialize`. Not `Deserialize`: nothing in
 # this workspace reads the file back, and a test asserting on what was written
