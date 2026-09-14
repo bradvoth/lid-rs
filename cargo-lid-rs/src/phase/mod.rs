@@ -5,15 +5,17 @@ use std::path::{Path, PathBuf};
 use lid_rs::implements;
 
 pub mod ending;
+pub mod gate_job;
 pub mod integrity;
 pub mod policy;
 pub mod tally;
 
 use ending::{Ending, ending_of, refusal_for, stage_and_commit, subject_carries_version, subject_matches};
-use integrity::{bumped_files_untouched, changed_within, contents_of, outside_policy_clean, synced_artifacts_match};
+use gate_job::{GatePoll, GateStatus, JobKey};
+use integrity::{bumped_files_untouched, changed_within, outside_policy_clean, synced_artifacts_match};
 use policy::{
-    ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, hook_written_paths, kind_of,
-    refusal_reason, staged_paths, workspace_paths,
+    ACCEPTANCE_FILE, ExecutionClass, SliceCode, SliceCrates, ToolKind, Verdict, allowed, compile_time_accepted, execution_class, kind_of, refusal_reason,
+    staged_paths, workspace_paths,
 };
 use tally::Event;
 
@@ -100,7 +102,10 @@ pub enum Step {
     Package(Vec<String>),
     /// `sync --check`, through the library.
     SyncCheck,
-    /// `mutants`, through the library.
+    /// `mutants`, through the library, with the engine's fixed default paths:
+    /// what `run_step` runs and blocks on, which a bare `phase-check 7` — a
+    /// human's or CI's own — reaches. A detached job's own runner is the only
+    /// caller that diverts this step to the paths its key derives.
     Mutants,
     /// One entry of the workspace's `gate_extra`: the program and its
     /// arguments, carried as data on the variant, run after the floor.
@@ -143,12 +148,92 @@ struct PackageRegistry {
 }
 
 /// `phase-check <n> [--slice <name>]`: parse, locate the project, check.
-#[implements(spec::TheSliceComesFromTheBranchName)]
+///
+/// One decision, over the `--job-key <hash>` only `gate_job::start` sets:
+/// absent — a human's or CI's own call — the check runs in this process and
+/// this call blocks on it, exactly as it always has; present, the plan runs as
+/// the detached job that key names, which writes its own outcome instead of
+/// answering here.
+#[implements(spec::TheSliceComesFromTheBranchName, spec::AnAbsentJobKeyRunsTheCheckInlineAndAPresentOneRunsTheJob)]
 pub fn run(args: &[String]) -> Result<(), String> {
-    let (phase, given) = parse_args(args)?;
+    let (phase, given, job_key) = parse_args(args)?;
     let project = Project::load_graph()?;
     let slice = resolve_slice(&project, given)?;
-    check(&project, phase, slice.as_deref())
+    match job_key {
+        None => check(&project, phase, slice.as_deref()),
+        Some(hash) => gate_job::run_job(&project, phase, &slice.ok_or(NO_SLICE)?, &hash),
+    }
+}
+
+/// `gate-status [--slice <name>]`: what the detached gate is doing for a
+/// slice, always asked of Phase 7, the only phase with jobs.
+///
+/// It prints what `gate_job::status` answers — no job, running, blocked by
+/// another attempt and the key of it, or the outcome a finished job wrote —
+/// and exits accordingly. It starts nothing and blocks on nothing, so this is
+/// the door an orchestrating session reads a pending Phase 7 through, as often
+/// as it likes, instead of asking an agent what the gate decided.
+pub fn gate_status(args: &[String]) -> Result<(), String> {
+    let project = Project::load()?;
+    let slice = resolve_slice(&project, status_flag(args)?)?.ok_or(NO_SLICE_FOR_STATUS)?;
+    let crates = SliceCrates::resolve(&project, &slice)?.map_err(|refusal| refusal.reason)?;
+    report_status(&gate_job::status(&project, Phase::Seven, &slice, &crates)?)
+}
+
+/// The failure when `gate-status` is asked about no slice at all.
+const NO_SLICE_FOR_STATUS: &str = "gate-status needs a slice: the branch is not named `lld/<slice>`, and no --slice <name> was given";
+
+/// The `--slice <name>` flag `gate-status` takes, if given; any other argument
+/// is rejected by name, as every subcommand of this tool rejects one.
+///
+/// It is not `slice_flag`: `--job-key` belongs to `phase-check` and to the
+/// detached child alone, and a read-only door that accepted it would be
+/// offering a flag it has nothing to do with.
+fn status_flag(args: &[String]) -> Result<Option<String>, String> {
+    match args {
+        [] => Ok(None),
+        [flag, name] if flag == "--slice" => Ok(Some(name.clone())),
+        [flag] if flag == "--slice" => Err("--slice requires a name".to_string()),
+        [flag, ..] => Err(format!("unknown flag `{flag}` for gate-status; the flag is --slice <name>")),
+    }
+}
+
+/// One `GateStatus` as the command line reads it: `status_line`'s answer,
+/// handed to `announce`. No branch of its own — the `Err` this call answers
+/// with is exactly `status_line`'s, so the run exits zero exactly when there
+/// is nothing failing to report, without this call inspecting which variant
+/// produced it. It starts nothing: the status was already read before it
+/// arrives.
+fn report_status(status: &GateStatus) -> Result<(), String> {
+    announce(&status_line(status)?)
+}
+
+/// What one `GateStatus` says, and whether saying it is this door's own
+/// failure: each of `NoJob`, `Running`, `Foreign(other)` and `Done(Ok(()))`
+/// answers with its own line, no two alike, and `Done(Err(output))` answers
+/// with this call's own `Err` carrying `output` unchanged — the one status
+/// this door cannot report as a pass, since an orchestrating session reads the
+/// exit status to decide whether a failed gate is a failed gate.
+///
+/// It is a decision beside a door rather than inside it, and pure, so which
+/// line a status produces is a fact about a string: a caller can hold it to
+/// `no job` rather than `running` with no process to run and no stdout to
+/// capture.
+#[implements(spec::StatusLineAnswersEveryGateStatusItsOwnLineAndOnlyADoneFailureExitsNonZero)]
+fn status_line(status: &GateStatus) -> Result<String, String> {
+    match status {
+        GateStatus::NoJob => Ok("no job".to_string()),
+        GateStatus::Running => Ok("running".to_string()),
+        GateStatus::Foreign(other) => Ok(format!("blocked by another attempt ({other:?})")),
+        GateStatus::Done(Ok(())) => Ok("done: the gate passed".to_string()),
+        GateStatus::Done(Err(output)) => Err(output.clone()),
+    }
+}
+
+/// One line of a status read to stdout, and the zero exit that goes with it.
+fn announce(line: &str) -> Result<(), String> {
+    println!("{line}");
+    Ok(())
 }
 
 /// What a hook reads from the JSON Claude Code passes on stdin — the
@@ -432,9 +517,11 @@ pub fn hook_post_edit(project: &Project, input: &HookInput) -> Result<HookVerdic
 }
 
 /// `hook stop <n>`: the final message's ending decides — a `stop` block
-/// ends the phase uncommitted; a `commit` block runs the check and, with
-/// integrity intact, commits the phase's paths.
-#[implements(spec::AStopBlockEndsThePhaseWithoutACommit, spec::ACommitBlockRunsThePhasesCheck)]
+/// ends the phase uncommitted; a `commit` block settles the phase's check and,
+/// with integrity intact, commits the phase's paths. Settling it is running it
+/// here at every phase but the seventh, and at Phase 7 reading the answer of a
+/// job another process runs, which may not have one yet.
+#[implements(spec::AStopBlockEndsThePhaseWithoutACommit, spec::ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll)]
 pub fn hook_stop(project: &Project, phase: Phase, input: &HookInput) -> Result<HookVerdict, String> {
     match ending_of(&input.last_message) {
         Err(format) => refuse_stop(project, input, format),
@@ -473,16 +560,37 @@ impl CommitPlan {
     }
 }
 
+/// How a phase's stop ends when it does not fail: the commit it made, or the
+/// key of the detached job whose verdict it is still waiting for.
+///
+/// The wire is blind to the difference — both allow the stop — and the tally,
+/// which records a check for the one and nothing for the other, is what keeps
+/// them apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum GateCommit {
+    /// The phase committed; the commit's hash.
+    Committed(String),
+    /// The gate has not answered yet; the key of the job that will answer.
+    Pending(JobKey),
+}
+
 /// The commit path of the stop hook, as one decision: the phase's plan, then
-/// what `gate_commit` answers with — a commit made, which allows the stop, or
-/// the first failure of everything that had to hold, which becomes the
-/// refusal the agent is kept running with. This is where an `Err` becomes a
-/// `HookVerdict::Refuse`, and nothing is committed after one.
-#[implements(spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves)]
+/// what `gate_commit` answers with — a commit made or a gate still running,
+/// either of which allows the stop, or the first failure of everything that
+/// had to hold, which becomes the refusal the agent is kept running with. This
+/// is where an `Err` becomes a `HookVerdict::Refuse`, and nothing is committed
+/// after one.
+///
+/// A pending ending is not a refusal: nothing was decided against the agent,
+/// so no refusal is spent on it and `HookVerdict` gains no variant for it.
+#[implements(
+    spec::ARefusalCarriesTheOutputTheRuleAndThePermittedMoves,
+    spec::APendingEndingIsAllowedAndTalliedAsNeitherACheckNorARefusal,
+)]
 fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &str) -> Result<HookVerdict, String> {
     let plan = CommitPlan::new(project, phase)?;
     match gate_commit(project, phase, input, message, &plan) {
-        Ok(_) => Ok(HookVerdict::Allow),
+        Ok(GateCommit::Committed(_) | GateCommit::Pending(_)) => Ok(HookVerdict::Allow),
         Err(reason) => refuse_stop(project, input, reason),
     }
 }
@@ -505,54 +613,207 @@ fn commit_phase(project: &Project, phase: Phase, input: &HookInput, message: &st
 /// handed the record and does nothing when there is none. A restore that
 /// itself fails is that failure and not the reason it was recovering from —
 /// a stop that cannot put the attempt back must say so.
+///
+/// The gate is consulted once the tip is undone and before `after_undo` is
+/// ever reached, because at Phase 7 it can answer that nothing has finished
+/// yet: a job still running ends the stop pending, and every ending but the
+/// commit — the refusal and the pending one alike — puts the undone attempt
+/// back before it returns, so the replaced commit's own trailers survive a
+/// poll and not only a refusal.
 #[implements(
     spec::NothingChangedInTheEditingSetIsARefusal,
     spec::AReworkedPhaseReplacesItsCommitRatherThanStackingASecond,
     spec::TheReplacedTipIsUndoneBeforeTheBumpAndTheCheck,
     spec::ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree,
+    spec::APhaseSevenStopActsOnThePollsAnswerWhileEveryOtherPhaseChecksInline,
+    spec::AStartedOrRunningPollEndsTheStopPendingWithTheTipPutBack,
 )]
-fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<String, String> {
+fn gate_commit(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<GateCommit, String> {
     subject_matches(phase, message)?;
     let edited = changed_within(project, &plan.editing)?;
     (!edited.is_empty()).then_some(()).ok_or_else(|| "nothing to commit: no file under this phase's allowed paths changed".to_string())?;
     let replaced = replaced_tip(project, phase)?;
     undo_tip(project, replaced.as_ref())?;
-    after_undo(project, phase, input, message, plan)
-        .and_then(|staged| commit_now(project, phase, input, message, &staged, replaced.as_ref()))
-        .or_else(|reason| restore_tip(project, replaced.as_ref()).and(Err(reason)))
+    match subject_version_matches(project, phase, message).and_then(|()| detached_gate(project, phase, input, plan)) {
+        Ok(None) => after_undo(project, phase, input, message, plan)
+            .and_then(|staged| commit_now(project, phase, input, message, &staged, replaced.as_ref()))
+            .map(GateCommit::Committed)
+            .or_else(|reason| restore_tip(project, replaced.as_ref()).and(Err(reason))),
+        Ok(Some(key)) => restore_tip(project, replaced.as_ref()).map(|()| GateCommit::Pending(key)),
+        Err(reason) => restore_tip(project, replaced.as_ref()).and(Err(reason)),
+    }
+}
+
+/// The Phase 7 subject's version held to the one the bump will write, asked
+/// after the undo and ahead of the poll — and so ahead of the bump itself,
+/// which `gate_job::start` now runs. One decision over the phase: every other
+/// phase commits no release and so carries no version.
+///
+/// It costs no gate and no bump to ask, because the version it holds the
+/// subject to is a pure read of the manifest at `HEAD`. That is what lets it
+/// be asked at every Phase 7 stop — the one that starts the job and the tenth
+/// that finds it still running alike — rather than only at the one that
+/// bumps.
+#[implements(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
+fn subject_version_matches(project: &Project, phase: Phase, message: &str) -> Result<(), String> {
+    match phase {
+        Phase::Seven => subject_carries_version(message, &version_the_bump_will_write(project)?),
+        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => Ok(()),
+    }
+}
+
+/// The version a Phase 7 bump will write, read and never written: the
+/// manifest as committed at `HEAD`, raised one patch level, and the version
+/// line of what that produced — the same two leaves `bump_workspace_version`
+/// runs, with the write between them left out.
+#[implements(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
+fn version_the_bump_will_write(project: &Project) -> Result<String, String> {
+    version_line(&bump_patch_version(&manifest_at_head(project)?)?).map(|(_, version)| version)
+}
+
+/// Whether the stop must wait for a gate it does not run itself: none at every
+/// phase whose check is the inline one `after_undo` runs, and none at Phase 7
+/// once the detached job has settled and passed; the key of the job still
+/// running when it has not.
+///
+/// This is the one place a phase decides how its check is settled. A settled
+/// failure is no answer to wait for: it is this call's own `Err`, the refusal
+/// the stop is kept running with.
+#[implements(spec::APhaseSevenStopActsOnThePollsAnswerWhileEveryOtherPhaseChecksInline)]
+fn detached_gate(project: &Project, phase: Phase, input: &HookInput, plan: &CommitPlan) -> Result<Option<JobKey>, String> {
+    match phase {
+        Phase::Seven => settled_or_pending(project, input, plan, gate_job::poll(project, phase, &plan.crates.slice, &plan.crates)?),
+        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => Ok(None),
+    }
+}
+
+/// What a poll's answer means to the stop that asked: a settled pass goes on
+/// to the staging and the commit, exactly as a passing check always has; a
+/// settled failure is the refusal; a job started or still running is the key
+/// the pending ending carries — nothing ran to a verdict, so nothing is
+/// tallied as a check, and nothing was decided against the agent, so nothing
+/// is tallied as a refusal either.
+///
+/// The check a settled verdict is tallied as is the one `checked` records for
+/// the phases that run it here, so `Lid-Rs-Checks` keeps naming how many times
+/// a phase's check ran to a verdict and not how many times anyone asked for
+/// one.
+#[implements(
+    spec::TheStopCheckEventIsTalliedAtThePollThatSettlesAndAtNoOther,
+    spec::AStartedOrRunningPollEndsTheStopPendingWithTheTipPutBack,
+)]
+fn settled_or_pending(project: &Project, input: &HookInput, plan: &CommitPlan, poll: GatePoll) -> Result<Option<JobKey>, String> {
+    match poll {
+        GatePoll::Done(Ok(())) => settled_pass(project, input),
+        GatePoll::Done(Err(output)) => poll_refusal(project, input, plan, &output),
+        GatePoll::Started | GatePoll::Running => gate_job::key(project, Phase::Seven, &plan.crates.slice, &plan.crates).map(Some),
+    }
+}
+
+/// A settled passing verdict: the check ran to it, so it is tallied like any
+/// other check — the one `Event::StopCheck` a Phase 7 stop leaves, since the
+/// check `checked` would have tallied is the one the detached job already ran
+/// — and nothing is left for the stop to wait on.
+#[implements(spec::TheStopCheckEventIsTalliedAtThePollThatSettlesAndAtNoOther)]
+fn settled_pass(project: &Project, input: &HookInput) -> Result<Option<JobKey>, String> {
+    tally::record(project, &input.agent_id, Event::StopCheck)?;
+    Ok(None)
+}
+
+/// A settled failing verdict: the check ran to it, so it is tallied like any
+/// other check, and the refusal carries the bounded stand-in for the job's own
+/// capture rather than that capture itself — which the keyed result file holds
+/// whole, at an address the stand-in names.
+#[implements(
+    spec::ADoneErrReachesRefusalForThroughTheBoundedStandIn,
+    spec::TheStopCheckEventIsTalliedAtThePollThatSettlesAndAtNoOther,
+)]
+fn poll_refusal(project: &Project, input: &HookInput, plan: &CommitPlan, output: &str) -> Result<Option<JobKey>, String> {
+    tally::record(project, &input.agent_id, Event::StopCheck)?;
+    let key = gate_job::key(project, Phase::Seven, &plan.crates.slice, &plan.crates)?;
+    let bounded = gate_job::bounded_output(project, &key, output)?;
+    Err(refusal_for(project, Phase::Seven, &plan.crates, &bounded))
 }
 
 /// Everything the stop does once the tip is undone, as one item: the synced
-/// artifacts, the hook's own writes (the Phase 7 bump, and the subject held
-/// to the version it produced before a gate is spent on it), the check,
-/// integrity whole — the artifacts again, everything outside the staged set
-/// unchanged, and the bump's own two files still as it wrote them — and then
-/// the staged set itself, the changes within what this phase stages, which at
-/// Phase 7 carries the bump the editing set never admits.
+/// artifacts, the check (`checked` alone at Phases 1 to 5; nothing at Phase 7,
+/// whose bump and subject check already ran ahead of the poll and whose check
+/// the detached job already ran), integrity whole — the artifacts again,
+/// everything outside the staged set unchanged, and the bump's own two files
+/// still as it wrote them — and then the staged set itself, the changes
+/// within what this phase stages, which at Phase 7 carries the bump the
+/// editing set never admits.
+///
+/// Its answer stays the two it has always had — the staged set, or the
+/// failure — because the third ending a stop can reach is decided before this
+/// is ever called: at Phase 7 the gate has already answered `gate_commit` that
+/// it settled, and a gate that has not settled never reaches here at all.
 ///
 /// It is one item because every failure in it is a failure the undo has
 /// already happened for: `gate_commit` hands this call's `Err` to
 /// `restore_tip`, which is the one place the restore is reached. The
-/// integrity claims are this item's for the same reason the bump's are —
-/// answering with a staged set where `synced_artifacts_match`,
-/// `outside_policy_clean` or `bumped_files_untouched` would have failed is
-/// what would make each of them false, and that answer is made here.
+/// integrity claims are this item's because answering with a staged set where
+/// `synced_artifacts_match`, `outside_policy_clean` or `bumped_files_untouched`
+/// would have failed is what would make each of them false, and that answer
+/// is made here. Neither the bump nor the subject-version check is: the bump
+/// runs once, in `gate_job::start`, before this is ever reached, and the
+/// subject-version check runs in `gate_commit`, ahead of the poll and so
+/// ahead of this call too — which is why the commit message this item still
+/// takes goes unread: nothing left inside it needs the subject.
 #[implements(
-    spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead,
-    spec::APhaseSevenSubjectMustCarryTheBumpedVersion,
     spec::TheStopStagesExactlyTheStagedSet,
     spec::SyncedArtifactsMustMatchAtTheStop,
     spec::ChangesOutsideTheStagedSetRefuseTheStop,
     spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote,
 )]
-fn after_undo(project: &Project, phase: Phase, input: &HookInput, message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
+fn after_undo(project: &Project, phase: Phase, input: &HookInput, _message: &str, plan: &CommitPlan) -> Result<Vec<PathBuf>, String> {
     synced_artifacts_match(project)?;
-    let written = hook_writes(project, phase, message)?;
-    checked(project, phase, &plan.crates, &input.agent_id)?;
+    let written = settled_writes(project, phase, input, plan)?;
     synced_artifacts_match(project)?;
     outside_policy_clean(project, phase, &plan.crates)?;
     bumped_files_untouched(project, &written)?;
     changed_within(project, &staged_paths(project, phase, &plan.crates)?)
+}
+
+/// What the hook wrote before the check that settled this stop, as one
+/// decision over the phase: at Phases 1 to 5 nothing, and then the inline
+/// check, exactly as it always ran; at Phase 7 neither, because
+/// `gate_job::start` bumped before it spawned and the detached job has already
+/// run the check `gate_commit` read a settled `Done` from — so the bytes the
+/// bump wrote are read back from the running record that carries them.
+///
+/// Reading them back rather than recomputing them is what `Cargo.lock`
+/// forces: nothing short of running `cargo update` again derives what it must
+/// contain, and comparing the working tree's lock to itself proves nothing.
+#[implements(
+    spec::APhaseSevenStopActsOnThePollsAnswerWhileEveryOtherPhaseChecksInline,
+    spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote,
+)]
+fn settled_writes(project: &Project, phase: Phase, input: &HookInput, plan: &CommitPlan) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    match phase {
+        Phase::Seven => recorded_writes(project, &plan.crates.slice),
+        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => inline_check(project, phase, input, plan),
+    }
+}
+
+/// The bump's two root files as the running record carries them — captured by
+/// `gate_job::running_record` once `gate_job::start` had bumped, and read back
+/// here rather than recomputed at the stop that finally reads `Done`.
+#[implements(spec::TheBumpedRootFilesMustStillEqualWhatTheBumpWrote)]
+fn recorded_writes(project: &Project, slice: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    let record = gate_job::read_record(project, slice)?.ok_or_else(|| format!("no gate job is recorded for {slice} in this checkout, so nothing names what the bump wrote"))?;
+    let gate_job::JobRecord::Running { version_files, .. } = record;
+    Ok(version_files)
+}
+
+/// The phase's check, run here and blocked on: the path every phase but the
+/// seventh still takes, unchanged. Nothing is written before it — Phases 1 to
+/// 5 commit no release — so there is nothing to hold the integrity pass to
+/// afterward.
+#[implements(spec::ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll)]
+fn inline_check(project: &Project, phase: Phase, input: &HookInput, plan: &CommitPlan) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
+    checked(project, phase, &plan.crates, &input.agent_id)?;
+    Ok(Vec::new())
 }
 
 /// The branch tip as it reads, from one `git log -1`: the hash the undo and
@@ -747,30 +1008,6 @@ pub fn restore_tip(project: &Project, replaced: Option<&Replaced>) -> Result<(),
     }
 }
 
-/// What the hook itself writes before the check, each file as it left it:
-/// at Phase 7 the release bump's two root files; at every other phase
-/// nothing, since Phases 2 to 5 commit no release. One decision over the
-/// phase.
-#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead)]
-fn hook_writes(project: &Project, phase: Phase, message: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
-    match phase {
-        Phase::Seven => release_writes(project, message),
-        Phase::One | Phase::Two | Phase::Three | Phase::Four | Phase::Five => Ok(Vec::new()),
-    }
-}
-
-/// Phase 7's writes: the bump, the subject held to the version it produced —
-/// before the check, so a wrong subject costs a second and not a gate — and
-/// the files the bump wrote, read back as it left them for the integrity
-/// pass after the check to hold them to. The phase is `hook_writes`'
-/// decision, already made: this is what it writes at Phase 7.
-#[implements(spec::PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead, spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
-fn release_writes(project: &Project, message: &str) -> Result<Vec<(PathBuf, Vec<u8>)>, String> {
-    let version = bump_workspace_version(project)?;
-    subject_carries_version(message, &version)?;
-    contents_of(project, &hook_written_paths(Phase::Seven))
-}
-
 /// The Phase 7 stop's bump: the root manifest as committed at `HEAD` — never
 /// the working tree's, so a refused stop's second bump writes the same
 /// version — raised one patch level by `bump_patch_version`, written to the
@@ -888,9 +1125,10 @@ pub fn next_patch(version: &str) -> Result<String, String> {
 
 /// The `<version>` field of a `phase 7: <version>: <what and why>` subject —
 /// what stands between the tag's colon and the next — or none when the
-/// subject has no such field; the hook compares it against the bump's answer
-/// after the bump and before the check.
-#[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+/// subject has no such field; the hook compares it against
+/// `version_the_bump_will_write`'s answer, before the poll and so before the
+/// bump itself.
+#[implements(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
 pub fn subject_version(subject: &str) -> Option<String> {
     let (_, after_tag) = subject.split_once(':')?;
     after_tag.split_once(':').map(|(version, _)| version.trim().to_string())
@@ -900,7 +1138,7 @@ pub fn subject_version(subject: &str) -> Option<String> {
 /// output is captured whole (the gate's engines write to stdout, which is
 /// this hook's channel to Claude Code); a failure becomes the refusal,
 /// naming the permitted paths of both the slice's crates.
-#[implements(spec::ACommitBlockRunsThePhasesCheck)]
+#[implements(spec::ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll)]
 fn checked(project: &Project, phase: Phase, crates: &SliceCrates, agent: &str) -> Result<(), String> {
     tally::record(project, agent, Event::StopCheck)?;
     let n = policy::number_of(phase).to_string();
@@ -1150,26 +1388,35 @@ pub fn check_red(project: &Project, slice: &str) -> Result<(), String> {
     red_verdict(&unvalidated(&red, &outcomes), &outcomes)
 }
 
-/// `phase-check`'s arguments: the phase number, then optionally
-/// `--slice <name>`; any other flag is rejected by name.
+/// `phase-check`'s arguments: the phase number, then the slice and the job key
+/// its flags name; any other flag is rejected by name.
 #[implements(spec::TheSliceComesFromTheBranchName)]
-fn parse_args(args: &[String]) -> Result<(Phase, Option<String>), String> {
+fn parse_args(args: &[String]) -> Result<(Phase, Option<String>, Option<String>), String> {
     let (first, rest) = args.split_first().ok_or(PHASE_CHECK_USAGE)?;
     let phase = first
         .parse::<u8>()
         .map_err(|_| format!("`{first}` is not a phase number\n{PHASE_CHECK_USAGE}"))
         .and_then(Phase::try_from)?;
-    Ok((phase, slice_flag(rest)?))
+    let (slice, job_key) = slice_flag(rest)?;
+    Ok((phase, slice, job_key))
 }
 
-/// The `--slice <name>` flag, if given; anything else is rejected by name.
-#[implements(spec::TheSliceComesFromTheBranchName)]
-fn slice_flag(rest: &[String]) -> Result<Option<String>, String> {
+/// The flags after the phase number, as one decision over the forms they come
+/// in: the slice `--slice <name>` gives, and the job key `--job-key <hash>`
+/// gives — which `gate_job::start` appends when it spawns the detached job and
+/// no other caller ever writes, so every form a human or CI types answers with
+/// no key. Anything else is rejected by name, and a flag given without its
+/// value is rejected naming what it wanted.
+#[implements(spec::TheSliceComesFromTheBranchName, spec::AnAbsentJobKeyRunsTheCheckInlineAndAPresentOneRunsTheJob)]
+fn slice_flag(rest: &[String]) -> Result<(Option<String>, Option<String>), String> {
     match rest {
-        [] => Ok(None),
-        [flag, name] if flag == "--slice" => Ok(Some(name.clone())),
+        [] => Ok((None, None)),
+        [flag, name] if flag == "--slice" => Ok((Some(name.clone()), None)),
+        [flag, hash] if flag == "--job-key" => Ok((None, Some(hash.clone()))),
+        [slice, name, job, hash] if slice == "--slice" && job == "--job-key" => Ok((Some(name.clone()), Some(hash.clone()))),
         [flag] if flag == "--slice" => Err("--slice requires a name".to_string()),
-        [flag, ..] => Err(format!("unknown flag `{flag}` for phase-check; the only flag is --slice <name>")),
+        [flag] if flag == "--job-key" => Err("--job-key requires a hash".to_string()),
+        [flag, ..] => Err(format!("unknown flag `{flag}` for phase-check; the flags are --slice <name> and --job-key <hash>")),
     }
 }
 
@@ -2146,9 +2393,9 @@ mod tests {
     #[test]
     #[validates(spec::TheSliceComesFromTheBranchName)]
     fn phase_check_takes_the_phase_and_an_optional_slice() {
-        assert_eq!(parse_args(&strings(&["5"])).expect("parses"), (Phase::Five, None));
+        assert_eq!(parse_args(&strings(&["5"])).expect("parses"), (Phase::Five, None, None));
         let with_slice = parse_args(&strings(&["5", "--slice", "login"])).expect("parses");
-        assert_eq!(with_slice, (Phase::Five, Some("login".to_string())));
+        assert_eq!(with_slice, (Phase::Five, Some("login".to_string()), None));
     }
 
     #[test]
@@ -2637,14 +2884,25 @@ diff --git a/src/spec/hello.rs b/src/spec/hello.rs
     }
 
     #[test]
-    #[validates(spec::ACommitBlockRunsThePhasesCheck)]
+    #[validates(spec::ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll)]
     fn a_commit_block_runs_the_phases_check() {
         let (dir, project) = fixture::copy("commit-check");
         std::fs::write(dir.join("src/hello.rs"), "//! Broken.\n\n/// Greets.\npub fn greet() -> u32 {\n    \"hello\"\n}\n").expect("write");
         let before = fixture::head(&dir);
+        // At every phase but the seventh the check is run here, inline, and a
+        // failing one refuses the stop with its output.
         let verdict = hook_stop(&project, Phase::Three, &fixture::stop_input("c", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
         assert!(refuses(&verdict, "E0308"), "a failing check refuses the stop with its output: {verdict:?}");
         assert_eq!(fixture::head(&dir), before, "nothing was committed");
+        // At the seventh the same check is settled from `gate_job::poll`'s
+        // answer for a job another process runs, and a verdict that failed
+        // there refuses the stop exactly as an inline one does — through
+        // `refusal_for`, and before anything is committed.
+        let plan = CommitPlan::new(&project, Phase::Seven).expect("the plan");
+        let settled = GatePoll::Done(Err("Mutants failed: 16 mutant(s) survived their validating tests".to_string()));
+        let refusal = settled_or_pending(&project, &fixture::stop_input("c", ""), &plan, settled).expect_err("a settled failure is the refusal");
+        assert!(refusal.contains("survived") && refusal.contains("```stop"), "the failing output, the rule, and the permitted moves: {refusal}");
+        assert_eq!(fixture::head(&dir), before, "and nothing was committed on that verdict either");
     }
 
     #[test]
@@ -2765,26 +3023,21 @@ version = \"0.2.8\"
     fn phase_sevens_stop_bumps_the_patch_version_from_the_manifest_at_head() {
         let (dir, project) = fixture::versioned("bump-at-the-stop");
         let before = fixture::head(&dir);
-        // An edit the editing set admits, so the stop passes the
-        // nothing-to-commit test — which is asked ahead of the bump — and
-        // reaches the bump this asks about.
-        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets, warmly.\npub fn greet() -> &'static str {\n    \"hello there\"\n}\n")
-            .expect("write");
-        // A subject naming the wrong version is refused after the bump and
-        // before the check, so the stop is observed at the bump alone.
-        let stop = fixture::stop_input("b", "```commit\nphase 7: 9.9.9: warmth\n```\n");
-        let verdict = hook_stop(&project, Phase::Seven, &stop).expect("hook");
-        assert!(refuses(&verdict, "0.1.1"), "the bump produced 0.1.1: {verdict:?}");
-        assert!(fixture::tree_holds(&dir, "0.1.1"), "one patch level above HEAD's 0.1.0");
-        // Refused, the tree keeps the bump; the next stop of the same phase
-        // reads HEAD again and writes the same version — not 0.1.2, and not
-        // whatever the tree says meanwhile.
+        // The bump a Phase 7 stop pays for is the first move of
+        // `gate_job::start`, and is asked for here directly: a stop that
+        // reaches the bump reaches the child spawned one move later, and what
+        // this asks about is the version written, not a process started.
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1", "one patch level above the 0.1.0 the manifest holds at HEAD");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "written to the working tree");
+        // The tree says something else meanwhile — the state a bump left
+        // behind by a job nobody polled again reaches. The next bump reads
+        // `HEAD` all the same, so a second bump before any commit writes the
+        // same version: not 0.1.2, and not whatever the tree now says.
         let manifest = std::fs::read_to_string(dir.join("Cargo.toml")).expect("manifest");
         std::fs::write(dir.join("Cargo.toml"), manifest.replacen("0.1.1", "5.5.5", 1)).expect("write");
-        hook_stop(&project, Phase::Seven, &stop).expect("hook");
-        assert!(fixture::tree_holds(&dir, "0.1.1"), "the second bump reads the manifest at HEAD, not the tree's");
-        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1", "and so does a third, asked directly");
-        assert_eq!(fixture::head(&dir), before, "nothing was committed");
+        assert_eq!(bump_workspace_version(&project).expect("bumps"), "0.1.1", "read from the manifest at HEAD, never from the tree's");
+        assert!(fixture::tree_holds(&dir, "0.1.1"), "which is what the tree then holds again");
+        assert_eq!(fixture::head(&dir), before, "and nothing was committed, so a third bump would answer the same");
     }
 
     #[test]
@@ -2802,8 +3055,8 @@ version = \"0.2.8\"
     }
 
     #[test]
-    #[validates(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
-    fn a_phase_seven_subject_must_carry_the_bumped_version_before_the_check() {
+    #[validates(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
+    fn a_phase_seven_subject_is_held_to_the_version_the_bump_will_write_before_the_poll() {
         let (dir, project) = fixture::versioned("subject-version");
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n\n/// Greets.\npub fn greet() -> &'static str {\n    \"hi\"\n}\n").expect("write");
         let before = fixture::head(&dir);
@@ -3097,6 +3350,150 @@ version = \"0.2.8\"
         let verdict = edit_verdict_in(&dir, &project, Phase::Five, "owner/src/m.rs");
         assert!(refuses(&verdict, COMPANION_KEY) && refuses(&verdict, "nowhere"), "{verdict:?}");
         assert!(refuses(&edit_verdict_in(&dir, &project, Phase::Two, "owner/src/spec/m.rs"), COMPANION_KEY));
+    }
+
+    /// A tree the check rejects, in the one file the editing set admits, so a
+    /// stop that reaches its check is refused with the compiler's own words
+    /// and a stop that never reaches one is not.
+    fn a_slice_the_check_rejects(dir: &Path) {
+        std::fs::write(dir.join("src/hello.rs"), "//! The hello slice.\n\n/// Greets.\npub fn greet() -> u32 {\n    \"hello\"\n}\n").expect("write");
+    }
+
+    #[test]
+    #[validates(spec::APhaseSevenStopActsOnThePollsAnswerWhileEveryOtherPhaseChecksInline)]
+    fn a_phase_seven_stop_acts_on_the_polls_answer_while_every_other_phase_checks_inline() {
+        let (dir, project) = fixture::versioned("acts-on-the-poll");
+        a_slice_the_check_rejects(&dir);
+        let before = fixture::head(&dir);
+        // Every phase but the seventh runs its check here and blocks on it.
+        let three = hook_stop(&project, Phase::Three, &fixture::stop_input("i", "```commit\nphase 3: skeleton for hello\n```\n")).expect("hook");
+        assert!(refuses(&three, "E0308"), "the inline check ran, and its output is the refusal: {three:?}");
+        // The seventh acts on what the poll answers instead — asked before
+        // `after_undo`, and so before the check that phase no longer runs here.
+        let seven = hook_stop(&project, Phase::Seven, &fixture::stop_input("i", "```commit\nphase 7: 0.1.1: hello gated\n```\n")).expect("hook");
+        assert_eq!(seven, HookVerdict::Allow, "no verdict had been reached, so the stop ends pending rather than on a check of its own: {seven:?}");
+        assert_eq!(fixture::head(&dir), before, "and nothing is committed on a gate that has not answered");
+    }
+
+    #[test]
+    #[validates(spec::TheStopCheckEventIsTalliedAtThePollThatSettlesAndAtNoOther)]
+    fn the_stop_check_event_is_tallied_at_the_poll_that_settles_and_at_no_other() {
+        let (_dir, project) = fixture::copy("poll-tally");
+        let plan = CommitPlan::new(&project, Phase::Seven).expect("the plan");
+        // A verdict read is a check that ran to one.
+        settled_or_pending(&project, &fixture::stop_input("settled", ""), &plan, GatePoll::Done(Ok(()))).expect("a settled pass goes on to the staging");
+        assert_eq!(tally::load(&project, "settled").expect("tally").stop_checks, 1, "the check ran to a finished verdict");
+        // A job just started, or one still running, is no verdict at all.
+        for (agent, poll) in [("started", GatePoll::Started), ("running", GatePoll::Running)] {
+            settled_or_pending(&project, &fixture::stop_input(agent, ""), &plan, poll).expect("the key the pending ending carries");
+            assert_eq!(tally::load(&project, agent).expect("tally").stop_checks, 0, "nothing ran to a verdict, so nothing is tallied as a check");
+        }
+        // And a settled failure is a verdict like any other.
+        let failing = GatePoll::Done(Err("Mutants failed: 16 mutant(s) survived their validating tests".to_string()));
+        settled_or_pending(&project, &fixture::stop_input("failed", ""), &plan, failing).expect_err("a settled failure is the refusal");
+        assert_eq!(tally::load(&project, "failed").expect("tally").stop_checks, 1, "which `Lid-Rs-Checks` counts as the check it was");
+    }
+
+    #[test]
+    #[validates(spec::AStartedOrRunningPollEndsTheStopPendingWithTheTipPutBack, spec::APendingEndingIsAllowedAndTalliedAsNeitherACheckNorARefusal)]
+    fn a_started_or_running_poll_ends_the_stop_pending_with_the_tip_put_back() {
+        let (dir, project) = fixture::versioned("poll-pending");
+        let plan = CommitPlan::new(&project, Phase::Seven).expect("the plan");
+        let key = gate_job::key(&project, Phase::Seven, "hello", &plan.crates).expect("the key");
+        for poll in [GatePoll::Started, GatePoll::Running] {
+            let pending = settled_or_pending(&project, &fixture::stop_input("p", ""), &plan, poll).expect("the pending ending");
+            assert_eq!(pending, Some(key.clone()), "the key of the job that will answer, which the ending carries");
+        }
+        // The tip a reviewer rejected, and a second round of work over it: the
+        // stop undoes that tip before it asks the gate, and a gate that has not
+        // answered must leave the branch exactly as the stop found it.
+        let attempt = fixture::commit_with_body(&dir, "phase 7: 0.1.1: hello gated", &fixture::trailer_block(7, "first", 0));
+        let (message, commits) = (fixture::message(&dir), fixture::commits(&dir));
+        a_slice_the_check_rejects(&dir);
+        let verdict = hook_stop(&project, Phase::Seven, &fixture::stop_input("p", "```commit\nphase 7: 0.1.1: hello gated\n```\n")).expect("hook");
+        assert_eq!(verdict, HookVerdict::Allow, "the agent proposed a commit and nothing was decided against it: {verdict:?}");
+        assert_eq!(fixture::commits(&dir), commits, "nothing committed, and nothing stacked");
+        assert_ne!(fixture::head(&dir), attempt, "the undone attempt is back under a new hash");
+        assert_eq!(fixture::message(&dir), message, "carrying the record the poll that finally settles will add to");
+        let tally = tally::load(&project, "p").expect("tally");
+        assert_eq!((tally.stop_checks, tally.stop_refusals), (0, 0), "and no refusal is spent on a gate that has not answered, nor any check counted");
+    }
+
+    #[test]
+    #[validates(spec::ADoneErrReachesRefusalForThroughTheBoundedStandIn)]
+    fn a_done_err_reaches_refusal_for_through_the_bounded_stand_in() {
+        let (_dir, project) = fixture::copy("poll-refusal");
+        let plan = CommitPlan::new(&project, Phase::Seven).expect("the plan");
+        let head = "the first thing the failing step wrote";
+        let capture = format!("Mutants failed: {head}\n{}\n16 mutant(s) survived their validating tests\n", "filler ".repeat(4000));
+        let poll = GatePoll::Done(Err(capture.clone()));
+        let refusal = settled_or_pending(&project, &fixture::stop_input("b", ""), &plan, poll).expect_err("a settled failure is the refusal");
+        assert!(refusal.contains("16 mutant(s) survived"), "the stand-in's kept tail, which names the check that fired: {refusal}");
+        assert!(!refusal.contains(head), "and never the raw capture, which the result file holds whole at an address the stand-in names");
+        assert!(refusal.len() < capture.len(), "bounded however large the failing step's own output is");
+    }
+
+    #[test]
+    #[validates(spec::AnAbsentJobKeyRunsTheCheckInlineAndAPresentOneRunsTheJob)]
+    fn an_absent_job_key_runs_the_check_inline_and_a_present_one_runs_the_job() {
+        // Absent — a human's or CI's own call: `check` runs in this process and
+        // this call blocks on it, so a step of the plan is what answers.
+        let inline = run(&strings(&["1", "--slice", "no-slice-of-this-workspace"])).expect_err("the check ran here");
+        assert!(inline.contains("LldChecks"), "a step of the phase's own plan: {inline}");
+        // Present — the flag only `gate_job::start` sets: the job runs instead,
+        // and one whose key the tree cannot match runs no step of any plan.
+        let given = "a hash this tree cannot key to";
+        let job = run(&strings(&["7", "--slice", "phase", "--job-key", given])).expect_err("the tree no longer keys to the job this names");
+        assert!(job.contains(given), "the job's own answer, naming the hash it was given: {job}");
+        assert!(!job.contains("failed:"), "and no step of the gate ran: {job}");
+    }
+
+    #[test]
+    #[validates(spec::StatusLineAnswersEveryGateStatusItsOwnLineAndOnlyADoneFailureExitsNonZero)]
+    fn status_line_answers_every_gate_status_its_own_line_and_only_a_done_failure_exits_non_zero() {
+        // A key built here rather than read from a checkout: the door is pure,
+        // so a blocking attempt is five fields and no job ever runs.
+        let blocking = JobKey {
+            checkout: PathBuf::from("/another/checkout"),
+            head: "another tip".to_string(),
+            base: "a base".to_string(),
+            slice: "hello".to_string(),
+            fingerprint: "another tree".to_string(),
+        };
+        // The four statuses this door reports without failing. Which words each
+        // answers with is the door's own wording, which a caller may reword;
+        // that no two of them read alike is the claim, since a caller waits on
+        // one and stops waiting on another.
+        let reported = [GateStatus::NoJob, GateStatus::Running, GateStatus::Foreign(blocking.clone()), GateStatus::Done(Ok(()))];
+        let lines: Vec<String> = reported
+            .iter()
+            .map(|status| status_line(status).expect("no status but a finished failure is a failure of this door's own"))
+            .collect();
+        for (at, line) in lines.iter().enumerate() {
+            assert!(!lines[at + 1..].contains(line), "{:?} and a later status both answer `{line}`", reported[at]);
+        }
+        // And the foreign line names *that* key: a line that did not would read
+        // the same whichever attempt is holding the slice, which is the one
+        // thing the caller of a `Foreign` read has to learn.
+        let blocked = &lines[2];
+        let elsewhere = [
+            JobKey { checkout: blocking.checkout.join("elsewhere"), ..blocking.clone() },
+            JobKey { head: format!("{} moved", blocking.head), ..blocking.clone() },
+            JobKey { base: format!("{} moved", blocking.base), ..blocking.clone() },
+            JobKey { slice: format!("{}-again", blocking.slice), ..blocking.clone() },
+            JobKey { fingerprint: format!("{} edited", blocking.fingerprint), ..blocking.clone() },
+        ];
+        for other in elsewhere {
+            let line = status_line(&GateStatus::Foreign(other.clone())).expect("a live job under another key is nothing to fail over");
+            assert_ne!(&line, blocked, "a foreign line that does not move with the key it carries is naming no key: {other:?}");
+        }
+        // The one status this door cannot report as a pass. `report_status`
+        // hands this `Err` straight on, so the exit status an orchestrating
+        // session reads is non-zero exactly here — carrying what the failing
+        // step wrote, not a word about it.
+        let output = "Mutants failed: 16 mutant(s) survived their validating tests";
+        let failed = status_line(&GateStatus::Done(Err(output.to_string())));
+        assert_eq!(failed, Err(output.to_string()), "this call's own `Err`, carrying the finished job's output unchanged");
     }
 }
 

@@ -88,12 +88,12 @@ pub fn subject_matches(phase: Phase, message: &str) -> Result<(), String> {
     }
 }
 
-/// A Phase 7 commit message's subject must carry the version the bump
-/// produced (`phase 7: <version>: <what and why>`, read by
+/// A Phase 7 commit message's subject must carry the version the bump will
+/// write (`phase 7: <version>: <what and why>`, read by
 /// [`subject_version`](super::subject_version)); a subject naming another
 /// version, or none, is refused naming both versions — a separate rule from
-/// the tag's, and asked after the bump and before the check.
-#[implements(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
+/// the tag's, asked ahead of the poll and so ahead of the bump itself.
+#[implements(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
 pub fn subject_carries_version(message: &str, version: &str) -> Result<(), String> {
     let subject = subject_of(message);
     match super::subject_version(subject) {
@@ -353,8 +353,8 @@ mod tests {
     }
 
     #[test]
-    #[validates(spec::APhaseSevenSubjectMustCarryTheBumpedVersion)]
-    fn a_phase_seven_subject_must_carry_the_bumped_version() {
+    #[validates(spec::APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll)]
+    fn a_phase_seven_subject_is_held_to_the_version_the_bump_will_write_before_the_poll() {
         assert_eq!(crate::phase::subject_version("phase 7: 0.3.0: the thing"), Some("0.3.0".to_string()));
         assert_eq!(crate::phase::subject_version("phase 7: the thing"), None, "no version field");
         subject_carries_version("phase 7: 0.3.0: the thing\n\nbody", "0.3.0").expect("the bump's version");

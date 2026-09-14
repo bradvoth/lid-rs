@@ -16,7 +16,7 @@ pub mod sync;
 use lid_rs::implements;
 
 /// Usage shown for missing or unknown subcommands.
-const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <pre-tool | post-edit | stop>>";
+const USAGE: &str = "usage: cargo lid-rs <mutants [--full] [--diff-base <ref>] | init [--lid-rs-path <dir>] | new <name> [--lid-rs-path <dir>] | sync [--check] | phase-check <n> [--slice <name>] | gate-status [--slice <name>] | lld-check [--slice <name>] | canopy [--slice <name>] [--door <url>] [--max-cost <amount>] | coach [--package <name> | --workspace] [--slice <name>] [--door <url>] [--max-cost <amount>] | hook <pre-tool | post-edit | stop>>";
 
 /// The name cargo inserts as the first argument when it runs an external
 /// subcommand: `cargo lid-rs mutants` arrives as `["lid-rs", "mutants"]`.
@@ -46,6 +46,7 @@ fn dispatch(args: &[String]) -> Result<(), String> {
         Some("new") => init::run_new(&args[1..]),
         Some("sync") => sync::run(&args[1..]),
         Some("phase-check") => phase::run(&args[1..]),
+        Some("gate-status") => phase::gate_status(&args[1..]),
         Some("lld-check") => lld_review::run(&args[1..]),
         Some("canopy") => headless_canopy_agent::run(&args[1..]),
         Some("coach") => coach::run(&args[1..]),

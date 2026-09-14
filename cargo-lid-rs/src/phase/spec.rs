@@ -473,12 +473,33 @@ pub struct AStopBlockEndsThePhaseWithoutACommit;
 #[lid(free)]
 pub struct ACommitSubjectMustCarryThisPhasesTag;
 
+// The claim below is the seventh rewording this file records, and the one that
+// belongs to the detached gate's red set rather than to the rework rows' —
+// the two counts are disjoint by scope, so a reader counting every rewording
+// here finds seven. Its old sentence said the hook "shall run the phase's
+// check", which stops being true the moment a Phase 7 stop can instead start,
+// or read the outcome of, a check another process ran. A rename with the
+// retired name kept beside it as a `#[deprecated]` alias, by the rule the
+// earlier six follow; the mark stays because its one validator keeps the
+// retired name, and check 14 exempts a validator's name solely while every
+// claim it cites is marked free.
+
 /// When the final message carries a `commit` block with this phase's tag,
-/// the hook shall run the phase's check, and a failing check shall refuse
-/// the stop.
+/// the hook shall settle that phase's check before anything is committed —
+/// run inline by `checked` at every phase but the seventh, and at Phase 7
+/// read from `gate_job::poll`'s answer for a job another process runs — and a
+/// check that fails shall refuse the stop.
 #[derive(Spec)]
 #[lid(free)]
-pub struct ACommitBlockRunsThePhasesCheck;
+pub struct ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll;
+
+/// The name [`ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll`]
+/// carried while every phase's stop ran its check inline. The alias registers
+/// no claim, so the graph sees only the claim it points at; every citation of
+/// this name warns with its replacement, and those citations are the later
+/// phases' work list.
+#[deprecated = "replaced by ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll"]
+pub type ACommitBlockRunsThePhasesCheck = ACommitBlockSettlesThePhasesCheckDirectlyOrThroughThePoll;
 
 /// When a check fails, the refusal's reason shall be, in order, the failing
 /// step's output, the `gates.md` row for the check that fired, and what the
@@ -624,18 +645,22 @@ pub struct TheBumpedRootFilesMustStillEqualWhatTheBumpWrote;
 //
 // A `phase 7:` commit is where a slice becomes a release candidate, and
 // packaging a version a registry already holds is a publish that cannot
-// happen. So the Phase 7 stop raises the workspace version before the check,
-// from the manifest at `HEAD` — which is what makes a refused stop's second
-// bump answer the same version. Every claim here is written in the
-// controlled language and carries no mark. The subject-version refusal is a
-// sibling of `ACommitSubjectMustCarryThisPhasesTag`, which is about the tag
-// and says nothing about a version.
+// happen. So the workspace version is raised from the manifest at `HEAD` —
+// which is what makes a refused stop's second bump answer the same version.
+// *Where* that bump runs in a stop's order is `gate_job::start`'s business
+// and no claim here: it is the first of that leaf's five moves, one statement
+// ahead of the spawn, so a clause about when it runs would be provable only
+// by driving a stop through to a real child. What the bump writes needs no
+// such drive, and that is what the first claim below says. Every claim here
+// is written in the controlled language and carries no mark. The
+// subject-version refusal is a sibling of
+// `ACommitSubjectMustCarryThisPhasesTag`, which is about the tag and says
+// nothing about a version.
 
 /// When [`bump_workspace_version`](crate::phase::bump_workspace_version)
-/// runs for a Phase 7 stop before the check, the version it writes to the
-/// working tree shall be one patch level above the workspace `version` the
-/// root manifest holds as committed at `HEAD`, so a second bump before any
-/// commit writes the same version again.
+/// runs, the version it writes to the working tree shall be one patch level
+/// above the workspace `version` the root manifest holds as committed at
+/// `HEAD`, so a second bump before any commit writes the same version again.
 #[derive(Spec)]
 pub struct PhaseSevensStopBumpsThePatchVersionFromTheManifestAtHead;
 
@@ -662,12 +687,34 @@ pub struct AManifestTheBumpCannotReadFailsNamingWhatItLookedFor;
 #[derive(Spec)]
 pub struct TheBumpUpdatesTheLockForTheMembersAloneOffline;
 
+// The claim below is the ninth rewording this file records, and the only one
+// belonging to neither red set. Its old sentence ended "after the bump and
+// before the check runs" — an order the code reverses rather than narrows,
+// since `gate_commit` asks this check before the poll, and so before the
+// bump `gate_job::start` runs — which is what makes it a rename with the
+// retired name kept beside it as a `#[deprecated]` alias, by the rule the
+// earlier eight follow, rather than a clause dropped in place. No reddening
+// case is owed for it: `subject_version_matches` and
+// `version_the_bump_will_write` both predate the detached gate, are
+// implemented, and are already validated against the order the sentence now
+// states, so no skeleton stands under them to answer it wrongly.
+
 /// When the version [`subject_version`](crate::phase::subject_version) reads
-/// from a Phase 7 `commit` block's subject is not the one the bump produced,
-/// the stop shall be refused naming both versions — after the bump and
-/// before the check runs.
+/// from a Phase 7 `commit` block's subject is not the one
+/// `version_the_bump_will_write` computes from the manifest at `HEAD` without
+/// running the bump, the stop shall be refused naming both versions — before
+/// the poll, and so before any job begins.
 #[derive(Spec)]
-pub struct APhaseSevenSubjectMustCarryTheBumpedVersion;
+pub struct APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll;
+
+/// The name [`APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll`]
+/// carried while the subject was compared after the bump had already run. The
+/// alias registers no claim, so the graph sees only the claim it points at;
+/// every citation of this name warns with its replacement, and those
+/// citations are the later phases' work list.
+#[deprecated = "replaced by APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll"]
+pub type APhaseSevenSubjectMustCarryTheBumpedVersion =
+    APhaseSevenSubjectIsHeldToTheVersionTheBumpWillWriteBeforeThePoll;
 
 // The claim below is the sixth rewording this file records — a rename with the
 // retired name kept beside it as a `#[deprecated]` alias, by the rule the
@@ -836,6 +883,315 @@ pub struct ARefusedStopRestoresTheUndoneAttemptFromTheReplacedCommitsTree;
 /// commit's work is never filed under counts nobody kept.
 #[derive(Spec)]
 pub struct ATrailerLineTheRendererCouldNotHaveWrittenFailsNamingTheLine;
+
+// ---- the gate runs detached: one job, one record, one poll, one key ------------
+//
+// No execution substrate holds a call open for the length of the Phase 7 plan:
+// Claude Code ends a subagent that makes no stream progress for 600 seconds,
+// the canopy client's tool credential lasts ten minutes with no renewal, and
+// `phase-check 7` end to end is 1087 seconds here. So the whole plan — every
+// step `plan` returns, in the order it returns them, `gate_extra` included —
+// runs as one detached job, and a Phase 7 stop either reads a finished result
+// under a key it computes fresh and commits exactly as it always did, or
+// starts the job and ends `Pending`, a third ending that commits nothing and
+// refuses nothing. The claims below are that job's key and fingerprint, its
+// record and its scratch paths, its own runner, the decisions a poll makes
+// over what the record says, the read-only door an orchestrating session
+// reads instead of a worker's word about the gate, and the bounded stand-in a
+// failing job's refusal carries in place of a capture that once reached
+// 1.3 MB. Every one is written in the controlled language and carries no mark.
+//
+// Three things this design records are stated limits and no claim of any of
+// these: a bump left behind by a job nobody polls again, a published-version
+// collision the key does not close, and a result file the code the check
+// executes could write for itself.
+
+/// When [`gate_commit`](crate::phase::gate_commit) reaches the check at a
+/// Phase 7 stop, the answer it acts on shall be `gate_job::poll`'s over the
+/// whole plan — asked before `after_undo` is ever called — while at every
+/// other phase it goes on to `after_undo` and the inline `checked` call
+/// unchanged.
+#[derive(Spec)]
+pub struct APhaseSevenStopActsOnThePollsAnswerWhileEveryOtherPhaseChecksInline;
+
+/// When [`gate_commit`](crate::phase::gate_commit) reads a settled `Done` from
+/// the poll at a Phase 7 stop, the tally that stop leaves shall carry one
+/// `Event::StopCheck` for the verdict it read and none for a stop whose poll
+/// answered `Started` or `Running`, so `Lid-Rs-Checks` names how many times a
+/// phase's check ran to a finished verdict.
+#[derive(Spec)]
+pub struct TheStopCheckEventIsTalliedAtThePollThatSettlesAndAtNoOther;
+
+/// When [`poll`](crate::phase::gate_job::poll) answers `Started` or `Running`
+/// at a Phase 7 stop, [`gate_commit`](crate::phase::gate_commit) shall end
+/// with `GateCommit::Pending` carrying that key — the tip it undid put back,
+/// nothing staged and nothing committed — so a job still running leaves the
+/// branch as the stop found it.
+#[derive(Spec)]
+pub struct AStartedOrRunningPollEndsTheStopPendingWithTheTipPutBack;
+
+/// When [`commit_phase`](crate::phase::commit_phase) is handed a `Pending`
+/// ending, the verdict it answers with shall be `HookVerdict::Allow` — the
+/// value a `Committed` ending produces — with no numbered decisions, no
+/// proposed message, no refusal reason, and neither `Event::StopCheck` nor
+/// `Event::StopRefusal` tallied for it.
+#[derive(Spec)]
+pub struct APendingEndingIsAllowedAndTalliedAsNeitherACheckNorARefusal;
+
+/// When [`key`](crate::phase::gate_job::key) computes the key a poll holds a
+/// record to, the value it answers with shall carry the checkout's canonical
+/// path, the branch tip's hash, `mutation_base`'s answer, the slice's name and
+/// `fingerprint`'s answer, so one attempt's result is told from another's.
+#[derive(Spec)]
+pub struct TheKeyCarriesTheCheckoutTheTipTheBaseTheSliceAndTheFingerprint;
+
+/// When [`act`](crate::phase::gate_job::act) is handed a record whose key
+/// differs from the fresh key in any one part — the checkout, the tip, the
+/// base, the slice or the fingerprint — the outcome written under that other
+/// key shall be no `Done` of this poll's, so an edit made after a job started
+/// is never settled by the result that job was started for.
+#[derive(Spec)]
+pub struct AKeyDifferingInAnyOnePartIsNeverThisPollsDone;
+
+/// When [`key`](crate::phase::gate_job::key) fingerprints the phase's editing
+/// set, the entries it hands `fingerprint` shall be
+/// `policy::workspace_paths(project, phase, crates)`'s answer — which is why
+/// `key` takes the phase and the crates beside the project and the slice — so
+/// two phases whose editing sets differ hold one tree to two keys.
+#[derive(Spec)]
+pub struct TheKeyFingerprintsThePhasesOwnEditingSetTakingThePhaseAndTheCrates;
+
+/// When [`fingerprint`](crate::phase::gate_job::fingerprint) walks the entries
+/// `policy::workspace_paths` admits, the value it answers with shall be a hash
+/// of every regular file's path relative to the project root and that file's
+/// bytes — a directory walked recursively and a file read once — sorted by
+/// path and concatenated.
+#[derive(Spec)]
+pub struct TheFingerprintHashesEveryFileUnderTheAdmittedEntriesSortedByPath;
+
+/// When a file git does not track is written under a directory
+/// [`fingerprint`](crate::phase::gate_job::fingerprint) admits, the value it
+/// answers with shall be other than the one it answered before that file
+/// existed, so a leaf the phase wrote and has not staged is part of the key.
+#[derive(Spec)]
+pub struct AnUntrackedFileUnderAnAdmittedDirectoryChangesTheFingerprint;
+
+/// When [`record_path`](crate::phase::gate_job::record_path) is asked where a
+/// checkout keeps the running record for a slice, the path it answers with
+/// shall be `<target>/lid-rs/gate/<the checkout's canonicalised path,
+/// hashed>/<slice>.json` — nested by checkout as the tally's own
+/// `<target>/lid-rs/agents/` is nested by agent.
+#[derive(Spec)]
+pub struct TheRunningRecordIsNestedUnderTheCheckoutAndNamedForTheSlice;
+
+/// When two checkouts of one slice ask [`poll`](crate::phase::gate_job::poll)
+/// at the same time, the record each of them reads and writes shall be its own
+/// checkout's alone, neither overwriting the other's `Running` entry and
+/// neither left unable to read back the result its own job wrote.
+#[derive(Spec)]
+pub struct TwoCheckoutsOfOneSliceReadAndWriteOnlyTheirOwnRecord;
+
+// The claim below is the eighth rewording this file records, and the second
+// of the detached gate's own — the seventh being the commit block's, above.
+// Its old sentence had `start` capturing the two files' bytes "at the moment
+// it bumps them", which is only true of a leaf that bumps and captures in one
+// breath; the bump and the capture are now two leaves' work at two moments,
+// and the record is a value `running_record` builds from what it is given. A
+// rename with the retired name kept beside it as a `#[deprecated]` alias, by
+// the rule the earlier seven follow. No mark: the one validator citing it is
+// named for the claim beside it, which check 14 admits.
+
+/// When [`running_record`](crate::phase::gate_job::running_record) is asked
+/// for the record a key and a pid make, the `Running` value it answers with
+/// shall carry that key and that pid unchanged, and
+/// `integrity::contents_of`'s answer for `Cargo.toml` and `Cargo.lock` — in
+/// that call's own order — as its `version_files`, read back after the bump
+/// with nothing spawned.
+#[derive(Spec)]
+pub struct TheRunningRecordCarriesTheKeyThePidAndTheBumpsBytesInReadOrder;
+
+/// The name [`TheRunningRecordCarriesTheKeyThePidAndTheBumpsBytesInReadOrder`]
+/// carried while `start` captured those bytes at the moment it bumped them,
+/// before the record was a value built where nothing runs. The alias
+/// registers no claim, so the graph sees only the claim it points at; every
+/// citation of this name warns with its replacement, and those citations are
+/// the later phases' work list.
+#[deprecated = "replaced by TheRunningRecordCarriesTheKeyThePidAndTheBumpsBytesInReadOrder"]
+pub type TheRunningRecordCarriesTheBytesTheBumpWrote =
+    TheRunningRecordCarriesTheKeyThePidAndTheBumpsBytesInReadOrder;
+
+/// When [`start`](crate::phase::gate_job::start) begins a job under a key, it
+/// shall run `bump_workspace_version` once for that job — never for a key
+/// whose job is already running or already read as `Done` — then spawn the
+/// whole plan as an unwaited child and write, through `write_record`, the
+/// record `running_record` built for it, before returning.
+#[derive(Spec)]
+pub struct AJobBeginsWithOneBumpAnUnwaitedChildAndTheRunningRecord;
+
+/// When [`child_command`](crate::phase::gate_job::child_command) is asked for
+/// a phase, a slice and a key, the command it answers with shall carry
+/// `phase-check`, the phase's number, `--slice`, the slice, `--job-key` and
+/// the key's hash as the last six arguments of its line — appended to whatever
+/// `self_command()` already carries, whose program and leading arguments this
+/// claim leaves unexamined.
+#[derive(Spec)]
+pub struct TheChildsLineEndsWithPhaseCheckTheSliceAndTheJobKey;
+
+/// When [`paths_for`](crate::phase::gate_job::paths_for) and `result_path` are
+/// asked for a key, the paths they answer with shall be derived from that key
+/// alone — the diff file, the output root, and `result.json`, under
+/// `<target>/lid-rs/gate/<the key's hash>/` — so a record and the job it names
+/// agree without either of them storing a path.
+#[derive(Spec)]
+pub struct TheJobsScratchPathsAndItsResultPathAreDerivedFromTheKeyAlone;
+
+/// When [`prepared_paths`](crate::phase::gate_job::prepared_paths) is asked
+/// for the mutation step's keyed diff file and output root, the key's own
+/// directory shall be on disk by the time the pair
+/// [`paths_for`](crate::phase::gate_job::paths_for) derives is answered, so
+/// `keyed_mutants` hands `mutants::run_at` a home that already exists rather
+/// than one whose absence only `write_diff_file`'s own plain write, under
+/// `Scope::Diff`, would otherwise discover as a failure.
+#[derive(Spec)]
+pub struct TheMutationStepsKeyedHomeExistsBeforeItWritesThere;
+
+/// When [`run_job`](crate::phase::gate_job::run_job) runs the plan for a
+/// `--job-key` hash, the key it runs under shall be one it recomputed itself
+/// through `gate_job::key` from `project`, `phase`, `slice` and the `crates`
+/// any other invocation resolves the same way, its own hash held to the flag's
+/// before any step of `plan` runs.
+#[derive(Spec)]
+pub struct TheJobRunsUnderAKeyItRecomputedAndHeldToTheFlagsHash;
+
+/// When the hash [`run_job`](crate::phase::gate_job::run_job) recomputes
+/// differs from the one `--job-key` carried, it shall run no step of `plan`
+/// and write to neither the given hash's own directory nor the fresh key's,
+/// leaving the recorded pid to answer dead and the next poll to start a fresh
+/// job under whatever key the tree computes then.
+#[derive(Spec)]
+pub struct AKeyMismatchInTheChildRunsNoStepAndWritesNoResult;
+
+/// When [`run_job`](crate::phase::gate_job::run_job) runs the plan for a key,
+/// the runner it hands `execute_with` shall run every step but `Step::Mutants`
+/// through `run_step` unchanged and `Step::Mutants` through `mutants::run_at`
+/// with `prepared_paths`'s diff and output-root paths, so the keyed paths are the
+/// one decision `run_job` makes and `run_step` gains no branch.
+#[derive(Spec)]
+pub struct TheJobsRunnerDivertsTheMutationStepAloneToTheKeyedPaths;
+
+/// When [`alive`](crate::phase::gate_job::alive) cannot ask the host whether a
+/// pid is running, the poll shall fail naming the question it could not ask,
+/// never reading a host that cannot answer as a job that is dead, since dead
+/// is the answer that starts the whole gate again.
+#[derive(Spec)]
+pub struct AlivesOwnFailureFailsThePollAndNeverRestartsTheJob;
+
+/// When [`settle`](crate::phase::gate_job::settle) is handed a record under
+/// this key, it shall run `finished` first — a written outcome answering
+/// `Done` before anything asks whether the pid is alive — and leave that pid's
+/// liveness to `restart_or_running` only when no outcome is written.
+#[derive(Spec)]
+pub struct SettleReadsTheWrittenResultBeforeItAsksWhetherThePidIsAlive;
+
+/// When [`restart_or_running`](crate::phase::gate_job::restart_or_running) is
+/// reached for a record under this key whose result `settle` found unwritten,
+/// the answer it gives shall be `Running` while that pid is alive and
+/// `Started` once it is dead — the attempt having died before finishing, a
+/// fresh job runs under that same key.
+#[derive(Spec)]
+pub struct RestartOrRunningAnswersRunningForALivePidAndRestartsUnderTheSameKeyForADeadOne;
+
+/// When [`contest`](crate::phase::gate_job::contest) finds the pid of a record
+/// under another key alive, it shall refuse the start outright naming that
+/// other key, neither waiting for that job to finish nor restarting it under
+/// the current key, since two gate runs at once on one machine is a cost
+/// nobody asked for.
+#[derive(Spec)]
+pub struct ALiveForeignRecordRefusesTheStartNamingTheOtherKey;
+
+/// When [`contest`](crate::phase::gate_job::contest) finds the pid of a record
+/// under another key dead, it shall run a fresh job under the current key and
+/// answer `Started`, a stale record blocking nothing.
+#[derive(Spec)]
+pub struct ADeadForeignRecordStartsAFreshJobUnderTheCurrentKey;
+
+/// When [`status`](crate::phase::gate_job::status) answers over a live job
+/// recorded under another key, the answer it gives shall carry that other key
+/// — `GateStatus::Foreign`, a fourth variant beside `NoJob`, `Running` and
+/// `Done` — so a reader learns which attempt it waits on rather than that
+/// nothing is running.
+#[derive(Spec)]
+pub struct AStatusOverALiveForeignJobCarriesTheOtherKey;
+
+/// When [`status`](crate::phase::gate_job::status) classifies what the record
+/// and the fresh key say, it shall run the three-way split `act` runs — no
+/// record, a matching key, a foreign key — and reach `start` on no branch of
+/// it, spawning nothing and writing nothing.
+#[derive(Spec)]
+pub struct TheStatusDoorSharesActsThreeWaySplitAndReachesStartOnNoBranch;
+
+/// When [`matching_status`](crate::phase::gate_job::matching_status) is handed
+/// a record under this key, the answer it gives shall be `Done` for an outcome
+/// already written, `Running` for a pid still alive with none written, and
+/// `NoJob` where `restart_or_running` would start a fresh job.
+#[derive(Spec)]
+pub struct MatchingStatusAnswersNoJobWhereAPollWouldRestart;
+
+/// When [`foreign_status`](crate::phase::gate_job::foreign_status) is handed a
+/// record under another key, the answer it gives shall be `Foreign` naming
+/// that key while the pid is alive and `NoJob` once it is dead, a stale record
+/// being nothing for a caller to wait on.
+#[derive(Spec)]
+pub struct ForeignStatusAnswersForeignWhileThatPidLivesAndNoJobOnceItIsDead;
+
+/// When [`status_line`](crate::phase::status_line) is handed a `GateStatus`,
+/// the answer it gives shall be that variant's own line — one apiece for
+/// `NoJob`, `Running`, `Foreign(other)` naming that other key, and
+/// `Done(Ok(()))`, no two of the four alike — and, for `Done(Err(output))`,
+/// this call's own `Err` carrying `output` unchanged, so a finished failure is
+/// the one status this door cannot report as a pass.
+#[derive(Spec)]
+pub struct StatusLineAnswersEveryGateStatusItsOwnLineAndOnlyADoneFailureExitsNonZero;
+
+/// When [`run_job`](crate::phase::gate_job::run_job) reaches the end of the
+/// plan, the outcome it writes once to `result_path` shall be
+/// `Done(Result<(), String>)` as structured data — the pass, or the first
+/// failing step's captured output — and no marker a reader must find in
+/// captured text.
+#[derive(Spec)]
+pub struct TheDetachedChildWritesItsOutcomeAsStructuredDataNotAMarkerInText;
+
+/// When [`bounded_output`](crate::phase::gate_job::bounded_output) stands in
+/// for a failing step's whole capture, the text it answers with shall carry
+/// that step's own header up to and including `" failed: "`, the last 8 KiB of
+/// the output after it, and a closing line naming `result_path`'s path for
+/// what the bound cut off.
+#[derive(Spec)]
+pub struct TheBoundedStandInCarriesTheFailingHeaderTheLastTailAndThePath;
+
+/// When a Phase 7 stop reads `Done(Err(output))` from
+/// [`poll`](crate::phase::gate_job::poll), the text it hands `refusal_for`
+/// shall be `bounded_output`'s stand-in and never the raw capture, so the
+/// refusal a poll produces is bounded however large the failing step's own
+/// output is.
+#[derive(Spec)]
+pub struct ADoneErrReachesRefusalForThroughTheBoundedStandIn;
+
+/// When [`refusal_for`](crate::phase::ending::refusal_for) runs
+/// `check_of_output` over that bounded stand-in, the refusal it composes shall
+/// name the check that fired — a clippy lint name, or the red-run and check-12
+/// markers the kept tail holds — rather than falling through to its
+/// unnamed-failure answer.
+#[derive(Spec)]
+pub struct TheBoundedStandInStillNamesTheCheckThatFired;
+
+/// When [`run`](crate::phase::run) parses a `phase-check` invocation, the
+/// branch it takes shall be `check` called in-process and blocked on while
+/// `--job-key` is absent — a human's or CI's own call — and
+/// `gate_job::run_job` for the key given while it is present, a flag only
+/// `gate_job::start` sets.
+#[derive(Spec)]
+pub struct AnAbsentJobKeyRunsTheCheckInlineAndAPresentOneRunsTheJob;
 
 // ---- execution class -----------------------------------------------------------
 

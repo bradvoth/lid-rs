@@ -184,11 +184,13 @@ mod tests {
         assert!(matches!(&verdict, crate::phase::HookVerdict::Refuse(reason) if reason.contains("nothing to commit")), "{verdict:?}");
         assert_eq!(fixture::head(&dir), attempt, "the tip it did not replace is still standing");
         assert!(changed_within(&project, &staged).expect("status").is_empty(), "and the bump never ran");
-        // With an edit the editing set admits, the same stop reaches the bump —
-        // the wrong subject stops it there, before the check — and the two root
-        // files it writes are the staged set's and not the editing set's.
+        // With an edit the editing set admits, that stop goes on to the gate,
+        // whose job bumps before it spawns — and the two root files the bump
+        // writes are the staged set's and never the editing set's. The bump is
+        // asked for here rather than through a second stop, which would reach
+        // it only by reaching the child spawned one move after it.
         std::fs::write(dir.join("src/hello.rs"), "//! The hello slice, changed.\n").expect("write");
-        crate::phase::hook_stop(&project, Phase::Seven, &fixture::stop_input("n", "```commit\nphase 7: 9.9.9: nothing\n```\n")).expect("hook");
+        crate::phase::bump_workspace_version(&project).expect("the bump a job pays before it spawns");
         assert_eq!(changed_within(&project, &staged).expect("status"), paths(&["Cargo.lock", "Cargo.toml", "src/hello.rs"]), "what the bump wrote, beside the edit");
         assert_eq!(changed_within(&project, &editing).expect("status"), paths(&["src/hello.rs"]), "and what the agent could have written is the edit alone");
         // A change elsewhere is no part of either answer.
